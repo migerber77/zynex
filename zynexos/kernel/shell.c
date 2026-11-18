@@ -34,6 +34,7 @@
 #include "desktop.h"
 #include "wpa.h"
 #include "multiboot.h"
+#include "befehle.h"
 
 extern void kprint(const char* str);
 extern void kprint_dec(uint32_t val);
@@ -182,11 +183,14 @@ static void ki_befehl(const char* frage) {
     (void)ki_teil;
 }
 
-static void process_command(void) {
-    input_buf[input_pos] = 0;
-    char* cmd = input_buf;
-    while (*cmd == ' ') cmd++;
-    if (!*cmd) return;
+static void unbekannt(const char* cmd) {
+    int w = 1; for (const char* c = cmd; *c; c++) if (*c == ' ' && c[1] && c[1] != ' ') w++;
+    if (gehirn_vorhanden() && w >= 3) { ki_befehl(cmd); return; }               /* ganze Saetze gehen an Zynie */
+    char v[24];
+    if (befehl_vorschlag(cmd, v, 24)) { kprint("Unbekannt. Meintest du: "); kprint(v); kprint("  ?   (hilfe zeigt alle Befehle)\n"); return; }
+    kprint("Unbekannt. 'hilfe' zeigt alle Befehle.\n");
+}
+static void run_legacy(char* cmd) {
 
     /* Netz- und Geraetebefehle brauchen CAP_IO, systeminterne Dateien (sys.*) nur Admins */
     if ((streq(cmd, "net") || streq(cmd, "dhcp") || starts_with(cmd, "ping ") || starts_with(cmd, "dns ") || starts_with(cmd, "http ") ||
@@ -562,7 +566,24 @@ static void process_command(void) {
         const char* n=cmd+3; while(*n==' ') n++;
         if (ramfs_delete(n)==0) kprint("Deleted\n"); else kprint("Fail\n");
     }
-    else kprint("Unknown. Type 'help'\n");
+    else unbekannt(cmd);
+}
+
+static void process_command(void) {
+    input_buf[input_pos] = 0;
+    char* cmd = input_buf;
+    while (*cmd == ' ') cmd++;
+    if (!*cmd) return;
+    if (streq(cmd, "hilfe alt") || streq(cmd, "help alt") || streq(cmd, "help")) { cmd_help(); return; }
+    if (starts_with(cmd, "hilfe") || starts_with(cmd, "help ") || streq(cmd, "?")) { befehl_hilfe(cmd[0] == '?' ? "" : cmd + (cmd[1] == 'i' ? 5 : 4)); return; }
+    static char neu[160];
+    if (befehl_uebersetze(cmd, neu, sizeof(neu))) {
+        char* p = neu;
+        while (*p) { char* e = p; while (*e && *e != ';') e++; char sav = *e; *e = 0; run_legacy(p); if (!sav) break; p = e + 1; }
+        return;
+    }
+    if (befehl_bereich(cmd)) { kprint("Diese Aktion gibt es nicht. Moeglich ist:\n"); befehl_hilfe(cmd); return; }
+    run_legacy(cmd);
 }
 
 static void (*grab_fn)(char) = 0;
@@ -585,6 +606,12 @@ void shell_handle_key(char c) {
         } else if (((c>=32 && c<127) || (unsigned char)c>=0xA0) && input_pos < SHELL_BUF_SIZE-1) {
             input_buf[input_pos++]=c; input_buf[input_pos]=0; kputchar(frage.maskiert ? '*' : c);
         }
+        return;
+    }
+    if (c=='\t') {
+        char liste[200]; int alt = input_pos; int n = befehl_tab(input_buf, &input_pos, SHELL_BUF_SIZE, liste, sizeof(liste));
+        for (int i = alt; i < input_pos; i++) kputchar(input_buf[i]);
+        if (n > 1) { kputchar('\n'); kprint("  "); kprint(liste); kputchar('\n'); shell_prompt(); kprint(input_buf); }
         return;
     }
     if (c=='\n'||c=='\r') {
@@ -615,7 +642,7 @@ void shell_init(void) {
     for (const char* c = g_boot.cmdline; *c; c++)                       /* installiertes System mit Bildschirm: Desktop statt Text-Shell */
         if (c[0]=='m' && c[1]=='o' && c[2]=='d' && c[3]=='u' && c[4]=='s' && c[5]=='=' && c[6]=='s') { if (desktop_start() == 0) return; break; }
     kprint("\n"); cmd_about();
-    kprint("\nType 'help'.\n\n");
+    kprint("\nTippe 'hilfe' oder die ersten Buchstaben und Tab.\n\n");
     if (benutzer_gesperrt()) login_start(); else shell_prompt();
 }
 
