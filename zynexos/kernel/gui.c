@@ -13,6 +13,8 @@
 #include "net.h"
 #include "timer.h"
 #include "benutzer.h"
+#include "multiboot.h"
+#include "gpt.h"
 
 extern void kprint(const char* str);
 extern void kprint_dec(uint32_t val);
@@ -41,10 +43,10 @@ extern int  gfx_text_w(const char* s, int scale);
 #define C_FIELD  0x000F172Au
 #define C_OFF    0x00334155u
 
-enum { S_SPRACHE, S_TASTATUR, S_PLATTE, S_KONTO, S_NETZ, S_ZUSAMMEN, S_INSTALL, S_FERTIG, S_ERKENN };
-static const char* const seitenname[] = { "Sprache", "Tastatur", "Zielplatte", "Benutzerkonto", "Netzwerk", "Zusammenfassung", "Installation", "Fertig", "Erkennung" };
-enum { B_ZURUECK = 1, B_WEITER, B_INSTALL, B_NETZTEST, B_NEUSTART, B_ERKENNEN, B_UEBERNEHMEN, B_ABBRUCH };
-static const char* const knopfname[] = { "", "Zurueck", "Weiter", "Installieren", "Netzwerk", "Neustart", "Erkennen", "Uebernehmen", "Abbrechen" };
+enum { S_SPRACHE, S_TASTATUR, S_PLATTE, S_KONTO, S_NETZ, S_ZUSAMMEN, S_INSTALL, S_FERTIG, S_ERKENN, S_AUFTEIL };
+static const char* const seitenname[] = { "Sprache", "Tastatur", "Zielplatte", "Benutzerkonto", "Netzwerk", "Zusammenfassung", "Installation", "Fertig", "Erkennung", "Aufteilung" };
+enum { B_ZURUECK = 1, B_WEITER, B_INSTALL, B_NETZTEST, B_NEUSTART, B_ERKENNEN, B_UEBERNEHMEN, B_ABBRUCH, B_WENIGER, B_MEHR };
+static const char* const knopfname[] = { "", "Zurueck", "Weiter", "Installieren", "Netzwerk", "Neustart", "Erkennen", "Uebernehmen", "Abbrechen", "Weniger", "Mehr" };
 
 /* ---------- Texte in fuenf Sprachen ---------- */
 #define NL 5
@@ -56,7 +58,8 @@ enum { T_SPR_H, T_SPR_S, T_TAS_H, T_TAS_S, T_ERK_H, T_ERK_Q, T_ERK_NONE, T_ERK_R
        T_NET_H, T_NET_S, T_NET_0, T_NET_1, T_NET_2, T_NET_WLAN, T_NET_PRUEF, T_NET_DHCP,
        T_ZUS_H, T_ZUS_S, T_ZUS_SPR, T_ZUS_TAS, T_ZUS_PLA, T_ZUS_ADM, T_ZUS_W1, T_ZUS_W2,
        T_INS_H, T_INS_S, T_FER_H, T_FER_S1, T_FER_S2, T_FEH_H, T_FEH_S,
-       T_B_WEITER, T_B_ZURUECK, T_B_INSTALL, T_B_NEUSTART, T_B_ERKENNEN, T_B_UEBERNEHMEN, T_B_ABBRUCH, T_N };
+       T_B_WEITER, T_B_ZURUECK, T_B_INSTALL, T_B_NEUSTART, T_B_ERKENNEN, T_B_UEBERNEHMEN, T_B_ABBRUCH,
+       T_AUF_H, T_AUF_S, T_AUF_ALL, T_AUF_EIGEN, T_AUF_EFI, T_AUF_SYS, T_AUF_MODELL, T_AUF_FREI, T_AUF_GR, T_AUF_NOTE, T_N };
 
 static const char* const TX[NL][T_N] = {
 {   /* Deutsch */
@@ -69,7 +72,7 @@ static const char* const TX[NL][T_N] = {
     "Netzwerk", "Für die Installation nicht nötig.", "Keine unterstützte Netzwerkkarte gefunden.", "Netzwerkkarte gefunden, noch keine Adresse.", "Verbunden, IP-Adresse:", "WLAN wird noch nicht unterstützt. Nutze ein Kabel oder USB-Tethering.", "Netzwerk prüfen", "Suche Adresse per DHCP ...",
     "Bereit zum Installieren", "Bitte prüfe deine Angaben.", "Sprache", "Tastatur", "Zielplatte", "Administrator", "Die Platte wird neu aufgeteilt (EFI-Start und Zynex-Daten).", "Alle bisherigen Daten auf der Platte gehen verloren.",
     "Zynex OS wird installiert", "Bitte nicht ausschalten.", "Zynex OS ist installiert.", "Entferne die ISO oder den USB-Stick und starte den Computer neu.", "Melde dich danach mit deinem Konto an.", "Die Installation ist fehlgeschlagen.", "Der Grund steht in der seriellen Ausgabe. Prüfe die Platte und versuche es erneut.",
-    "Weiter", "Zurück", "Installieren", "Neustart", "Erkennen [E]", "Übernehmen", "Abbrechen" },
+    "Weiter", "Zurück", "Installieren", "Neustart", "Erkennen [E]", "Übernehmen", "Abbrechen", "Wie soll die Platte eingeteilt werden?", "Wähle, wie viel Platz Zynex OS bekommt (Taste 1 oder 2, Pfeiltasten oder Maus).", "Ganze Platte verwenden (empfohlen)", "Eigene Größe für Zynex festlegen", "EFI-Start", "Zynex-Daten", "KI-Modell", "Frei", "Größe der Zynex-Daten:", "Der freie Platz wird nicht angelegt und nicht formatiert." },
 {   /* English */
     "Which language do you speak?", "Choose with the mouse or a number key (1-5).",
     "Which keyboard do you use?", "Pick a layout or let Zynex detect it by pressing keys (key E).",
@@ -80,7 +83,7 @@ static const char* const TX[NL][T_N] = {
     "Network", "Not needed for the installation.", "No supported network card found.", "Network card found, no address yet.", "Connected, IP address:", "Wi-Fi is not supported yet. Use a cable or USB tethering.", "Check network", "Looking for an address via DHCP ...",
     "Ready to install", "Please check your choices.", "Language", "Keyboard", "Target disk", "Administrator", "The disk will be repartitioned (EFI boot and Zynex data).", "All existing data on the disk will be lost.",
     "Installing Zynex OS", "Please do not switch off.", "Zynex OS is installed.", "Remove the ISO or USB stick and restart the computer.", "Then sign in with your account.", "The installation failed.", "The reason is in the serial output. Check the disk and try again.",
-    "Next", "Back", "Install", "Restart", "Detect [E]", "Use this", "Cancel" },
+    "Next", "Back", "Install", "Restart", "Detect [E]", "Use this", "Cancel", "How should the disk be divided?", "Choose how much space Zynex OS gets (key 1 or 2, arrow keys or mouse).", "Use the whole disk (recommended)", "Set a custom size for Zynex", "EFI boot", "Zynex data", "AI model", "Free", "Size of the Zynex data:", "The free space is not created and not formatted." },
 {   /* Francais */
     "Quelle langue parlez-vous ?", "Choisissez avec la souris ou une touche chiffre (1-5).",
     "Quel clavier utilisez-vous ?", "Choisissez une disposition ou faites-la détecter en appuyant sur des touches (touche E).",
@@ -91,7 +94,7 @@ static const char* const TX[NL][T_N] = {
     "Réseau", "Inutile pour l'installation.", "Aucune carte réseau prise en charge.", "Carte réseau trouvée, pas encore d'adresse.", "Connecté, adresse IP :", "Le Wi-Fi n'est pas encore pris en charge. Utilisez un câble ou le partage USB.", "Tester le réseau", "Recherche d'une adresse par DHCP ...",
     "Prêt à installer", "Vérifiez vos choix.", "Langue", "Clavier", "Disque cible", "Administrateur", "Le disque sera repartitionné (démarrage EFI et données Zynex).", "Toutes les données existantes seront perdues.",
     "Installation de Zynex OS", "Ne pas éteindre, s'il vous plaît.", "Zynex OS est installé.", "Retirez l'ISO ou la clé USB et redémarrez l'ordinateur.", "Connectez-vous ensuite avec votre compte.", "L'installation a échoué.", "La cause figure dans la sortie série. Vérifiez le disque et réessayez.",
-    "Suivant", "Retour", "Installer", "Redémarrer", "Détecter [E]", "Utiliser", "Annuler" },
+    "Suivant", "Retour", "Installer", "Redémarrer", "Détecter [E]", "Utiliser", "Annuler", "Comment partager le disque ?", "Choisissez la place de Zynex OS (touche 1 ou 2, flèches ou souris).", "Utiliser tout le disque (recommandé)", "Définir une taille pour Zynex", "Démarrage EFI", "Données Zynex", "Modèle IA", "Libre", "Taille des données Zynex :", "L'espace libre n'est ni créé ni formaté." },
 {   /* Italiano */
     "Che lingua parli?", "Scegli con il mouse o con un tasto numerico (1-5).",
     "Che tastiera usi?", "Scegli una disposizione o falla riconoscere premendo dei tasti (tasto E).",
@@ -102,7 +105,7 @@ static const char* const TX[NL][T_N] = {
     "Rete", "Non necessaria per l'installazione.", "Nessuna scheda di rete supportata.", "Scheda di rete trovata, ancora nessun indirizzo.", "Connesso, indirizzo IP:", "Il Wi-Fi non è ancora supportato. Usa un cavo o il tethering USB.", "Verifica rete", "Ricerca indirizzo via DHCP ...",
     "Pronto per l'installazione", "Controlla le tue scelte.", "Lingua", "Tastiera", "Disco di destinazione", "Amministratore", "Il disco verrà ripartizionato (avvio EFI e dati Zynex).", "Tutti i dati presenti andranno persi.",
     "Installazione di Zynex OS", "Non spegnere, per favore.", "Zynex OS è installato.", "Rimuovi l'ISO o la chiavetta USB e riavvia il computer.", "Poi accedi con il tuo account.", "Installazione non riuscita.", "Il motivo è nell'uscita seriale. Controlla il disco e riprova.",
-    "Avanti", "Indietro", "Installa", "Riavvia", "Riconosci [E]", "Usa", "Annulla" },
+    "Avanti", "Indietro", "Installa", "Riavvia", "Riconosci [E]", "Usa", "Annulla", "Come dividere il disco?", "Scegli quanto spazio ha Zynex OS (tasto 1 o 2, frecce o mouse).", "Usa tutto il disco (consigliato)", "Imposta una dimensione per Zynex", "Avvio EFI", "Dati Zynex", "Modello IA", "Libero", "Dimensione dei dati Zynex:", "Lo spazio libero non viene creato né formattato." },
 {   /* Espanol */
     "¿Qué idioma hablas?", "Elige con el ratón o con una tecla numérica (1-5).",
     "¿Qué teclado usas?", "Elige una distribución o deja que se detecte pulsando teclas (tecla E).",
@@ -113,7 +116,7 @@ static const char* const TX[NL][T_N] = {
     "Red", "No hace falta para la instalación.", "No hay tarjeta de red compatible.", "Tarjeta de red encontrada, aún sin dirección.", "Conectado, dirección IP:", "El Wi-Fi aún no es compatible. Usa un cable o compartir por USB.", "Comprobar red", "Buscando dirección por DHCP ...",
     "Listo para instalar", "Revisa tus opciones.", "Idioma", "Teclado", "Disco de destino", "Administrador", "El disco se reparticionará (arranque EFI y datos de Zynex).", "Se perderán todos los datos existentes.",
     "Instalando Zynex OS", "No apagues el equipo, por favor.", "Zynex OS está instalado.", "Quita la ISO o el USB y reinicia el equipo.", "Después inicia sesión con tu cuenta.", "La instalación ha fallado.", "El motivo está en la salida serie. Revisa el disco e inténtalo de nuevo.",
-    "Siguiente", "Atrás", "Instalar", "Reiniciar", "Detectar [E]", "Usar", "Cancelar" },
+    "Siguiente", "Atrás", "Instalar", "Reiniciar", "Detectar [E]", "Usar", "Cancelar", "¿Cómo dividir el disco?", "Elige cuánto espacio tiene Zynex OS (tecla 1 o 2, flechas o ratón).", "Usar todo el disco (recomendado)", "Definir un tamaño para Zynex", "Arranque EFI", "Datos de Zynex", "Modelo de IA", "Libre", "Tamaño de los datos de Zynex:", "El espacio libre no se crea ni se formatea." },
 };
 
 /* ---------- Zustand ---------- */
@@ -211,7 +214,7 @@ static int absatz(int x, int y, int w, const char* text, uint32_t c) {
 }
 
 #define DOTS 6
-static int schritt_von(int s) { return s == S_SPRACHE ? 0 : (s == S_TASTATUR || s == S_ERKENN) ? 1 : s == S_PLATTE ? 2 : s == S_KONTO ? 3 : s == S_NETZ ? 4 : 5; }
+static int schritt_von(int s) { return s == S_SPRACHE ? 0 : (s == S_TASTATUR || s == S_ERKENN) ? 1 : (s == S_PLATTE || s == S_AUFTEIL) ? 2 : s == S_KONTO ? 3 : s == S_NETZ ? 4 : 5; }
 
 /* Kopfzeile + Sprechblase des Assistenten; liefert die y-Position darunter */
 static int kopf(const char* head, const char* sub, int y0) {
@@ -239,6 +242,29 @@ static void platten_laden(void) {
         scopy(disks[ndisk], n, 16); disk_mib[ndisk] = (uint32_t)block_sectors(n) / 2048; ndisk++;
     }
     if (sel >= ndisk) sel = 0;
+}
+
+/* ---------- Aufteilung ---------- */
+static int auf_modus;                                   /* 0 = ganze Platte, 1 = eigene Groesse */
+static uint32_t auf_mib;                                /* Groesse der Zynex-Daten bei eigener Groesse */
+#define AUF_MIN 1024u
+static uint32_t auf_efi(void) { return GPT_P2_START / 2048u; }
+static uint32_t auf_modell(void) { return g_boot.model_size ? gpt_modell_sektoren(g_boot.model_size) / 2048u : 0; }
+static uint32_t auf_max(void) { uint32_t t = ndisk ? disk_mib[sel] : 0, r = auf_efi() + auf_modell() + 2; return t > r ? t - r : 0; }
+static int auf_eigen_moeglich(void) { return auf_max() >= AUF_MIN + 1024u; }
+static uint32_t auf_schritt(void) { return auf_max() > 65536u ? 4096u : 1024u; }
+static void auf_klemmen(void) { uint32_t mx = auf_max(); if (auf_mib > mx) auf_mib = mx; if (auf_mib < AUF_MIN) auf_mib = AUF_MIN; }
+static void auf_init(void) { auf_modus = 0; uint32_t mx = auf_max(); auf_mib = (mx / 2) & ~1023u; auf_klemmen(); }
+static void auf_aendern(int d) {
+    if (!auf_modus) return;
+    uint32_t st = auf_schritt();
+    if (d > 0) auf_mib += st; else if (auf_mib > st) auf_mib -= st; else auf_mib = 0;
+    auf_klemmen();
+}
+static void groesse_text(char* t, uint32_t mib, int max) {
+    char d[12];
+    if (mib >= 1024) { dec(d, mib / 1024); scopy(t, d, max); cat(t, ".", max); dec(d, (mib % 1024) * 10 / 1024); cat(t, d, max); cat(t, " GiB", max); }
+    else { dec(d, mib); scopy(t, d, max); cat(t, " MiB", max); }
 }
 
 static void zeile_zus(int y, const char* label, const char* wert) {
@@ -310,6 +336,44 @@ static void zeichne(void) {
         if (meldung >= 0) gtxt(cx, by - 32, T(meldung), C_ERR, 1);
         knopf(B_ZURUECK, T(T_B_ZURUECK), bx - 340, by, 160, 1, 0);
         knopf(B_WEITER, T(T_B_WEITER), bx - 160, by, 160, ndisk > 0 && installer_bereit(), 1);
+        break; }
+    case S_AUFTEIL: {
+        int y = kopf(T(T_AUF_H), T(T_AUF_S), 70);
+        uint32_t total = ndisk ? disk_mib[sel] : 1, efi = auf_efi(), mod = auf_modell();
+        uint32_t daten = auf_modus ? auf_mib : auf_max(); if (daten > total) daten = total;
+        uint32_t used = efi + daten + mod, frei = total > used ? total - used : 0;
+        kprint("[GUI] Aufteilung "); kprint(auf_modus ? "eigene Groesse " : "ganze Platte "); kprint_dec(daten); kprint(" MiB\n");
+        chip(0, T(T_AUF_ALL), !auf_modus, cx, y, cw, 42);
+        { char t[64]; scopy(t, T(T_AUF_EIGEN), 64); chip(1, t, auf_modus, cx, y + 50, cw, 42); }
+        int by2 = y + 116, bw = cw - 8, x = cx + 4;
+        rrect_rand(cx, by2 - 6, cw, 46, 12, C_FIELD, C_BORDER);
+        uint32_t seg[4] = { efi, daten, mod, frei }; uint32_t col[4] = { C_MUTED, C_ACC, C_OK, C_BORDER };
+        for (int i = 0; i < 4; i++) {
+            if (!seg[i]) continue;
+            int w = (int)((uint64_t)seg[i] * (uint64_t)bw / total); if (w < 4) w = 4;
+            if (x + w > cx + 4 + bw) w = cx + 4 + bw - x;
+            if (w > 0) gfx_rect(x, by2, w, 34, col[i]);
+            x += w;
+        }
+        const char* nm[4] = { T(T_AUF_EFI), T(T_AUF_SYS), T(T_AUF_MODELL), T(T_AUF_FREI) };
+        int lx = cx, ly = by2 + 52;
+        for (int i = 0; i < 4; i++) {
+            if (!seg[i]) continue;
+            char t[48]; char g[24]; groesse_text(g, seg[i], 24); scopy(t, nm[i], 48); cat(t, "  ", 48); cat(t, g, 48);
+            gfx_rect(lx, ly + 2, 12, 12, col[i]); gtxt(lx + 18, ly, t, C_TEXT, 1);
+            lx += 18 + gtw(t, 1) + 22; if (lx > cx + cw - 160) { lx = cx; ly += 22; }
+        }
+        if (auf_modus) {
+            char t[48], g[24]; groesse_text(g, auf_mib, 24); scopy(t, T(T_AUF_GR), 48); cat(t, " ", 48); cat(t, g, 48);
+            int sy = ly + 40;
+            gtxt(cx, sy + 12, t, C_TEXT, 1);
+            knopf(B_WENIGER, "-", cx + cw - 110, sy, 50, 1, 0);
+            knopf(B_MEHR, "+", cx + cw - 50, sy, 50, 1, 0);
+        }
+        if (frei) gtxt(cx, by - 56, T(T_AUF_NOTE), C_MUTED, 1);
+        gtxt(cx, by - 32, T(T_PLA_WARN), C_WARN, 1);
+        knopf(B_ZURUECK, T(T_B_ZURUECK), bx - 340, by, 160, 1, 0);
+        knopf(B_WEITER, T(T_B_WEITER), bx - 160, by, 160, 1, 1);
         break; }
     case S_KONTO: {
         int y = kopf(T(T_KON_H), T(T_KON_S), 70);
@@ -393,7 +457,7 @@ static void melde(int id, const char* logtext) {
 static void installieren(void) {
     static struct install_cfg cfg;
     scopy(cfg.disk, disks[sel], 16); scopy(cfg.user, fname, 16); scopy(cfg.pw, fpw, 40);
-    scopy(cfg.layout, kbd_layouts[lay].code, 4); scopy(cfg.sprache, lang_code[lang], 3); cfg.daten_mib = 0;
+    scopy(cfg.layout, kbd_layouts[lay].code, 4); scopy(cfg.sprache, lang_code[lang], 3); cfg.daten_mib = auf_modus ? auf_mib : 0;
     seite = S_INSTALL; zeichne(); inst_cb(1, "Start");
     int r = installer_start(&cfg, inst_cb);
     for (int i = 0; i < 40; i++) { cfg.pw[i] = 0; fpw[i] = 0; fpw2[i] = 0; }
@@ -427,7 +491,8 @@ static void weiter(void) {
     else if (seite == S_PLATTE) {
         if (!installer_bereit()) { melde(T_PLA_NOPACK, "Kein Installationspaket vorhanden."); return; }
         if (ndisk <= 0) { melde(T_PLA_NOSEL, "Keine Platte gewaehlt."); return; }
-        ffocus = 0; gehe(S_KONTO);
+        auf_init(); gehe(S_AUFTEIL);
+    } else if (seite == S_AUFTEIL) { ffocus = 0; gehe(S_KONTO);
     } else if (seite == S_KONTO) {
         if (!name_ok(fname)) { melde(T_KON_E1, "Benutzername ungueltig"); return; }
         if (slen(fpw) < 6) { melde(T_KON_E2, "Passwort zu kurz"); return; }
@@ -436,7 +501,7 @@ static void weiter(void) {
     } else if (seite == S_NETZ) gehe(S_ZUSAMMEN);
 }
 static void zurueck(void) {
-    if (seite == S_TASTATUR) gehe(S_SPRACHE); else if (seite == S_PLATTE) gehe(S_TASTATUR); else if (seite == S_KONTO) gehe(S_PLATTE);
+    if (seite == S_TASTATUR) gehe(S_SPRACHE); else if (seite == S_PLATTE) gehe(S_TASTATUR); else if (seite == S_AUFTEIL) gehe(S_PLATTE); else if (seite == S_KONTO) gehe(S_AUFTEIL);
     else if (seite == S_NETZ) gehe(S_KONTO); else if (seite == S_ZUSAMMEN) gehe(S_NETZ);
     else if (seite == S_ERKENN) gehe(S_TASTATUR);
     else if (seite == S_FERTIG && fehler_inst) gehe(S_ZUSAMMEN);
@@ -448,6 +513,8 @@ static void aktion(int id) {
     case B_ZURUECK: case B_ABBRUCH: zurueck(); break;
     case B_INSTALL: installieren(); break;
     case B_ERKENNEN: erkennung_start(); break;
+    case B_WENIGER: auf_aendern(-1); zeichne(); break;
+    case B_MEHR: auf_aendern(1); zeichne(); break;
     case B_UEBERNEHMEN: waehle_layout(det_ergebnis); gehe(S_TASTATUR); break;
     case B_NEUSTART: kprint("[GUI] Neustart\n"); system_neustart(); break;
     case B_NETZTEST:
@@ -476,6 +543,14 @@ static void taste(uint8_t k, int shift, int altgr) {
         else if (k == 0x28) weiter();
         return;
     }
+    if (seite == S_AUFTEIL) {
+        if (ziffer == 0) { auf_modus = 0; zeichne(); }
+        else if (ziffer == 1) { if (auf_eigen_moeglich()) { auf_modus = 1; auf_klemmen(); zeichne(); } }
+        else if (k == 0x4F || k == 0x52 || k == 0x2E || k == 0x57) { auf_aendern(1); zeichne(); }
+        else if (k == 0x50 || k == 0x51 || k == 0x2D || k == 0x56) { auf_aendern(-1); zeichne(); }
+        else if (k == 0x28) weiter();
+        return;
+    }
     if (seite == S_KONTO) {
         char* t = ffocus == 0 ? fname : ffocus == 1 ? fpw : fpw2; int max = ffocus == 0 ? 15 : 39; int n = slen(t);
         if (k == 0x2B) { ffocus = (ffocus + 1) % 3; zeichne(); }
@@ -498,6 +573,7 @@ static void klick(int x, int y) {
         if (seite == S_SPRACHE) waehle_sprache(zl[i].nr);
         else if (seite == S_TASTATUR) waehle_layout(zl[i].nr);
         else if (seite == S_PLATTE) { sel = zl[i].nr; zeichne(); }
+        else if (seite == S_AUFTEIL) { if (zl[i].nr == 0) auf_modus = 0; else if (auf_eigen_moeglich()) { auf_modus = 1; auf_klemmen(); } zeichne(); }
         return;
     }
     if (seite == S_KONTO)

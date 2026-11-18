@@ -655,7 +655,9 @@ def grafik():
     s2 = vm.warte("[GUI] Seite 3: Zielplatte", 15)
     m = re.findall(r"\[GUI\] Platte (\d+) sata0", vm.log())
     taste(m[-1] if m else "1")                    # Platte waehlen (Zifferntaste)
-    knopf_klick("Weiter")                         # Maus: Weiter -> Konto
+    knopf_klick("Weiter")                         # Maus: Weiter -> Aufteilung
+    s_auf = vm.warte("[GUI] Seite 10: Aufteilung", 15)
+    knopf_klick("Weiter")                         # Maus: Weiter -> Konto (ganze Platte)
     s3 = vm.warte("[GUI] Seite 4: Benutzerkonto", 15)
     schreibe("michel"); taste("tab")
     schreibe("geheim12"); taste("tab")
@@ -693,7 +695,7 @@ def grafik():
     pruefe("GUI: Sprache per Mausklick, Weiter -> Tastaturseite", ok_sp and ok_w1 and s_tas)
     pruefe("GUI: Tastenerkennung (Z auf Y-Position, ß auf Minus-Position) erkennt Deutschland", ok_er and s_erk and erkannt)
     pruefe("GUI: Erkannte Belegung uebernehmen, Weiter per Maus -> Plattenseite", ok_ue and ok_w and s2)
-    pruefe("GUI: Platte per Zifferntaste, Weiter per Maus -> Kontoseite", s3)
+    pruefe("GUI: Platte per Zifferntaste, Weiter per Maus -> Aufteilung -> Kontoseite", s_auf and s3)
     pruefe("GUI: falsche Passwort-Wiederholung wird abgelehnt", s_fehler)
     pruefe("GUI: Konto angenommen -> Netzwerk -> Zusammenfassung", s4 and s5)
     pruefe("GUI: Installieren per Mausklick, Installation fertig", ok_i and fertig)
