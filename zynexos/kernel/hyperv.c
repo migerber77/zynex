@@ -56,10 +56,10 @@ struct kanal {
 static uint8_t ringmem[2][2 * RING_PAGES * 4096] __attribute__((aligned(4096)));
 static struct kanal kb, ms;
 
-static char status[120] = "";
+static char status[240] = "";
 static int hv_da, hv_show, nachrichten;
-static void st_setze(const char* s) { int i = 0; while (s[i] && i < 118) { status[i] = s[i]; i++; } status[i] = 0; if (hv_show) hv_status_zeichnen(); }
-static void st_anhaengen(const char* s) { int i = 0; while (status[i]) i++; while (*s && i < 118) status[i++] = *s++; status[i] = 0; if (hv_show) hv_status_zeichnen(); }
+static void st_setze(const char* s) { int i = 0; while (s[i] && i < 238) { status[i] = s[i]; i++; } status[i] = 0; if (hv_show) hv_status_zeichnen(); }
+static void st_anhaengen(const char* s) { int i = 0; while (status[i]) i++; while (*s && i < 238) status[i++] = *s++; status[i] = 0; if (hv_show) hv_status_zeichnen(); }
 
 int hv_aktiv(void) { return hv_da; }
 const char* hv_status(void) { return status; }
@@ -229,7 +229,10 @@ static const uint8_t xt2hid[0x59] = {
     0x3F, 0x40, 0x41, 0x42, 0x43, 0, 0, 0x5F, 0x60, 0x61, 0x56, 0x5C, 0x5D, 0x5E, 0x57, 0x59,
     0x5A, 0x5B, 0x62, 0x63, 0, 0, 0x64, 0x44, 0x45 };
 static int shift_down, altgr_down;
+static int tasten_gesehen, maus_gesehen, tasten_geliefert, maus_geliefert;
+static uint32_t letzte_make, letzte_info; static uint8_t letzte_hid, letzter_bericht[10];
 static void taste(uint16_t make, uint32_t info) {
+    letzte_make = make; letzte_info = info;
     if (info & 1) return;                                                       /* Unicode-Zeichen (Eingabemethoden): nicht unterstuetzt */
     int brk = (info >> 1) & 1, e0 = (info >> 2) & 1;
     uint8_t k = 0;
@@ -246,10 +249,11 @@ static void taste(uint16_t make, uint32_t info) {
         }
     }
     if (!k || brk) return;
+    tasten_geliefert++; letzte_hid = k;
     usb_key_event(k, shift_down, altgr_down);
 }
 
-static int tasten_gesehen, maus_gesehen, maus_info;
+
 static void kanal_bearbeiten(struct kanal* c) {
     uint8_t p[256]; uint16_t t;
     int n;
@@ -268,28 +272,34 @@ static void kanal_bearbeiten(struct kanal* c) {
             } else if (typ == 4 && n >= 24) {                                   /* Eingabebericht: [Kennung 1][Tasten][X lo hi][Y lo hi] */
                 const uint8_t* r = p + 16; int o = (r[0] == 1) ? 1 : 0;
                 int x = r[o + 1] | r[o + 2] << 8, y = r[o + 3] | r[o + 4] << 8;
-                if (maus_gesehen == 0) maus_info = r[0];
+                for (int q = 0; q < 10; q++) letzter_bericht[q] = r[q];
                 maus_gesehen++;
                 int w, h; gfx_size(&w, &h);
+                if (w > 0 && h > 0) maus_geliefert++;
                 if (w > 0 && h > 0) usb_abs_pointer((int)((int64_t)x * (w - 1) / 32767), (int)((int64_t)y * (h - 1) / 32767), (uint8_t)(r[o] & 7));
             }
         }
     }
 }
 
-static char zaehl[48]; static int zk, zm, zp;
+static char zaehl[160]; static int zk, zm, zp;
+static void hexb(char* d, int* i, unsigned v, int n) { const char* h = "0123456789ABCDEF"; for (int q = n - 1; q >= 0; q--) d[(*i)++] = h[(v >> (4 * q)) & 15]; }
+static void zahl(char* d, int* i, int x) { char t[12]; int n = 0; if (!x) t[n++] = '0'; while (x) { t[n++] = (char)('0' + x % 10); x /= 10; } while (n) d[(*i)++] = t[--n]; }
 static void zaehler_zeigen(void) {
-    int i = 0; const char* a = " | Tasten:"; while (*a) zaehl[i++] = *a++;
-    int v[3] = { tasten_gesehen, maus_gesehen, zp }; const char* nm[3] = { "", " Maus:", " Poll:" };
-    for (int q = 0; q < 3; q++) { if (q) { const char* b = nm[q]; while (*b) zaehl[i++] = *b++; } char t[12]; int n = 0, x = v[q]; if (!x) t[n++] = '0'; while (x) { t[n++] = (char)('0' + x % 10); x /= 10; } while (n) zaehl[i++] = t[--n]; }
+    int i = 0; const char* a = " | T:"; while (*a) zaehl[i++] = *a++;
+    zahl(zaehl, &i, tasten_gesehen); zaehl[i++] = '/'; zahl(zaehl, &i, tasten_geliefert);
+    a = " make="; while (*a) zaehl[i++] = *a++; hexb(zaehl, &i, letzte_make, 2); zaehl[i++] = '.'; hexb(zaehl, &i, letzte_info, 2); zaehl[i++] = '>'; hexb(zaehl, &i, letzte_hid, 2);
+    a = " M:"; while (*a) zaehl[i++] = *a++; zahl(zaehl, &i, maus_gesehen); zaehl[i++] = '/'; zahl(zaehl, &i, maus_geliefert);
+    zaehl[i++] = ' '; for (int q = 0; q < 10; q++) hexb(zaehl, &i, letzter_bericht[q], 2);
+    a = " P:"; while (*a) zaehl[i++] = *a++; zahl(zaehl, &i, zp);
     zaehl[i] = 0;
-    int j = 0; while (status[j]) j++; int base = j; for (int k = 0; k < j - 2; k++) if (status[k] == ' ' && status[k + 1] == '|' ) { base = k; break; }
+    int j = 0; while (status[j]) j++; int base = j; for (int k = 0; k + 1 < j; k++) if (status[k] == ' ' && status[k + 1] == '|') { base = k; break; }
     status[base] = 0; st_anhaengen(zaehl);
 }
 void hv_poll(void) {
     if (!hv_da) return;
     zp++;
-    if (tasten_gesehen != zk || maus_gesehen != zm || (zp & 0x3FF) == 0) { zk = tasten_gesehen; zm = maus_gesehen; zaehler_zeigen(); }
+    if ((zp & 0x1FF) == 0) zaehler_zeigen();
     if (msg_warten(0, 1) >= 0) nachrichten++;                                   /* verspaetete Kanalnachrichten verwerfen */
     if (kb.offen) kanal_bearbeiten(&kb);
     if (ms.offen) kanal_bearbeiten(&ms);
