@@ -4,6 +4,7 @@
  * darueber ARP, IPv4 (ohne Fragmente), ICMP-Echo, UDP, DHCP-Client und DNS-Client.
  */
 #include "net.h"
+#include "hyperv.h"
 #include "pci.h"
 #include "pmm.h"
 #include "paging.h"
@@ -350,10 +351,11 @@ static void vio_poll(void) {
     }
 }
 
-static int link_up(void) { if (nic_typ == 4 || nic_typ == 3) return 1; if (nic_typ == 2) return (rd8(0x6C) & 2) != 0; return (rd(0x08) & 2) != 0; }
+static int link_up(void) { if (nic_typ == 5 || nic_typ == 4 || nic_typ == 3) return 1; if (nic_typ == 2) return (rd8(0x6C) & 2) != 0; return (rd(0x08) & 2) != 0; }
 
 static int nic_send(const uint8_t* f, int len) {
     if (!nic_ok || len > 1514) return -1;
+    if (nic_typ == 5) return hv_net_senden(f, len < 60 ? 60 : len);
     if (nic_typ == 4) return usbnet_send(f, len < 60 ? 60 : len);
     if (nic_typ == 3) return vio_send(f, len < 60 ? 60 : len);
     if (nic_typ == 2) {
@@ -740,6 +742,7 @@ void net_poll(void) {
         return;
     }
     if (nic_typ == 3) { vio_poll(); return; }
+    if (nic_typ == 5) { hv_net_poll(rx_frame); return; }
     if (nic_typ == 2) {
         for (int n = 0; n < NRX; n++) {
             struct rtd* d = &rrx[rx_cur];
@@ -891,13 +894,20 @@ void net_usb_detach(void) {
     kprint("[NET] USB-Netzwerk getrennt\n");
 }
 
+static int nic_start_hv(void) {
+    if (!hv_net_bereit()) return -1;
+    mcopy(mymac, hv_net_mac(), 6);
+    nic_typ = 5; nic_ok = 1;
+    return 0;
+}
+
 int net_init(void) {
     int r;
     if (usb_aktiv) r = 0;                        /* USB-Netzwerk war schon vor dem Netzstart da: bevorzugen */
     else {
         r = nic_start();
         if (r == 0) nic_typ = 1;
-        else if (r == -1) { r = nic_start_rtl(); if (r == -1) r = nic_start_virtio(); }
+        else if (r == -1) { r = nic_start_rtl(); if (r == -1) r = nic_start_virtio(); if (r == -1) r = nic_start_hv(); }
     }
     if (r == -1) { kprint("[NET] Keine unterstuetzte Netzwerkkarte gefunden\n"); return -1; }
     if (r != 0) { kprint("[NET] Netzwerkkarte konnte nicht gestartet werden\n"); return r; }

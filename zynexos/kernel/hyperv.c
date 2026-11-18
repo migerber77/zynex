@@ -54,13 +54,13 @@ struct kanal {
     int bereit;                            /* Protokoll ausgehandelt */
     uint64_t trans;
 };
-static uint8_t ringmem[3][2 * RING_PAGES * 4096] __attribute__((aligned(4096)));
+static uint8_t ringmem[4][2 * RING_PAGES * 4096] __attribute__((aligned(4096)));
 static struct kanal kb, ms;
 
-static char status[240] = "";
+static char status[400] = "";
 static int hv_da, hv_show, nachrichten;
-static void st_setze(const char* s) { int i = 0; while (s[i] && i < 238) { status[i] = s[i]; i++; } status[i] = 0; if (hv_show) hv_status_zeichnen(); }
-static void st_anhaengen(const char* s) { int i = 0; while (status[i]) i++; while (*s && i < 238) status[i++] = *s++; status[i] = 0; if (hv_show) hv_status_zeichnen(); }
+static void st_setze(const char* s) { int i = 0; while (s[i] && i < 398) { status[i] = s[i]; i++; } status[i] = 0; if (hv_show) hv_status_zeichnen(); }
+static void st_anhaengen(const char* s) { int i = 0; while (status[i]) i++; while (*s && i < 398) status[i++] = *s++; status[i] = 0; if (hv_show) hv_status_zeichnen(); }
 
 int hv_aktiv(void) { return hv_da; }
 const char* hv_status(void) { return status; }
@@ -161,6 +161,8 @@ static const uint8_t GUID_KBD[16] = { 0x6d, 0xad, 0x12, 0xf9, 0x17, 0x2b, 0xea, 
 static const uint8_t GUID_MAUS[16] = { 0x9e, 0xb6, 0xa8, 0xcf, 0x4a, 0x5b, 0xc0, 0x4c, 0xb9, 0x8b, 0x8b, 0xa1, 0xa1, 0xf3, 0xf9, 0x5a };
 static const uint8_t GUID_SCSI[16] = { 0xd9, 0x63, 0x61, 0xba, 0xa1, 0x04, 0x29, 0x4d, 0xb6, 0x05, 0x72, 0xe2, 0xff, 0xb1, 0xdc, 0x7f };
 static struct kanal sc;
+static const uint8_t GUID_NET[16] = { 0x63, 0x51, 0x61, 0xf8, 0x3e, 0xdf, 0xc5, 0x46, 0x91, 0x3f, 0xf2, 0xd2, 0xf9, 0x65, 0xed, 0x0e };
+static struct kanal nv;
 static int geq(const uint8_t* a, const uint8_t* b) { for (int i = 0; i < 16; i++) if (a[i] != b[i]) return 0; return 1; }
 
 static uint32_t vp_index, verbunden_version, msg_conn = 1;
@@ -215,6 +217,7 @@ static int angebote(void) {
         uint32_t relid = *(uint32_t*)(ant + 184), conn = *(uint32_t*)(ant + 192);
         if (geq(ant + 8, GUID_KBD)) { kb.relid = relid; kb.connid = conn; kb.art = 1; }
         else if (geq(ant + 8, GUID_MAUS)) { ms.relid = relid; ms.connid = conn; ms.art = 2; }
+        else if (geq(ant + 8, GUID_NET)) { nv.relid = relid; nv.connid = conn; nv.art = 4; }
         else if (geq(ant + 8, GUID_SCSI)) { sc.relid = relid; sc.connid = conn; sc.art = 3; }
     }
     return n;
@@ -463,6 +466,177 @@ static void sc_start(void) {
     st_anhaengen(" hv0 "); st_zahl((int)(s_sektoren / 2048)); st_anhaengen(" MiB");
 }
 
+/* ---------- Hyper-V-Netzwerk (netvsc): NVSP + RNDIS ueber VMBus ---------- */
+#define NRX_BYTES (2u * 1024 * 1024)
+#define NSB 4
+static uint8_t nrx[NRX_BYTES] __attribute__((aligned(4096)));        /* Empfangspuffer (Host schreibt Rahmen hinein) */
+static uint8_t nsend[NSB][4096] __attribute__((aligned(4096)));       /* Sendepuffer */
+static uint8_t nctl[4096] __attribute__((aligned(4096)));             /* RNDIS-Steuernachrichten */
+static uint8_t npk[512], nrp[2048], nant[512], n_comp[48];
+static uint64_t n_tid = 0x2000, n_comp_tid, ntx_tid[NSB];
+static int n_ok, n_ctl_da, n_comp_da, n_in_poll;
+static uint8_t n_mac[6];
+static uint32_t n_req;
+static void (*n_rx)(const uint8_t*, int);
+
+static int ring_lesen_voll(struct kanal* c, uint8_t* out, uint32_t max) {
+    struct ring r = ring_empfang(c);
+    uint32_t rd = r.hdr[1], w = r.hdr[0];
+    if (rd == w) return -1;
+    uint8_t dsc[16]; ring_kopiere_aus(&r, rd, dsc, 16);
+    uint32_t pk = (uint32_t)(*(uint16_t*)(dsc + 4)) * 8, total = pk + 8;
+    if (pk < 16 || total > RING_DATA) { r.hdr[1] = w; return -1; }
+    if (pk > max) { r.hdr[1] = (rd + total) % RING_DATA; return -1; }
+    ring_kopiere_aus(&r, rd, out, pk);
+    mfence(); r.hdr[1] = (rd + total) % RING_DATA; mfence();
+    if (r.hdr[3]) signal_host(c);                                      /* Host wartete auf freien Platz */
+    return (int)pk;
+}
+static int nv_senden(uint16_t typ, uint16_t flags, const uint8_t* extra, uint32_t el, const uint8_t* pl, uint32_t pllen, uint64_t tid) {
+    uint32_t len = (16 + el + pllen + 7) & ~7u;
+    if (len > sizeof(npk)) return -2;
+    mz(npk, len);
+    uint16_t* d = (uint16_t*)npk; d[0] = typ; d[1] = (uint16_t)((16 + el) / 8); d[2] = (uint16_t)(len / 8); d[3] = flags;
+    mc(npk + 8, &tid, 8);
+    if (el) mc(npk + 16, extra, el);
+    mc(npk + 16 + el, pl, pllen);
+    return ring_senden_roh(&nv, npk, len);
+}
+static void nv_paket(const uint8_t* p, int len) {
+    uint16_t typ = *(uint16_t*)p, off8 = *(uint16_t*)(p + 2); uint64_t tid = *(uint64_t*)(p + 8);
+    if ((int)off8 * 8 > len) return;
+    const uint8_t* pl = p + off8 * 8; int pllen = len - off8 * 8;
+    if (typ == 11) {
+        if (pllen >= 16) { mc(n_comp, pl, pllen > 48 ? 48 : (uint32_t)pllen); n_comp_tid = tid; n_comp_da = 1; }
+        for (int i = 0; i < NSB; i++) if (ntx_tid[i] == tid) ntx_tid[i] = 0;
+        return;
+    }
+    if (typ == 7 && pllen >= 8 && len >= 24) {
+        uint32_t cnt = *(uint32_t*)(p + 20);
+        uint32_t kanal = *(uint32_t*)pl == 107 ? *(uint32_t*)(pl + 4) : 0xFFFFu;
+        for (uint32_t i = 0; i < cnt && 24 + 8 * (i + 1) <= (uint32_t)len; i++) {
+            uint32_t bc = *(uint32_t*)(p + 24 + 8 * i), bo = *(uint32_t*)(p + 28 + 8 * i);
+            if (bc < 8 || bo > NRX_BYTES || bc > NRX_BYTES - bo) continue;
+            const uint8_t* m = nrx + bo;
+            if (kanal == 1) { mc(nant, m, bc > sizeof(nant) ? (uint32_t)sizeof(nant) : bc); n_ctl_da = 1; }
+            else if (kanal == 0 && *(uint32_t*)m == 1 && bc >= 44) {
+                uint32_t doff = *(uint32_t*)(m + 8), dl = *(uint32_t*)(m + 12);
+                if (8 + doff + dl <= bc && n_rx) n_rx(m + 8 + doff, (int)dl);
+            }
+        }
+        uint8_t c[40]; mz(c, 40); *(uint32_t*)c = 108; *(uint32_t*)(c + 4) = 1;     /* SEND_RNDIS_PKT_COMPLETE, Erfolg */
+        nv_senden(11, 0, 0, 0, c, 40, tid);
+    }
+}
+static void nv_lesen_alle(void) {
+    if (n_in_poll) return;
+    n_in_poll = 1;
+    for (int k = 0; k < 32; k++) { int n = ring_lesen_voll(&nv, nrp, sizeof(nrp)); if (n < 0) break; nv_paket(nrp, n); }
+    n_in_poll = 0;
+}
+static int nv_warten(int* flag) {
+    uint32_t t0 = timer_get_ticks();
+    for (long spin = 0; spin < 300000000L && timer_get_ticks() - t0 < 500; spin++) {
+        nv_lesen_alle();
+        if (*flag) return 0;
+        __asm__ volatile ("pause");
+    }
+    return -1;
+}
+static int nv_inband(const uint8_t* msg, int mit_antwort) {
+    uint8_t pl[40]; mz(pl, 40); mc(pl, msg, 24);
+    uint64_t tid = ++n_tid; n_comp_da = 0;
+    if (nv_senden(6, mit_antwort ? 1 : 0, 0, 0, pl, 40, tid)) return -1;
+    if (!mit_antwort) return 0;
+    for (int i = 0; i < 2; i++) { if (nv_warten(&n_comp_da)) return -2; if (n_comp_tid == tid) return 0; n_comp_da = 0; }
+    return -3;
+}
+/* RNDIS-Steuernachricht (liegt in nctl) senden und die Antwort in nant abwarten */
+static int nv_ctl(uint32_t len) {
+    uint8_t ex[24]; mz(ex, 24); *(uint32_t*)(ex + 4) = 1; *(uint32_t*)(ex + 8) = len; *(uint32_t*)(ex + 12) = 0;
+    uint64_t pfn = (uint64_t)(uintptr_t)nctl >> 12; mc(ex + 16, &pfn, 8);
+    uint8_t pl[40]; mz(pl, 40); *(uint32_t*)pl = 107; *(uint32_t*)(pl + 4) = 1; *(uint32_t*)(pl + 8) = 0xFFFFFFFFu;
+    n_ctl_da = 0; uint64_t tid = ++n_tid;
+    if (nv_senden(9, 1, ex, 24, pl, 40, tid)) return -1;
+    if (nv_warten(&n_ctl_da)) return -2;
+    return 0;
+}
+static int gpadl_erzeugen(uint32_t relid, uint32_t handle, const void* mem, uint32_t pages) {
+    uint8_t m[256], ant[240]; uint32_t* w = (uint32_t*)m;
+    mz(m, sizeof(m));
+    uint32_t erste = pages > 26 ? 26 : pages;
+    w[0] = 8; w[2] = relid; w[3] = handle;
+    *(uint16_t*)(m + 16) = (uint16_t)(8 + 8 * pages); *(uint16_t*)(m + 18) = 1;
+    *(uint32_t*)(m + 20) = pages * 4096; *(uint32_t*)(m + 24) = 0;
+    for (uint32_t i = 0; i < erste; i++) { uint64_t pfn = ((uint64_t)(uintptr_t)mem >> 12) + i; mc(m + 28 + 8 * i, &pfn, 8); }
+    if (post_msg(msg_conn, m, 28 + 8 * erste)) return -1;
+    uint32_t pos = erste, nr = 1;
+    while (pos < pages) {
+        uint32_t n = pages - pos > 28 ? 28 : pages - pos;
+        mz(m, sizeof(m)); w[0] = 9; w[2] = nr++; w[3] = handle;
+        for (uint32_t i = 0; i < n; i++) { uint64_t pfn = ((uint64_t)(uintptr_t)mem >> 12) + pos + i; mc(m + 16 + 8 * i, &pfn, 8); }
+        if (post_msg(msg_conn, m, 16 + 8 * n)) return -2;
+        pos += n;
+    }
+    if (typ_warten(10, ant, 40000000) < 0) return -3;
+    return *(uint32_t*)(ant + 16) ? -4 : 0;
+}
+
+int hv_net_bereit(void) { return n_ok; }
+const uint8_t* hv_net_mac(void) { return n_mac; }
+void hv_net_poll(void (*rx)(const uint8_t*, int)) { if (!n_ok) return; n_rx = rx; nv_lesen_alle(); }
+int hv_net_senden(const uint8_t* f, int len) {
+    if (!n_ok || len > 1514 || len < 14) return -1;
+    int b = -1;
+    for (int versuch = 0; versuch < 2 && b < 0; versuch++) {
+        for (int i = 0; i < NSB; i++) if (!ntx_tid[i]) { b = i; break; }
+        if (b < 0) { if (n_in_poll) return -2; nv_lesen_alle(); }
+    }
+    if (b < 0) return -2;
+    uint8_t* m = nsend[b]; mz(m, 44);
+    uint32_t tot = 44 + (uint32_t)len;
+    *(uint32_t*)m = 1; *(uint32_t*)(m + 4) = tot; *(uint32_t*)(m + 8) = 36; *(uint32_t*)(m + 12) = (uint32_t)len;
+    mc(m + 44, f, (uint32_t)len);
+    uint8_t ex[24]; mz(ex, 24); *(uint32_t*)(ex + 4) = 1; *(uint32_t*)(ex + 8) = tot; *(uint32_t*)(ex + 12) = 0;
+    uint64_t pfn = (uint64_t)(uintptr_t)m >> 12; mc(ex + 16, &pfn, 8);
+    uint8_t pl[40]; mz(pl, 40); *(uint32_t*)pl = 107; *(uint32_t*)(pl + 4) = 0; *(uint32_t*)(pl + 8) = 0xFFFFFFFFu;
+    uint64_t tid = ++n_tid; ntx_tid[b] = tid;
+    if (nv_senden(9, 1, ex, 24, pl, 40, tid)) { ntx_tid[b] = 0; return -3; }
+    return 0;
+}
+
+static void nv_start(void) {
+    if (!nv.art) { st_anhaengen(" | Netz: kein Adapter"); return; }
+    st_anhaengen(" | Netz:");
+    int e = kanal_oeffnen(&nv, 3);
+    if (e) { st_anhaengen(" Kanal Fehler "); st_zahl(e); return; }
+    static const uint32_t vers[4] = { 0x00000002, 0x00030002, 0x00040000, 0x00050000 };
+    int vok = 0;
+    for (int i = 0; i < 4 && !vok; i++) {
+        uint8_t msg[24]; mz(msg, 24); *(uint32_t*)msg = 1; *(uint32_t*)(msg + 4) = vers[i]; *(uint32_t*)(msg + 8) = vers[i];
+        if (nv_inband(msg, 1) == 0 && *(uint32_t*)n_comp == 2 && *(uint32_t*)(n_comp + 12) == 1) vok = 1;
+    }
+    if (!vok) { st_anhaengen(" Protokoll abgelehnt"); return; }
+    { uint8_t msg[24]; mz(msg, 24); *(uint32_t*)msg = 100; *(uint32_t*)(msg + 4) = 5; *(uint32_t*)(msg + 8) = 0; nv_inband(msg, 0); }   /* NDIS 5.0 */
+    e = gpadl_erzeugen(nv.relid, 0xE1E30, nrx, NRX_BYTES / 4096);
+    if (e) { st_anhaengen(" Empfangspuffer Fehler "); st_zahl(e); return; }
+    { uint8_t msg[24]; mz(msg, 24); *(uint32_t*)msg = 101; *(uint32_t*)(msg + 4) = 0xE1E30; *(uint16_t*)(msg + 8) = 0xCAFE;
+      if (nv_inband(msg, 1) || *(uint32_t*)n_comp != 102 || *(uint32_t*)(n_comp + 4) != 1) { st_anhaengen(" Empfangspuffer abgelehnt"); return; } }
+    mz(nctl, 4096); *(uint32_t*)nctl = 2; *(uint32_t*)(nctl + 4) = 24; *(uint32_t*)(nctl + 8) = ++n_req; *(uint32_t*)(nctl + 12) = 1; *(uint32_t*)(nctl + 16) = 0; *(uint32_t*)(nctl + 20) = 0x4000;   /* RNDIS INIT */
+    if (nv_ctl(24)) { st_anhaengen(" RNDIS Start Fehler"); return; }
+    if (*(uint32_t*)nant != 0x80000002u || *(uint32_t*)(nant + 12) != 0) { st_anhaengen(" RNDIS abgelehnt"); return; }
+    static const uint8_t fest[6] = { 0x02, 0x5A, 0x59, 0x4E, 0x45, 0x58 };
+    for (int i = 0; i < 6; i++) n_mac[i] = fest[i];
+    mz(nctl, 4096); *(uint32_t*)nctl = 4; *(uint32_t*)(nctl + 4) = 28; *(uint32_t*)(nctl + 8) = ++n_req; *(uint32_t*)(nctl + 12) = 0x01010101u; *(uint32_t*)(nctl + 16) = 0; *(uint32_t*)(nctl + 20) = 20;   /* MAC erfragen */
+    if (nv_ctl(28) == 0 && *(uint32_t*)nant == 0x80000004u && *(uint32_t*)(nant + 12) == 0 && *(uint32_t*)(nant + 16) >= 6) {
+        uint32_t off = 8 + *(uint32_t*)(nant + 20); if (off + 6 <= sizeof(nant)) for (int i = 0; i < 6; i++) n_mac[i] = nant[off + i];
+    } else st_anhaengen(" MAC unbekannt");
+    mz(nctl, 4096); *(uint32_t*)nctl = 5; *(uint32_t*)(nctl + 4) = 32; *(uint32_t*)(nctl + 8) = ++n_req; *(uint32_t*)(nctl + 12) = 0x0001010Eu; *(uint32_t*)(nctl + 16) = 4; *(uint32_t*)(nctl + 20) = 20; *(uint32_t*)(nctl + 24) = 0; *(uint32_t*)(nctl + 28) = 0x0D;   /* Paketfilter */
+    if (nv_ctl(32) || *(uint32_t*)nant != 0x80000005u || *(uint32_t*)(nant + 12) != 0) { st_anhaengen(" Paketfilter Fehler"); return; }
+    n_ok = 1;
+    st_anhaengen(" bereit");
+}
+
 int hv_init(void) {
     uint32_t a, b, c, d;
     cpuid(1, &a, &b, &c, &d);
@@ -505,6 +679,7 @@ int hv_init(void) {
         else { uint32_t req[5] = { 1, 12, 0, 4, 0x00020000 }; if (ring_senden(&ms, req, 20, 1)) st_anhaengen(" Maus-Anfrage Fehler"); }
     }
     sc_start();
+    nv_start();
     for (long i = 0; i < 40000000 && ((kb.offen && !kb.bereit) || (ms.offen && !ms.bereit)); i++) { hv_poll(); __asm__ volatile ("pause"); }
     if (kb.offen && !kb.bereit) { struct ring r = ring_empfang(&kb); struct ring q = ring_sendung(&kb); char z[40]; const char* h = "0123456789ABCDEF"; int k = 0; z[k++]=' '; z[k++]='['; z[k++]=h[(q.hdr[0]>>4)&15]; z[k++]=h[q.hdr[0]&15]; z[k++]='/'; z[k++]=h[(q.hdr[1]>>4)&15]; z[k++]=h[q.hdr[1]&15]; z[k++]='|'; z[k++]=h[(r.hdr[0]>>4)&15]; z[k++]=h[r.hdr[0]&15]; z[k++]='/'; z[k++]=h[(r.hdr[1]>>4)&15]; z[k++]=h[r.hdr[1]&15]; z[k++]=']'; z[k]=0; st_anhaengen(" Tastatur ohne Antwort"); st_anhaengen(z); }
     kprint("[HV] "); kprint(status); kprint("\n");

@@ -391,6 +391,7 @@ static void zeichne(void) {
         gtxt(cx, y, t, netz_zustand == 2 ? C_OK : C_WARN, 1);
         if (netz_zustand == 2) gfx_text(cx + gtw(t, 1) + 8, y, netz_ip, C_OK, 1);
         absatz(cx, y + 36, cw, T(T_NET_WLAN), C_MUTED);
+        if (netz_zustand == 0 && hv_aktiv()) absatz(cx, y + 170, cw, hv_status(), C_MUTED);
         knopf(B_NETZTEST, T(T_NET_PRUEF), cx, y + 100, 220, 1, 0);
         knopf(B_ZURUECK, T(T_B_ZURUECK), bx - 340, by, 160, 1, 0);
         knopf(B_WEITER, T(T_B_WEITER), bx - 160, by, 160, 1, 1);

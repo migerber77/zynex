@@ -7,3 +7,8 @@ const char* hv_status(void);               /* Statuszeile fuer den Bildschirm, "
 void        hv_status_zeichnen(void);      /* Statuszeile unten links zeichnen (auf Grafikbildschirmen) */
 void        hv_status_aus(void);           /* nicht mehr zeichnen (Text-Konsole) */
 int         hv_aktiv(void);                /* 1 = Hyper-V erkannt: Hauptschleife darf nicht mit hlt schlafen (kein Zeitgeber-Interrupt garantiert) */
+/* Hyper-V-Netzwerkkarte (netvsc) */
+int            hv_net_bereit(void);
+const uint8_t* hv_net_mac(void);
+int            hv_net_senden(const uint8_t* rahmen, int laenge);
+void           hv_net_poll(void (*rx)(const uint8_t* rahmen, int laenge));
