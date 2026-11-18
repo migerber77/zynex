@@ -8,3 +8,6 @@ const char* gehirn_status(void);
 int         gehirn_frage(const char* frage, char* antwort, int max, void (*cb)(const char* teil, int n));
 void        gehirn_vergessen(void);
 int         gehirn_vorhanden(void);                   /* gibt es ein Modell (vom Stick oder auf der Platte)? */
+int         gehirn_modelle_zeigen(void);              /* alle Modelle auf den Platten auflisten (liefert die Anzahl) */
+int         gehirn_modell_waehlen(const char* dev);   /* beim naechsten Start laden; 0 ok */
+int         gehirn_modell_loeschen(const char* dev);  /* 0 ok, -3 = letztes Modell (bleibt) */

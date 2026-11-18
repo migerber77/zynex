@@ -10,6 +10,8 @@
 #include "benutzer.h"
 #include "zyndb.h"
 #include "layouts.h"
+#include "extki.h"
+#include "chats.h"
 #include "synfs.h"
 #include "desktop.h"
 #include "hyperv.h"
@@ -105,7 +107,7 @@ static const char* uebers(const char* en) {
 }
 static const char* TR(const char* de, const char* en) { return lang == 0 ? de : lang == 1 ? en : uebers(en); }
 static void lang_setze(int l) { if (l < 0 || l > 4) return; lang = l; zdb_put("system.sprache", LCODE[l]); }
-static int ki_nutzbar(void) { return gehirn_vorhanden() && zdb_geti("ki.aktiv", 1); }
+static int ki_nutzbar(void) { return gehirn_vorhanden() || ext_quelle(); }     /* die interne KI laesst sich nicht abschalten */
 /* Text in allen fuenf Sprachen */
 static const char* T5(const char* de, const char* en, const char* fr, const char* it, const char* es) { return lang == 0 ? de : lang == 1 ? en : lang == 2 ? fr : lang == 3 ? it : es; }
 
@@ -358,7 +360,7 @@ static const char* const chip_text[6] = { "text erstellen", "rechne 12*7", "syst
 static int bar_x, bar_y, bar_w;
 
 /* ---------- Fenster und Widgets (verschiebbar, schliessbar, mehrere gleichzeitig) ---------- */
-enum { FT_EDIT = 1, FT_WEB, FT_RECH, FT_INFO, FT_EINST };
+enum { FT_EDIT = 1, FT_WEB, FT_RECH, FT_INFO, FT_EINST, FT_CHATS };
 enum { WG_UHR = 1, WG_SYS, WG_AUF, WG_AGENT };
 #define WT_H 30
 struct fenster { int typ, x, y, w, h; };
@@ -379,7 +381,7 @@ static int flaeche;
 static char alog[10][100]; static int nalog, alauf = -1, pend;
 static void aufg_laden(void); static int aufg_zeile(int n, char* out, int max); static int aufg_zahl(void);
 static const char* const ag_name[4][2] = { { "Morgen-Briefing", "Morning briefing" }, { "Sicherheits-Agent", "Security agent" }, { "Wartungs-Agent", "Maintenance agent" }, { "Aufgaben-Agent", "Task agent" } };
-static void zeichne_einst(void); static void zeichne_desktop(void); static void zeichne_editor(int voll); static void zeichne_web(int voll); static void zeichne_rechner(void); static void zeichne_info(void);
+static void zeichne_einst(void); static void zeichne_chats(void); static void zeichne_desktop(void); static void zeichne_editor(int voll); static void zeichne_web(int voll); static void zeichne_rechner(void); static void zeichne_info(void);
 static int fenster_idx(int typ) { for (int i = 0; i < nfen; i++) if (fen[i].typ == typ) return i; return -1; }
 static int schneidet(int x, int y, int w, int h, int x2, int y2, int w2, int h2) { return !(x + w <= x2 || x2 + w2 <= x || y + h <= y2 || y2 + h2 <= y); }
 static int deckt(int x, int y, int w, int h) {                /* liegt ein Fenster oder Widget ueber diesem Bereich? */
@@ -400,7 +402,7 @@ static uint32_t busy_f; static int busy_an;
 static void zeichne_desktop(void);
 static void busy_tick(void) { uint32_t f = timer_get_ticks() / 5; if (!busy_an || f != busy_f) { busy_an = 1; busy_f = f; lader(W - 70, H - 70, 28, f, C_BG); } }
 static void busy_ende(void) { if (!busy_an) return; busy_an = 0; gfx_begin(); gfx_rect(W - 70 - 40, H - 70 - 40, 80, 80, C_BG); gfx_end(); zeichne_desktop(); }
-static const char* fenster_titel(int typ) { if (typ == FT_EINST) return TR("Einstellungen", "Settings"); return typ == FT_EDIT ? TR("Dokument", "Document") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
+static const char* fenster_titel(int typ) { if (typ == FT_EINST) return TR("Einstellungen", "Settings"); if (typ == FT_CHATS) return "Chats"; return typ == FT_EDIT ? TR("Dokument", "Document") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
 static void fenster_zeichnen(int i) {
     struct fenster* f = &fen[i]; int top = (i == nfen - 1 && fok);
     gfx_begin();
@@ -409,7 +411,7 @@ static void fenster_zeichnen(int i) {
     gtxt(f->x + 16, f->y + 8, fenster_titel(f->typ), top ? C_TEXT : C_MUTED, 1);
     rrect_rand(f->x + f->w - 32, f->y + 5, 22, 20, 6, C_FIELD, C_BORDER); gtxt(f->x + f->w - 25, f->y + 7, "x", C_MUTED, 1);
     kn_owner = i;
-    if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else if (f->typ == FT_EINST) zeichne_einst(); else zeichne_info();
+    if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else if (f->typ == FT_EINST) zeichne_einst(); else if (f->typ == FT_CHATS) zeichne_chats(); else zeichne_info();
     kn_owner = -1;
     gfx_end();
 }
@@ -855,8 +857,8 @@ static void fenster_oeffnen(int typ) {
     if (flaeche != 0) flaeche_wechsel(0);
     if (i < 0) {
         if (nfen >= 6) { reply1(TR("Es sind schon 6 Fenster offen.", "6 windows are already open.")); return; }
-        int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 580 : 480;
-        int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 430 : 250;
+        int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 580 : typ == FT_CHATS ? 720 : 480;
+        int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 490 : typ == FT_CHATS ? 470 : 250;
         if (typ == FT_WEB && w < 640) w = W - 40;
         int x = 60 + nfen * 36, y = 56 + nfen * 30;
         if (x + w > W - 8) x = W - w - 8; if (x < 4) x = 4; if (y + h > H - 8) y = H - h - 8; if (y < 44) y = 44;
@@ -1148,10 +1150,10 @@ static int web_link_bei(int x, int y) {                              /* Link unt
 }
 
 /* ---------- Rechtsklick-Menue ---------- */
-enum { M_NEUDOK = 30, M_BROWSER, M_RECHNER, M_INFO, M_EINST, M_WUHR, M_WSYS, M_WAUF, M_WAGENT, M_WSCHL, M_FSCHL, M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN };
-static struct { int offen, x, y, w, n, hover, ziel; struct { int id; const char* de; const char* en; } p[10]; } menu;
+enum { M_NEUDOK = 30, M_BROWSER, M_RECHNER, M_INFO, M_EINST, M_CHATS, M_WUHR, M_WSYS, M_WAUF, M_WAGENT, M_WSCHL, M_FSCHL, M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN };
+static struct { int offen, x, y, w, n, hover, ziel; struct { int id; const char* de; const char* en; } p[12]; } menu;
 static int menu_link, menu_wid;
-static void menu_add(int id, const char* de, const char* en) { if (menu.n < 10) { menu.p[menu.n].id = id; menu.p[menu.n].de = de; menu.p[menu.n].en = en; menu.n++; } }
+static void menu_add(int id, const char* de, const char* en) { if (menu.n < 12) { menu.p[menu.n].id = id; menu.p[menu.n].de = de; menu.p[menu.n].en = en; menu.n++; } }
 static void zeichne_menu(void) {
     if (!menu.offen) return;
     gfx_begin();
@@ -1191,7 +1193,7 @@ static void menu_oeffnen(int x, int y) {
     } else if (flaeche == 0) {
         menu_add(M_NEUDOK, "Neues Dokument", "New document"); menu_add(M_BROWSER, "Browser", "Browser"); menu_add(M_RECHNER, "Rechner", "Calculator"); menu_add(M_INFO, "System-Info", "System info");
         menu_add(M_WUHR, "Widget: Uhr", "Widget: clock"); menu_add(M_WSYS, "Widget: System", "Widget: system"); menu_add(M_WAUF, "Widget: Aufgaben", "Widget: tasks"); menu_add(M_WAGENT, "Widget: Agenten", "Widget: agents");
-        menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_EINST, "Einstellungen", "Settings");
+        menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_CHATS, "Chats", "Chats"); menu_add(M_EINST, "Einstellungen", "Settings");
     } else {
         menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_VORIGE, "Vorherige Arbeitsflaeche", "Previous workspace");
     }
@@ -1241,6 +1243,7 @@ static void menu_aktion(int id) {
     case M_RECHNER: fenster_oeffnen(FT_RECH); return;
     case M_INFO: fenster_oeffnen(FT_INFO); return;
     case M_EINST: fenster_oeffnen(FT_EINST); return;
+    case M_CHATS: fenster_oeffnen(FT_CHATS); return;
     case M_WUHR: widget_neu(WG_UHR); return; case M_WSYS: widget_neu(WG_SYS); return; case M_WAUF: widget_neu(WG_AUF); return; case M_WAGENT: widget_neu(WG_AGENT); return;
     case M_WSCHL: if (menu_wid >= 0 && menu_wid < nwid) { for (int j = menu_wid; j < nwid - 1; j++) wid[j] = wid[j + 1]; nwid--; layout_speichern(); } break;
     case M_FSCHL: if (nfen) { fenster_schliessen_typ(fen[nfen - 1].typ); return; } break;
@@ -1321,6 +1324,12 @@ static int erkenne(const char* s) {
         in_par = (enthaelt(s, "uhr") || enthaelt(s, "clock")) ? 10 : enthaelt(s, "sys") ? 11 : (enthaelt(s, "aufgab") || enthaelt(s, "task")) ? 12 : enthaelt(s, "agent") ? 13 : 14;
         return I_FENSTER;
     }
+    if (slen(s) < 26 && (enthaelt(s, "chats") || enthaelt(s, "verlauf") || enthaelt(s, "history"))) { in_par = 4; return I_FENSTER; }
+    if (enthaelt(s, "neuer chat") || enthaelt(s, "new chat")) { in_par = 30; return I_FENSTER; }
+    if (slen(s) < 20 && (enthaelt(s, "anpinnen") || enthaelt(s, "pin chat") || enthaelt(s, "pin this"))) { in_par = 31; return I_FENSTER; }
+    if (enthaelt(s, "chat loeschen") || enthaelt(s, "delete chat")) { in_par = 33; return I_FENSTER; }
+    { const char* pj = 0; if (s[0] == 'p' && s[1] == 'r' && s[2] == 'o' && s[3] == 'j' && s[4] == 'e' && s[5] == 'k' && s[6] == 't' && s[7] == ' ') pj = s + 8; else if (s[0] == 'p' && s[1] == 'r' && s[2] == 'o' && s[3] == 'j' && s[4] == 'e' && s[5] == 'c' && s[6] == 't' && s[7] == ' ') pj = s + 8;
+      if (pj && *pj) { in_text = pj; in_par = 32; return I_FENSTER; } }
     if (enthaelt(s, "einstellung") || enthaelt(s, "settings") || enthaelt(s, "parametres") || enthaelt(s, "impostazioni") || enthaelt(s, "ajustes")) { in_par = 3; return I_FENSTER; }
     if (enthaelt(s, "sprache") || enthaelt(s, "language") || enthaelt(s, "spreche") || enthaelt(s, "langue") || enthaelt(s, "lingua") || enthaelt(s, "idioma") || enthaelt(s, "speak")) {
         if (enthaelt(s, "deutsch") || enthaelt(s, "german") || enthaelt(s, "allemand")) { in_par = 20; return I_FENSTER; }
@@ -1483,7 +1492,12 @@ static void einst_klick(int id) {
     if (k >= 0 && k < 5) lang_setze(k);
     else if (k == 5 || k == 6) { int n = usb_get_layout() + (k == 5 ? -1 : 1); if (n < 0) n = KBD_LAYOUTS - 1; if (n >= KBD_LAYOUTS) n = 0; usb_set_layout(n); zdb_put("system.tastatur", kbd_layouts[n].code); }
     else if (k >= 7 && k <= 9) { fw_modus(k == 7 ? FW_AUS : k == 8 ? FW_NORMAL : FW_STRENG); fw_speichern(); }
-    else if (k == 10) zdb_put("ki.aktiv", zdb_geti("ki.aktiv", 1) ? "0" : "1");
+    else if (k >= 10 && k <= 13) {
+        int q = k - 10;
+        if (q && !ext_schluessel_da(q)) { char m[100]; scopy(m, TR("Zuerst den Schluessel eintragen: Wartung, kiextern einrichten ", "First enter the key: maintenance, kiextern einrichten "), 100); cat(m, ext_kennung(q), 100); reply1(m); }
+        else ext_setze_quelle(q);
+    }
+    else if (k == 14) { sprachpaket(); return; }
     else if (k == 11) { sprachpaket(); return; }
     zeichne_desktop();
 }
@@ -1499,15 +1513,74 @@ static void zeichne_einst(void) {
     y += 52; gtxt(x, y, "Firewall", C_MUTED, 1);
     { int m = fw_modus_get(); knopf(K_EIN0 + 7, T5("Aus", "Off", "Desactive", "Spento", "Apagado"), x, y + 22, 110, m == 0); knopf(K_EIN0 + 8, "Normal", x + 118, y + 22, 110, m == 1); knopf(K_EIN0 + 9, T5("Streng", "Strict", "Strict", "Rigido", "Estricto"), x + 236, y + 22, 110, m == 2); }
     y += 78; gtxt(x, y, T5("Sprachmodell (KI)", "Language model (AI)", "Modele de langage (IA)", "Modello linguistico (IA)", "Modelo de lenguaje (IA)"), C_MUTED, 1);
-    if (gehirn_vorhanden()) {
-        knopf(K_EIN0 + 10, zdb_geti("ki.aktiv", 1) ? T5("KI: an", "AI: on", "IA : oui", "IA: attiva", "IA: activa") : T5("KI: aus", "AI: off", "IA : non", "IA: spenta", "IA: apagada"), x, y + 22, 110, zdb_geti("ki.aktiv", 1));
-        if (lang >= 2) knopf(K_EIN0 + 11, T5("Sprachpaket", "Language pack", "Pack de langue", "Pacchetto lingua", "Paquete de idioma"), x + 118, y + 22, 200, 0);
-    } else gtxt(x, y + 30, TR("kein Sprachmodell geladen", "no language model loaded"), C_TEXT, 1);
-    y += 76;
+    { int qa = ext_quelle(); for (int i = 0; i < 4; i++) knopf(K_EIN0 + 10 + i, ext_name(i), x + i * 106, y + 22, 100, i == qa);
+      gtxt(x, y + 62, qa ? TR("Achtung: Fragen gehen an den Anbieter. Zynie (intern) bleibt Rueckfall.", "Warning: questions go to the provider. Zynie (internal) stays as fallback.") : gehirn_vorhanden() ? TR("Alles bleibt auf diesem Geraet. Die interne KI laesst sich nicht abschalten.", "Everything stays on this device. The internal AI cannot be switched off.") : TR("kein internes Sprachmodell geladen", "no internal language model loaded"), qa ? 0x00F59E0Bu : C_TEXT, 1);
+      if (lang >= 2 && gehirn_vorhanden()) knopf(K_EIN0 + 14, T5("Sprachpaket", "Language pack", "Pack de langue", "Pacchetto lingua", "Paquete de idioma"), x, y + 84, 200, 0); }
+    y += 128;
     gtxt(x, y, (synfs_is_mounted() && synfs_krypto_hdr()->magic == SYNFS_KRY_MAGIC) ? TR("Festplatte: verschluesselt (256-Bit)", "Disk: encrypted (256-bit)") : TR("Festplatte: nicht verschluesselt (Shell: krypto aktivieren)", "Disk: not encrypted (shell: krypto aktivieren)"), C_TEXT, 1);
     gtxt(x, y + 24, zdb_offen() ? TR("Alles wird in ZynDB gespeichert (verschluesselt)", "Everything is stored in ZynDB (encrypted)") : TR("ZynDB nicht verfuegbar", "ZynDB unavailable"), C_MUTED, 1);
     gfx_end();
     lader(f->x + f->w - 60, f->y + f->h - 56, 34, timer_get_ticks() / 5, C_BG);
+    kn_owner = ko;
+}
+
+/* ---------- Chats (Verlauf, anpinnen, Projekte) ---------- */
+enum { K_CH0 = 400, K_CH_NEU = 420, K_CH_PIN, K_CH_FILTER, K_CH_DEL };
+static int ch_filter;                                   /* 0 = alle Projekte, sonst Index in der Projektliste + 1 */
+static void ch_filtername(char* o) {
+    static char pn[8][20]; int np = chat_projekte(pn, 8); o[0] = 0;
+    if (ch_filter > np) ch_filter = 0;
+    if (ch_filter > 0) scopy(o, pn[ch_filter - 1], 20);
+}
+static void chats_klick(int id) {
+    char fn[20]; ch_filtername(fn); int ids[16], n = chat_liste(ids, 16, fn);
+    if (id >= K_CH0 && id < K_CH0 + 16) { if (id - K_CH0 < n) chat_waehle(ids[id - K_CH0]); }
+    else if (id == K_CH_NEU) chat_neu(TR("Neuer Chat", "New chat"));
+    else if (id == K_CH_PIN) { if (chat_aktiv()) chat_pin_umschalten(chat_aktiv()); }
+    else if (id == K_CH_FILTER) { char pn[8][20]; int np = chat_projekte(pn, 8); ch_filter = (ch_filter + 1) % (np + 1); }
+    else if (id == K_CH_DEL) { if (chat_aktiv()) chat_loeschen(chat_aktiv()); }
+    zeichne_desktop();
+}
+static void zeichne_chats(void) {
+    int wi = fenster_idx(FT_CHATS); if (wi < 0) return;
+    struct fenster* f = &fen[wi]; int ko = kn_owner; kn_owner = wi; kn_loesche_owner(wi);
+    int lw = 230, x0 = f->x + 2, y0 = f->y + WT_H, rx = x0 + lw + 14, rw = f->w - lw - 24, bh = f->h - WT_H - 4;
+    gfx_begin(); gfx_rect(x0, y0, f->w - 4, bh, C_BG);
+    rrect_rand(x0 + 8, y0 + 8, lw, bh - 16, 10, C_CARD, C_BORDER);
+    char fn[20]; ch_filtername(fn); int ids[16], n = chat_liste(ids, 16, fn), akt = chat_aktiv();
+    int rows = (bh - 40) / 40; if (n > rows) n = rows;
+    for (int i = 0; i < n; i++) {
+        int ry = y0 + 16 + i * 40; char t[40];
+        if (ids[i] == akt) rrect(x0 + 12, ry, lw - 8, 36, 8, mix(C_CARD, C_ACC, 90));
+        t[0] = 0; if (chat_gepinnt(ids[i])) cat(t, "* ", 40); cat(t, chat_titel(ids[i]), 40); if (slen(t) > 25) t[25] = 0;
+        gtxt(x0 + 22, ry + 3, t, C_TEXT, 1);
+        if (chat_projekt(ids[i])[0]) { scopy(t, chat_projekt(ids[i]), 40); if (slen(t) > 25) t[25] = 0; gtxt(x0 + 22, ry + 19, t, C_MUTED, 1); }
+        kn_reg(K_CH0 + i, x0 + 12, ry, lw - 8, 36);
+    }
+    if (!n) gtxt(x0 + 22, y0 + 24, TR("Noch keine Chats.", "No chats yet."), C_MUTED, 1);
+    int bx = rx; int by = y0 + 8;
+    knopf(K_CH_NEU, TR("Neu", "New"), bx, by, 70, 1);
+    knopf(K_CH_PIN, akt && chat_gepinnt(akt) ? TR("Geloest", "Unpin") : TR("Anpinnen", "Pin"), bx + 78, by, 110, 0);
+    { char t[40]; scopy(t, TR("Projekt: ", "Project: "), 40); cat(t, fn[0] ? fn : TR("alle", "all"), 40); if (slen(t) > 20) t[20] = 0; knopf(K_CH_FILTER, t, bx + 196, by, 190, 0); }
+    knopf(K_CH_DEL, TR("Loeschen", "Delete"), bx + 394, by, 100, 0);
+    if (akt) {
+        char t[80]; scopy(t, chat_titel(akt), 80); if (chat_projekt(akt)[0]) { cat(t, "   [", 80); cat(t, chat_projekt(akt), 80); cat(t, "]", 80); }
+        gtxt(rx, y0 + 56, t, C_ACC2, 1);
+        static char txt[3100], wl[160][84]; static uint8_t wr[160]; int nl = 0, cols = (rw - 8) / 8; if (cols > 80) cols = 80;
+        int tl = chat_text(akt, txt, sizeof(txt)); (void)tl;
+        for (int i = 0; txt[i] && nl < 150; ) {
+            int e = i; while (txt[e] && txt[e] != '\n') e++;
+            int du = txt[i] == 'U'; char pre[12]; scopy(pre, du ? TR("Du: ", "You: ") : "Zynie: ", 12); int pl = slen(pre);
+            char z[260]; scopy(z, pre, 260); for (int k = i + 2; k < e && slen(z) < 255; k++) { char c[2] = { txt[k], 0 }; cat(z, c, 260); }
+            for (int p = 0; z[p] && nl < 150; ) { int len = slen(z + p); if (len > cols) { len = cols; int sp = len; while (sp > cols / 2 && z[p + sp] != ' ') sp--; if (z[p + sp] == ' ') len = sp; }
+                for (int k = 0; k < len; k++) wl[nl][k] = z[p + k]; wl[nl][len] = 0; wr[nl] = (uint8_t)du; nl++; p += len; while (z[p] == ' ') p++; }
+            (void)pl; i = txt[e] ? e + 1 : e;
+        }
+        int vis = (bh - 96) / 18; int von = nl > vis ? nl - vis : 0;
+        for (int i = von; i < nl; i++) gtxt(rx, y0 + 84 + (i - von) * 18, wl[i], wr[i] ? C_ACC2 : C_TEXT, 1);
+        if (!nl) gtxt(rx, y0 + 84, TR("Leer. Schreib unten in den Chat.", "Empty. Type in the chat below."), C_MUTED, 1);
+    } else gtxt(rx, y0 + 60, TR("Schreib Zynie etwas, dann entsteht hier dein Verlauf.", "Write to Zynie and your history appears here."), C_MUTED, 1);
+    gfx_end();
     kn_owner = ko;
 }
 
@@ -1584,6 +1657,13 @@ static void ki_antwort(const char* frage) {
     static char roh[600]; char fq[330];
     if (lang != 0) { scopy(fq, "Answer in ", 330); cat(fq, LENG[lang], 330); cat(fq, ". ", 330); cat(fq, frage, 330); } else scopy(fq, frage, 330);
     busy_tick();
+    if (ext_quelle()) {
+        int en = ext_frage(fq, roh, sizeof(roh));
+        if (en > 0) { ki_teil(roh, en); ki_text[ki_len] = 0; ki_zeilen(); busy_ende(); sprech_bis = timer_get_ticks() + 100; kprint("[DESKTOP] "); kprint(ext_name(ext_quelle())); kprint(" antwortet: "); kprint(ki_text); kprint("\n"); return; }
+        kprint("[DESKTOP] Externe KI fehlgeschlagen: "); kprint(roh); kprint(" - Zynie (intern) antwortet\n");
+        if (!gehirn_vorhanden()) { busy_ende(); reply1(roh); return; }
+        ki_len = 0;
+    }
     int n = gehirn_frage(fq, roh, sizeof(roh), ki_teil);
     busy_ende();
     if (n < 0) { reply1(TR("Mein Sprachmodell ist gerade nicht verfuegbar.", "My language model is not available right now.")); kprint("[DESKTOP] Zynie: Sprachmodell nicht verfuegbar: "); kprint(gehirn_status()); kprint("\n"); return; }
@@ -1591,7 +1671,7 @@ static void ki_antwort(const char* frage) {
     sprech_bis = timer_get_ticks() + 100; kprint("[DESKTOP] Zynie antwortet: "); kprint(ki_text); kprint("\n");
 }
 
-static void ausfuehren(void) {
+static void ausfuehren_roh(void) {
     char s[96]; int k = 0; for (int i = 0; eingabe[i] && k < 94; i++) { char c = eingabe[i]; s[k++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; } s[k] = 0;
     char roh[96]; scopy(roh, eingabe, 96);
     int in = erkenne(s);
@@ -1619,6 +1699,11 @@ static void ausfuehren(void) {
             TR("\"system\" - zeigt den Zustand, \"dateien\" - deine Dokumente", "\"system\" - shows the status, \"files\" - your documents"), TR("\"briefing\", \"agenten\", \"aufgabe ...\", \"quanten\", \"abmelden\" - oder frag mich einfach alles", "\"briefing\", \"agents\", \"task ...\", \"quantum\", \"sign out\" - or just ask me anything"), 0); break;
     case I_FENSTER: kprint("Fenster\n");
         if (in_par >= 20 && in_par <= 24) { lang_setze(in_par - 20); reply1(T5("Sprache: Deutsch", "Language: English", "Langue : francais", "Lingua: italiano", "Idioma: espanol")); zeichne_desktop(); return; }
+        if (in_par == 4) { fenster_oeffnen(FT_CHATS); return; }
+        if (in_par == 30) { chat_neu(TR("Neuer Chat", "New chat")); reply1(TR("Neuer Chat angelegt.", "New chat created.")); if (fenster_idx(FT_CHATS) >= 0) zeichne_desktop(); break; }
+        if (in_par == 31) { if (chat_aktiv()) { chat_pin_umschalten(chat_aktiv()); reply1(chat_gepinnt(chat_aktiv()) ? TR("Chat angepinnt.", "Chat pinned.") : TR("Chat nicht mehr angepinnt.", "Chat unpinned.")); } else reply1(TR("Es gibt noch keinen aktiven Chat.", "There is no active chat yet.")); break; }
+        if (in_par == 32) { if (chat_aktiv()) { chat_projekt_setze(chat_aktiv(), roh + (in_text - s)); reply1(TR("Chat dem Projekt zugeordnet.", "Chat assigned to the project.")); } else reply1(TR("Es gibt noch keinen aktiven Chat.", "There is no active chat yet.")); break; }
+        if (in_par == 33) { if (chat_aktiv()) { chat_loeschen(chat_aktiv()); reply1(TR("Chat geloescht.", "Chat deleted.")); } else reply1(TR("Es gibt keinen aktiven Chat.", "There is no active chat.")); break; }
         if (in_par == 3) fenster_oeffnen(FT_EINST);
         else if (in_par == 1) fenster_oeffnen(FT_RECH);
         else if (in_par == 2) fenster_oeffnen(FT_INFO);
@@ -1648,6 +1733,15 @@ static void ausfuehren(void) {
     zeichne_antwort(); zeichne_eingabe();
 }
 
+static void ausfuehren(void) {
+    char u[96]; scopy(u, eingabe, 96);
+    int vorher = chat_aktiv();
+    ausfuehren_roh();
+    if (zustand == Z_LOGIN) return;
+    char a[400]; a[0] = 0; for (int i = 0; i < nantwort && slen(a) < 300; i++) { if (i) cat(a, " ", 400); cat(a, antwort[i], 400); }
+    if (!(u[0] == 'c' && u[1] == 'h' && u[2] == 'a' && u[3] == 't')) chat_log(u, a);
+    (void)vorher; if (fenster_idx(FT_CHATS) >= 0) zeichne_desktop();
+}
 static void anmelden(void) {
     if (benutzer_login(fname, fpw) == 0) {
         kprint("[DESKTOP] Willkommen, "); kprint(benutzer_name()); kprint(" ("); kprint(benutzer_rollentext(benutzer_rolle())); kprint(")\n");
@@ -1745,7 +1839,8 @@ static void klick(int x, int y, int owner) {
         else if (zustand == Z_WEB && id >= K_SUG0 && id < K_SUG0 + 5 && id - K_SUG0 < nsug) { scopy(adr, sug[id - K_SUG0], 192); adrlen = slen(adr); web_gehe(adr, 1); }
         else if (zustand == Z_WEB && id >= K_LZ0 && id < K_LZ0 + 14) { char t[200]; int n = id - K_LZ0; if (n < 10) { if (lz_zeile(n, t, 200)) web_gehe(t, 1); } else if (web_vorgabe[n - 10]) web_gehe(web_vorgabe[n - 10], 1); }
         else if (zustand == Z_DESK && id == K_NEUDOK) editor_oeffnen();
-        else if (zustand == Z_INFO && id >= K_EIN0 && id < K_EIN0 + 12) einst_klick(id);
+        else if (zustand == Z_INFO && id >= K_EIN0 && id < K_EIN0 + 15) einst_klick(id);
+        else if (zustand == Z_INFO && id >= K_CH0 && id < K_CH_DEL + 1) chats_klick(id);
         else if (zustand == Z_RECH && id >= K_RB0 && id < K_RB0 + 20) { rech_druecke(rtasten[id - K_RB0]); zeichne_rechner(); }
         else if (zustand == Z_DESK && id == K_AUFLEER) { aufg_leeren(); kprint("[DESKTOP] Aufgaben geleert\n"); zeichne_desktop(); }
         else if (zustand == Z_EDIT && id == K_SPEICHERN) { dok_speichern(); zeichne_editor(0); }

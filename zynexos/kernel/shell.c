@@ -37,6 +37,8 @@
 #include "befehle.h"
 #include "fw.h"
 #include "zyndb.h"
+#include "extki.h"
+#include "chats.h"
 #include "krypto.h"
 
 extern void kprint(const char* str);
@@ -140,6 +142,57 @@ static void krypto_befehl(const char* a) {
     else if (streq(a, "fortsetzen")) { if (!require_cap(CAP_ADMIN, "krypto")) return; kprint("Weiter mit der Verschluesselung ...\n"); kr_meldung(krypto_fortsetzen()); }
     else if (streq(a, "passwort")) { if (!require_cap(CAP_ADMIN, "krypto")) return; shell_frage("Altes Passwort: ", 1, kr_pw_alt); }
     else kprint("krypto: status | aktivieren | entsperren | passwort | fortsetzen\n");
+}
+
+
+/* ---- Externe Modelle, Modelle, Chats ---- */
+static int ke_prov;
+static void ke_key(const char* l) { if (!l[0]) { kprint("Abgebrochen\n"); return; } ext_schluessel_setze(ke_prov, l); ext_setze_quelle(ke_prov); kprint(ext_name(ke_prov)); kprint(" ist eingerichtet und aktiv. ACHTUNG: Fragen im Chat gehen jetzt an diesen Anbieter. Zurueck: kiextern intern\n"); }
+static int prov_aus(const char* n) { for (int i = 1; i < 4; i++) if (streq(n, ext_kennung(i)) || streq(n, ext_name(i))) return i; if (streq(n, "chatgpt")) return 1; return 0; }
+static void kiextern_befehl(const char* a) {
+    while (*a == ' ') a++;
+    char w[16]; int n = 0; while (*a && *a != ' ' && n < 15) w[n++] = *a++; w[n] = 0; while (*a == ' ') a++;
+    if (!w[0] || streq(w, "status")) {
+        kprint("Aktive Quelle: "); kprint(ext_name(ext_quelle())); kprint("  (Zynie intern bleibt immer als Rueckfall bereit)\n");
+        for (int i = 1; i < 4; i++) { kprint("  "); kprint(ext_name(i)); kprint(": Schluessel "); kprint(ext_schluessel_da(i) ? "gesetzt" : "fehlt"); kprint(", Modell "); kprint(ext_modell(i)); kprint("\n"); }
+        kprint("  kiextern einrichten <openai|claude|gemini> | modell <anbieter> <name> | intern | test\n"); return;
+    }
+    if (streq(w, "intern")) { ext_setze_quelle(0); kprint("Zynie (intern) antwortet wieder\n"); return; }
+    if (streq(w, "einrichten")) { int p = prov_aus(a); if (!p) { kprint("kiextern einrichten <openai|claude|gemini>\n"); return; } ke_prov = p; kprint("Der Schluessel wird verschluesselt in ZynDB abgelegt.\n"); shell_frage("API-Schluessel: ", 1, ke_key); return; }
+    if (streq(w, "modell")) { char pn[16]; int k = 0; while (*a && *a != ' ' && k < 15) pn[k++] = *a++; pn[k] = 0; while (*a == ' ') a++; int p = prov_aus(pn); if (!p || !*a) { kprint("kiextern modell <openai|claude|gemini> <modellname>\n"); return; } ext_modell_setze(p, a); kprint("Modell gesetzt\n"); return; }
+    if (streq(w, "test")) {
+        if (!ext_quelle()) { kprint("Zurzeit antwortet Zynie (intern). Erst: kiextern einrichten ...\n"); return; }
+        static char o[500]; kprint("Frage an "); kprint(ext_name(ext_quelle())); kprint(" ...\n");
+        int r = ext_frage("Antworte mit einem kurzen Satz: Wer bist du?", o, sizeof(o)); kprint(r > 0 ? "Antwort: " : "Fehler: "); kprint(o); kprint("\n"); return;
+    }
+    kprint("kiextern: status | einrichten | modell | intern | test\n");
+}
+static void kimodell_befehl(const char* a) {
+    while (*a == ' ') a++;
+    char w[12]; int n = 0; while (*a && *a != ' ' && n < 11) w[n++] = *a++; w[n] = 0; while (*a == ' ') a++;
+    char dev[24]; int k = 0; while (*a && *a != ' ' && k < 23) dev[k++] = *a++; dev[k] = 0; while (*a == ' ') a++;
+    if (!w[0] || streq(w, "liste")) { kprint("Sprachmodelle auf diesem Rechner:\n"); gehirn_modelle_zeigen(); kprint("  waehlen: ki modell waehle <platte> (gilt ab dem naechsten Start) | loeschen: ki modell loesche <platte> ja\n  Ein neues Modell kommt mit tools/mkpack.py auf eine eigene Modell-Partition; das letzte Modell laesst sich nicht loeschen.\n"); return; }
+    if (streq(w, "waehle")) { if (!require_cap(CAP_ADMIN, "ki modell")) return; int r = gehirn_modell_waehlen(dev); kprint(r == 0 ? "Gewaehlt - wird beim naechsten Start geladen\n" : r == -1 ? "Dort liegt kein Modell (siehe: ki modell liste)\n" : "Speichern fehlgeschlagen\n"); return; }
+    if (streq(w, "loesche")) {
+        if (!require_cap(CAP_ADMIN, "ki modell")) return;
+        if (!streq(a, "ja")) { kprint("Zum Bestaetigen: ki modell loesche "); kprint(dev); kprint(" ja\n"); return; }
+        int r = gehirn_modell_loeschen(dev); kprint(r == 0 ? "Modell geloescht\n" : r == -3 ? "Das ist das letzte Modell - Zynie braucht mindestens eins\n" : r == -1 ? "Dort liegt kein Modell\n" : "Loeschen fehlgeschlagen\n"); return;
+    }
+    kprint("ki modell: liste | waehle <platte> | loesche <platte> ja\n");
+}
+static void chat_befehl(const char* a) {
+    while (*a == ' ') a++;
+    char w[12]; int n = 0; while (*a && *a != ' ' && n < 11) w[n++] = *a++; w[n] = 0; while (*a == ' ') a++;
+    if (!w[0] || streq(w, "liste")) {
+        int ids[16], c = chat_liste(ids, 16, ""); if (!c) { kprint("Noch keine Chats\n"); return; }
+        for (int i = 0; i < c; i++) { kprint(ids[i] == chat_aktiv() ? " > " : "   "); kprint(chat_gepinnt(ids[i]) ? "* " : "  "); kprint(chat_titel(ids[i])); if (chat_projekt(ids[i])[0]) { kprint("  ["); kprint(chat_projekt(ids[i])); kprint("]"); } kprint("\n"); } return;
+    }
+    if (streq(w, "neu")) { kprint(chat_neu(a) > 0 ? "Neuer Chat angelegt\n" : "Fehlgeschlagen\n"); return; }
+    int id = chat_aktiv(); if (!id) { kprint("Kein aktiver Chat\n"); return; }
+    if (streq(w, "pin")) { chat_pin_umschalten(id); kprint(chat_gepinnt(id) ? "Angepinnt\n" : "Nicht mehr angepinnt\n"); return; }
+    if (streq(w, "projekt")) { chat_projekt_setze(id, a); kprint("Projekt gesetzt\n"); return; }
+    if (streq(w, "loeschen")) { chat_loeschen(id); kprint("Chat geloescht\n"); return; }
+    kprint("chat: liste | neu | pin | projekt <name> | loeschen\n");
 }
 
 static void neu_fertig(const char* l) {
@@ -481,6 +534,9 @@ static void run_legacy(char* cmd) {
         kprint(gut && msg_kaputt && sig_kaputt && kurz ? "\npq: Selbsttest bestanden\n" : "\npq: FEHLER\n");
     }
     else if (streq(cmd, "firewall") || starts_with(cmd, "firewall ")) { if (cmd[8] && !streq(cmd + 9, "status") && !streq(cmd + 9, "log") && !streq(cmd + 9, "regeln") && !require_cap(CAP_ADMIN, "firewall")) return; fw_befehl(cmd + 8); }
+    else if (streq(cmd, "kiextern") || starts_with(cmd, "kiextern ")) { if (cmd[8] && !streq(cmd + 9, "status") && !require_cap(CAP_ADMIN, "kiextern")) return; kiextern_befehl(cmd + 8); }
+    else if (streq(cmd, "kimodell") || starts_with(cmd, "kimodell ")) kimodell_befehl(cmd + 8);
+    else if (streq(cmd, "chat") || starts_with(cmd, "chat ")) chat_befehl(cmd + 4);
     else if (streq(cmd, "db") || starts_with(cmd, "db ")) zdb_befehl(cmd + 2);
     else if (streq(cmd, "krypto") || starts_with(cmd, "krypto ")) krypto_befehl(cmd + 6);
     else if (streq(cmd, "sicherheit")) {

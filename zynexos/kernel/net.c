@@ -690,6 +690,27 @@ int net_http_fp(const char* url, const char* fp) {
     return 0;
 }
 
+/* POST ueber TLS (fuer die Programmierschnittstellen externer Sprachmodelle); Antwort bleibt bis zum naechsten Abruf im Empfangspuffer */
+int net_post_tls(const char* host, const char* path, const char* hdr, const char* body, const char** ant, uint32_t* alen, uint32_t* status) {
+    __asm__ volatile ("sti");
+    if (!net_up()) { kprint("Kein Netz\n"); return -1; }
+    uint32_t ip; if (net_dns(host, &ip) != 0) { kprint("Name nicht aufloesbar\n"); return -2; }
+    static char rq[2600]; int n = 0;
+    #define ADD(t) do { for (const char* c_ = (t); *c_ && n < 2590; c_++) rq[n++] = *c_; } while (0)
+    int bl = 0; while (body[bl]) bl++;
+    char cl[12]; int k = 0; { int v = bl; char t[12]; int c = 0; do { t[c++] = (char)('0' + v % 10); v /= 10; } while (v); while (c) cl[k++] = t[--c]; cl[k] = 0; }
+    ADD("POST "); ADD(path); ADD(" HTTP/1.0\r\nHost: "); ADD(host); ADD("\r\nUser-Agent: ZynexOS\r\nContent-Type: application/json\r\nContent-Length: "); ADD(cl); ADD("\r\nConnection: close\r\n"); ADD(hdr); ADD("\r\n"); ADD(body);
+    #undef ADD
+    int r = tls_get(ip, 443, host, (const uint8_t*)rq, (uint32_t)n, 0, &http_rb, &http_len, &http_complete);
+    if (r != 0) return -3;
+    const uint8_t* rb = http_rb; uint32_t len = http_len, bo = 0;
+    for (uint32_t i = 0; i + 3 < len; i++) if (rb[i] == '\r' && rb[i+1] == '\n' && rb[i+2] == '\r' && rb[i+3] == '\n') { bo = i + 4; break; }
+    if (!len || !bo) return -5;
+    uint32_t st = 0; if (len > 12 && rb[8] == ' ') for (int i = 9; i < 12 && rb[i] >= '0' && rb[i] <= '9'; i++) st = st * 10 + (uint32_t)(rb[i] - '0');
+    *status = st; *ant = (const char*)rb + bo; *alen = len - bo;
+    return 0;
+}
+
 /* ---------- Empfang ---------- */
 static void ip_rx(const uint8_t* f, int len) {
     const uint8_t* ip = f + 14;
