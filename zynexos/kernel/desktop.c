@@ -91,6 +91,7 @@ static const char* const qname[4] = { "Q0:ENT", "Q1:SEM", "Q2:CAP", "Q3:AI" };
 static int splash_q[4];
 static int splash_p;
 static char splash_t[64];
+static char splash_info[400];
 
 static void splash_zeichne(void) {
     if (!splash_an) return;
@@ -112,7 +113,13 @@ static void splash_zeichne(void) {
     gfx_text(bx, by + 16, splash_t, C_CYAN, 1);
     char pc[8]; dec(pc, (uint32_t)splash_p); cat(pc, "%", 8);
     gfx_text(bx + bw - gfx_text_w(pc, 1), by + 16, pc, C_MUTED, 1);
+    { int mc = (W - 40) / 8; if (mc > 120) mc = 120; int n = 0; while (splash_info[n]) n++;
+      for (int z = 0, pos = 0; z < 4 && pos < n; z++) { char t[130]; int k = 0; while (k < mc && pos < n) t[k++] = splash_info[pos++]; t[k] = 0; gfx_text(20, H - 90 + z * 18, t, 0x00647488u, 1); } }
     gfx_end();
+}
+void desktop_splash_info(const char* text) {
+    int i = 0; while (text[i] && i < 399) { splash_info[i] = text[i]; i++; } splash_info[i] = 0;
+    if (splash_an) splash_zeichne();
 }
 void desktop_splash_start(void) {
     if (!gfx_available()) return;

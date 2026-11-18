@@ -224,9 +224,14 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr){
     block_init();
     pci_scan();
     nvme_init();
+    desktop_splash(-1, 30, "NVMe geprueft");
     ahci_init();
+    desktop_splash(-1, 34, "SATA geprueft");
     usb_init();
+    desktop_splash(-1, 38, "USB geprueft");
     hv_init();
+    desktop_splash(-1, 44, "Hyper-V geprueft");
+    desktop_splash(-1, 46, "Netzwerk wird gestartet");
     net_init();
     if(usb_has_keyboard()){ pic_set_mask(1); kprint("[USB] USB-Tastatur aktiv, PS/2-Tastatur abgeschaltet\n"); }
     desktop_splash(1, 50, "Geraete: Speicher, USB, Netzwerk");

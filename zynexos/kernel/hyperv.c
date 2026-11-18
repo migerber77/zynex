@@ -57,10 +57,11 @@ struct kanal {
 static uint8_t ringmem[4][2 * RING_PAGES * 4096] __attribute__((aligned(4096)));
 static struct kanal kb, ms;
 
+extern void desktop_splash_info(const char* text);
 static char status[400] = "";
 static int hv_da, hv_show, nachrichten;
-static void st_setze(const char* s) { int i = 0; while (s[i] && i < 398) { status[i] = s[i]; i++; } status[i] = 0; if (hv_show) hv_status_zeichnen(); }
-static void st_anhaengen(const char* s) { int i = 0; while (status[i]) i++; while (*s && i < 398) status[i++] = *s++; status[i] = 0; if (hv_show) hv_status_zeichnen(); }
+static void st_setze(const char* s) { int i = 0; while (s[i] && i < 398) { status[i] = s[i]; i++; } status[i] = 0; desktop_splash_info(status); }
+static void st_anhaengen(const char* s) { int i = 0; while (status[i]) i++; while (*s && i < 398) status[i++] = *s++; status[i] = 0; desktop_splash_info(status); }
 
 int hv_aktiv(void) { return hv_da; }
 const char* hv_status(void) { return status; }
@@ -297,6 +298,8 @@ void hv_poll(void) {
 
 /* ---------- Hyper-V-Speicher (storvsc): virtuelle SCSI-Platte ueber VMBus ---------- */
 extern uint32_t timer_get_ticks(void);
+static int zeitquelle;                                               /* 1 = Hyper-V-Referenzzaehler (laeuft auch ohne Timer-Interrupts) */
+static uint32_t hv_ticks(void) { if (zeitquelle) { uint32_t lo, hi; __asm__ volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(0x40000020u)); return (uint32_t)((((uint64_t)hi << 32) | lo) / 100000u); } return timer_get_ticks(); }
 static uint8_t sbuf[65536] __attribute__((aligned(4096)));           /* Datenpuffer fuer jeden Befehl (physisch zusammenhaengend) */
 static uint8_t spk[512];
 static uint8_t s_port, s_pfad, s_ziel, s_lun;
@@ -328,8 +331,8 @@ static int sc_senden(uint16_t typ, uint16_t flags, const uint8_t* extra, uint32_
     return ring_senden_roh(&sc, spk, len);
 }
 static int sc_warte(uint64_t tid, uint8_t* out) {
-    uint32_t t0 = timer_get_ticks(); uint8_t p[128]; uint16_t t;
-    for (long spin = 0; spin < 300000000L && timer_get_ticks() - t0 < 500; spin++) {
+    uint32_t t0 = hv_ticks(); uint8_t p[128]; uint16_t t;
+    for (long spin = 0; spin < 300000000L && hv_ticks() - t0 < 500; spin++) {
         int n = ring_lesen(&sc, p, sizeof(p), &t);
         if (n < 0) { __asm__ volatile ("pause"); continue; }
         if (last_tid == tid && n >= 64) { mc(out, p, 64); return 0; }
@@ -535,8 +538,8 @@ static void nv_lesen_alle(void) {
     n_in_poll = 0;
 }
 static int nv_warten(int* flag) {
-    uint32_t t0 = timer_get_ticks();
-    for (long spin = 0; spin < 300000000L && timer_get_ticks() - t0 < 500; spin++) {
+    uint32_t t0 = hv_ticks();
+    for (long spin = 0; spin < 300000000L && hv_ticks() - t0 < 500; spin++) {
         nv_lesen_alle();
         if (*flag) return 0;
         __asm__ volatile ("pause");
@@ -645,7 +648,7 @@ int hv_init(void) {
     if (b != 0x7263694D || c != 0x666F736F || d != 0x76482074) return 0;       /* "Microsoft Hv" */
     uint32_t maxleaf = a; cpuid(0x40000003, &a, &b, &c, &d);
     if (maxleaf < 0x40000003 || !(a & (1u << 2)) || !(a & (1u << 5))) { st_setze("Hyper-V: Dienste fehlen"); return 1; }
-    hv_da = 1;
+    hv_da = 1; zeitquelle = (a >> 1) & 1;
     st_setze("Hyper-V:");
     wrmsr(MSR_GUEST_OS_ID, ((uint64_t)0x8100 << 48) | (1ULL << 16));
     wrmsr(MSR_HYPERCALL, ((uint64_t)(uintptr_t)hcpage) | 1);
