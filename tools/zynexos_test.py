@@ -286,7 +286,7 @@ def installieren():
     for b in ["text erstellen", "hallo welt"]:
         vm.tippe(b, 2.0)
     vm.mon("sendkey esc"); time.sleep(2.0)
-    for b in ["rechne 12*7", "system", "dateien", "quanten", "sicherheit", "hilfe", "kauderwelsch"]:
+    for b in ["rechne 12*7", "system", "dateien", "quanten", "sicherheit", "hilfe", "briefing", "agent wartung", "aufgabe milch kaufen", "arbeitsflaeche system", "kauderwelsch"]:
         vm.tippe(b, 2.0)
     hell_d = vm.hell()
     vm.tippe("wartung", 2.0)
@@ -312,6 +312,10 @@ def installieren():
     pruefe("Desktop: Dokument wird gespeichert", "[DESKTOP] Dokument gespeichert: dokument-1.txt (11 Bytes)" in out2)
     pruefe("Desktop: Rechnen", "12*7 = 84" in out2)
     pruefe("Desktop: System, Dateien, Quanten, Sicherheit, Hilfe", all(x in out2 for x in ("-> System", "-> Dateien", "-> Quanten", "[DESKTOP] Quanten-Demo: Messung", "-> Sicherheit", "-> Hilfe")))
+    pruefe("Desktop: Agent Briefing laeuft", "[AGENT] Start: Morning briefing" in out2 and "[AGENT] Schritt: " in out2)
+    pruefe("Desktop: Agent fragt Freigabe an", "[AGENT] Freigabe angefragt: Dateisystem sichern" in out2)
+    pruefe("Desktop: Aufgabe gespeichert", "[DESKTOP] Aufgabe gespeichert: milch kaufen" in out2)
+    pruefe("Desktop: Arbeitsflaeche dreht sich", "[DESKTOP] Arbeitsflaeche 2: System" in out2)
     pruefe("Desktop: Unbekanntes wird nicht verstanden", "kauderwelsch' -> nicht verstanden" in out2)
     pruefe("Desktop: Bildschirm ist belegt", hell_d > 300)
     pruefe("Desktop: Wartungs-Konsole fuer Admin", "[WARTUNG] Text-Konsole" in out2)

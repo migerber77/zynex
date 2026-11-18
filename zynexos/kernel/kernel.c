@@ -134,6 +134,7 @@ static int con_aus = 0;                  /* 1 = Textkonsole nicht auf den Bildsc
 int  gfx_available(void){ return mode==1; }
 void gfx_size(int* w,int* h){ *w=(int)fb_w; *h=(int)fb_h; }
 void gfx_console(int an){ con_aus=!an; if(an&&mode==1){ fb_clear(); cursor_x=0; cursor_y=0; } }
+uint32_t* gfx_fbptr(uint32_t* pitch_px){ if(mode!=1) return 0; *pitch_px=fb_pitch/4; return (uint32_t*)fb; }
 void gfx_begin(void){ if(mode==1&&cur_x>=0) cursor_xor(cur_x,cur_y); }
 void gfx_end(void){ if(mode==1&&cur_x>=0) cursor_xor(cur_x,cur_y); }
 void gfx_rect(int x,int y,int w,int h,uint32_t c){

@@ -32,17 +32,18 @@ extern int  gfx_text_w(const char* s, int scale);
 extern const int zynex_logo_w, zynex_logo_h, zynex_logo_gross_w, zynex_logo_gross_h;
 extern const uint32_t zynex_logo[], zynex_logo_gross[];
 
-#define C_BG     0x000B1220u
-#define C_CARD   0x00162038u
-#define C_BORDER 0x002B3A57u
-#define C_TEXT   0x00E6EDF7u
-#define C_MUTED  0x008DA0BDu
-#define C_ACC    0x003B82F6u
+#define C_BG     0x000A111Fu
+#define C_CARD   0x00121A2Bu
+#define C_BORDER 0x002A3752u
+#define C_TEXT   0x00E9EDF5u
+#define C_MUTED  0x008995B0u
+#define C_ACC    0x004A72F5u
+#define C_ACC2   0x006F90FBu
 #define C_CYAN   0x0000F2FEu
 #define C_VIOLET 0x009D4EDDu
 #define C_OK     0x0034D399u
 #define C_ERR    0x00EF4444u
-#define C_FIELD  0x000F172Au
+#define C_FIELD  0x000E1525u
 #define C_OFF    0x00334155u
 
 static int W, H, lang;                                    /* lang: 0 Deutsch, 1 Englisch */
@@ -149,7 +150,7 @@ static char eingabe[96]; static int einlen;
 static char antwort[6][100]; static int nantwort;
 #define QN 32
 static uint16_t kq[QN]; static unsigned qh, qt; static int was_down;
-static struct { int x, y, w, h, id; } knoepfe[12]; static int nkn;
+static struct { int x, y, w, h, id; } knoepfe[48]; static int nkn;
 static uint32_t robot_phase;
 static uint32_t sprech_bis, letzte_eingabe;               /* Ticks (100 pro Sekunde) */
 
@@ -158,13 +159,12 @@ static uint32_t sprech_bis, letzte_eingabe;               /* Ticks (100 pro Seku
 static char dok[DOK_MAX + 1]; static int doklen, dokcur, dokscroll, dokgeaendert; static char dokname[24];
 static int ed_x, ed_y, ed_w, ed_h, ed_cols, ed_rows, ed_s;
 
-static void kn_reg(int id, int x, int y, int w, int h) { if (nkn < 12) { knoepfe[nkn].x = x; knoepfe[nkn].y = y; knoepfe[nkn].w = w; knoepfe[nkn].h = h; knoepfe[nkn].id = id; nkn++; } }
+static void kn_reg(int id, int x, int y, int w, int h) { if (nkn < 48) { knoepfe[nkn].x = x; knoepfe[nkn].y = y; knoepfe[nkn].w = w; knoepfe[nkn].h = h; knoepfe[nkn].id = id; nkn++; } }
 static void knopf(int id, const char* label, int x, int y, int w, int primaer) {
     rrect_rand(x, y, w, 34, 10, primaer ? C_ACC : C_CARD, primaer ? C_ACC : C_BORDER);
     gtxt(x + (w - gtw(label, 1)) / 2, y + 9, label, C_TEXT, 1);
     kn_reg(id, x, y, w, 34);
 }
-enum { K_CHIP0 = 1, K_SPEICHERN = 20, K_NEU, K_SCHLIESSEN };
 
 static void antwort_setze(const char* a, const char* b, const char* c, const char* d, const char* e, const char* f) {
     const char* t[6] = { a, b, c, d, e, f }; nantwort = 0;
@@ -280,42 +280,356 @@ static void zeichne_antwort(void) {
     }
     gfx_end();
 }
+/* ---------- Autovorschlaege (ab dem ersten Buchstaben) ---------- */
+typedef struct { const char* de; const char* en; int typ; } sug_e;       /* typ 0 Befehl, 1 Frage an Zynie, 2 Verlauf */
+static const sug_e katalog[] = {
+    { "text erstellen", "write a text", 0 }, { "rechne 12*7", "calc 12*7", 0 }, { "system", "system status", 0 }, { "dateien", "files", 0 },
+    { "quanten", "quantum demo", 0 }, { "sicherheit", "security", 0 }, { "agenten", "agents", 0 }, { "briefing", "briefing", 0 },
+    { "agent sicherheit", "agent security", 0 }, { "agent wartung", "agent maintenance", 0 }, { "agent aufgaben", "agent tasks", 0 },
+    { "aufgabe ", "task ", 0 }, { "arbeitsflaeche system", "workspace system", 0 }, { "arbeitsflaeche agenten", "workspace agents", 0 },
+    { "arbeitsflaeche aufgaben", "workspace tasks", 0 }, { "wuerfel drehen", "rotate cube", 0 }, { "hilfe", "help", 0 },
+    { "abmelden", "sign out", 0 }, { "neustart", "restart", 0 }, { "wartung", "maintenance", 0 },
+    { "was ist ein qubit?", "what is a qubit?", 1 }, { "was ist verschraenkung?", "what is entanglement?", 1 },
+    { "was kann zynex os?", "what can zynex os do?", 1 }, { "wie funktioniert der kernel?", "how does the kernel work?", 1 },
+    { "was ist synfs?", "what is synfs?", 1 }, { "wie sicher ist der start?", "how secure is the boot?", 1 },
+    { "wer bist du?", "who are you?", 1 }, { "was ist ein betriebssystem?", "what is an operating system?", 1 },
+    { "erklaere mir quantencomputer", "explain quantum computers to me", 1 }, { "erzaehle mir einen witz", "tell me a joke", 1 },
+    { "schreibe mir ein gedicht", "write me a poem", 1 },
+};
+#define NKAT ((int)(sizeof(katalog) / sizeof(katalog[0])))
+static char hist[8][64]; static int nhist;
+static char sug[5][96]; static int sugtyp[5], sugpre[5], nsug, sugsel = -1;
+static const char* sug_q;
+static int lc(int c) { return (c >= 'A' && c <= 'Z') ? c + 32 : c; }
+static int praefix(const char* s, const char* q) { for (; *q; q++, s++) if (lc((unsigned char)*s) != lc((unsigned char)*q)) return 0; return 1; }
+static int gleich(const char* a, const char* b) { while (*a && *b) { if (lc((unsigned char)*a) != lc((unsigned char)*b)) return 0; a++; b++; } return !*a && !*b; }
+static void sug_add(const char* s, int typ, int pre) {
+    if (nsug >= 5 || gleich(s, sug_q)) return;
+    for (int i = 0; i < nsug; i++) if (gleich(sug[i], s)) return;
+    scopy(sug[nsug], s, 96); sugtyp[nsug] = typ; sugpre[nsug] = pre; nsug++;
+}
+static void sug_suche(void) {
+    nsug = 0; sugsel = -1;
+    const char* q = eingabe; while (*q == ' ') q++;
+    if (!*q) return;
+    sug_q = q; int ql = slen(q);
+    for (int i = nhist - 1; i >= 0; i--) if (praefix(hist[i], q)) sug_add(hist[i], 2, ql);
+    for (int i = 0; i < NKAT; i++) { const char* s = lang == 0 ? katalog[i].de : katalog[i].en; if (praefix(s, q)) sug_add(s, katalog[i].typ, ql); }
+    for (int i = 0; i < NKAT; i++) {
+        const char* s = lang == 0 ? katalog[i].de : katalog[i].en;
+        for (int j = 1; s[j]; j++) if (s[j - 1] == ' ' && praefix(s + j, q)) { sug_add(s, katalog[i].typ, 0); break; }
+    }
+}
+static void hist_add(const char* s) {
+    for (int i = 0; i < nhist; i++) if (gleich(hist[i], s)) { for (int j = i; j + 1 < nhist; j++) scopy(hist[j], hist[j + 1], 64); nhist--; break; }
+    if (nhist >= 8) { for (int j = 0; j + 1 < nhist; j++) scopy(hist[j], hist[j + 1], 64); nhist--; }
+    scopy(hist[nhist++], s, 64);
+}
+
+/* ---------- Aufgaben (Datei aufgaben.txt in SynFS) ---------- */
+static char aufg[1500]; static int auflen;
+static void aufg_laden(void) { int r = synfs_read("aufgaben.txt", aufg, sizeof(aufg) - 1); auflen = r > 0 ? r : 0; aufg[auflen] = 0; }
+static int aufg_zeile(int n, char* out, int max) {                     /* n-te nichtleere Zeile; 0 = keine */
+    int z = 0, i = 0;
+    while (i < auflen) {
+        int e = i; while (e < auflen && aufg[e] != '\n') e++;
+        int leer = 1; for (int j = i; j < e; j++) if (aufg[j] != ' ') leer = 0;
+        if (!leer) { if (z == n) { int k = 0; for (int j = i; j < e && k < max - 1; j++) out[k++] = aufg[j]; out[k] = 0; return 1; } z++; }
+        i = e + 1;
+    }
+    return 0;
+}
+static int aufg_zahl(void) { char t[4]; int n = 0; while (aufg_zeile(n, t, 4)) n++; return n; }
+static void aufg_speichern(void) { synfs_create("aufgaben.txt", SYNFS_FILE); synfs_write("aufgaben.txt", aufg, (uint32_t)(auflen ? auflen : 1)); synfs_sync(); }
+static int aufg_add(const char* t) {
+    aufg_laden(); int n = slen(t);
+    if (auflen + n + 2 >= (int)sizeof(aufg) - 8) return -1;
+    for (int i = 0; i < n; i++) aufg[auflen++] = t[i];
+    aufg[auflen++] = '\n'; aufg[auflen] = 0; aufg_speichern(); return 0;
+}
+static void aufg_leeren(void) { aufg[0] = '\n'; auflen = 1; aufg[1] = 0; aufg_speichern(); auflen = 0; aufg[0] = 0; }
+static int doks_liste(char (*namen)[24], int max) {
+    int n = 0; char b[2];
+    for (int i = 1; i < 30 && n < max; i++) { char a[8]; dec(a, (uint32_t)i); scopy(namen[n], "dokument-", 24); cat(namen[n], a, 24); cat(namen[n], ".txt", 24); if (synfs_read(namen[n], b, 1) >= 0) n++; }
+    return n;
+}
+
+/* ---------- Agenten (lokal im Kernel, Wirkung nach aussen nur nach Freigabe) ---------- */
+#define NAG 4
+static const char* const ag_name[NAG][2] = { { "Morgen-Briefing", "Morning briefing" }, { "Sicherheits-Agent", "Security agent" }, { "Wartungs-Agent", "Maintenance agent" }, { "Aufgaben-Agent", "Task agent" } };
+static const char* const ag_desc[NAG][2] = {
+    { "Prueft Zeit, Speicher, Netzwerk, Dokumente und Aufgaben und fasst alles zusammen.", "Checks time, memory, network, documents and tasks and sums it up." },
+    { "Prueft Startkette, Signatur, Benutzerrolle und Netzwerk.", "Checks boot chain, signature, user role and network." },
+    { "Prueft den Speicher und schlaegt vor, das Dateisystem zu sichern (Freigabe noetig).", "Checks memory and proposes to sync the file system (needs approval)." },
+    { "Liest deine Aufgaben und schlaegt vor, erledigte zu entfernen (Freigabe noetig).", "Reads your tasks and proposes to clear them (needs approval)." },
+};
+static char alog[10][100]; static int nalog, alauf = -1, pend;           /* pend: 0 keine, 1 sichern, 2 Aufgaben leeren */
+static void al(const char* s) {
+    if (nalog < 10) { scopy(alog[nalog], s, 100); nalog++; }
+    kprint("[AGENT] Schritt: "); kprint(s); kprint("\n");
+}
+static void zeit_text(char* o, uint32_t s) {
+    char a[8]; o[0] = 0; dec(a, s / 3600); cat(o, a, 24); cat(o, ":", 24);
+    dec(a, s / 60 % 60); if (s / 60 % 60 < 10) cat(o, "0", 24); cat(o, a, 24); cat(o, ":", 24);
+    dec(a, s % 60); if (s % 60 < 10) cat(o, "0", 24); cat(o, a, 24);
+}
+static void ag_start(int i) {
+    nalog = 0; pend = 0; alauf = i; char z[100], a[12], b[12], ip[32];
+    kprint("[AGENT] Start: "); kprint(ag_name[i][1]); kprint("\n");
+    if (i == 0) {
+        scopy(z, TR("Laufzeit ", "Uptime "), 100); char t[24]; zeit_text(t, timer_get_seconds()); cat(z, t, 100); al(z);
+        scopy(z, TR("Speicher frei: ", "Memory free: "), 100); dec(a, pmm_get_free_pages() / 256); cat(z, a, 100); cat(z, " / ", 100); dec(a, pmm_get_total_pages() / 256); cat(z, a, 100); cat(z, " MiB", 100); al(z);
+        int ns = net_status(ip, 32); scopy(z, TR("Netzwerk: ", "Network: "), 100); cat(z, ns == 2 ? ip : ns == 1 ? TR("Karte da, keine Adresse", "card found, no address") : TR("keine Karte", "no card"), 100); al(z);
+        char nm[8][24]; int nd = doks_liste(nm, 8); aufg_laden(); int na = aufg_zahl();
+        scopy(z, TR("Dokumente: ", "Documents: "), 100); dec(a, (uint32_t)nd); cat(z, a, 100); cat(z, TR(",  offene Aufgaben: ", ",  open tasks: "), 100); dec(b, (uint32_t)na); cat(z, b, 100); al(z);
+        al(TR("Briefing fertig.", "Briefing done."));
+    } else if (i == 1) {
+        al((g_boot.flags & BOOT_SIGNIERT) ? TR("Startkette: durch LMS-Signatur (quantensicher) geprueft", "Boot chain: verified by LMS signature (quantum-safe)") : TR("ACHTUNG: Kernel nicht durch Signatur geprueft", "WARNING: kernel not verified by signature"));
+        scopy(z, TR("Angemeldet als ", "Signed in as "), 100); cat(z, benutzer_name(), 100); cat(z, " (", 100); cat(z, benutzer_rollentext(benutzer_rolle()), 100); cat(z, ")", 100); al(z);
+        int ns = net_status(ip, 32); al(ns == 2 ? TR("Netzwerk aktiv: nur lokale Dienste sichtbar", "Network active: only local services visible") : TR("Kein Netzwerk: kein Angriff von aussen moeglich", "No network: no attack from outside possible"));
+        al((g_boot.flags & BOOT_SIGNIERT) ? TR("Ergebnis: alles in Ordnung.", "Result: all fine.") : TR("Ergebnis: bitte den Kernel pruefen.", "Result: please check the kernel."));
+    } else if (i == 2) {
+        uint32_t fr = pmm_get_free_pages() / 256, to = pmm_get_total_pages() / 256;
+        scopy(z, TR("Speicher: ", "Memory: "), 100); dec(a, fr); cat(z, a, 100); cat(z, TR(" MiB frei von ", " MiB free of "), 100); dec(a, to); cat(z, a, 100); al(z);
+        al(fr * 10 > to ? TR("Speicher ist ausreichend.", "Memory is sufficient.") : TR("Speicher wird knapp.", "Memory is getting low."));
+        al(TR("Vorschlag: Dateisystem jetzt sichern (SynFS sync).", "Proposal: sync the file system now (SynFS sync)."));
+        pend = 1; al(TR("Wartet auf deine Freigabe.", "Waiting for your approval.")); kprint("[AGENT] Freigabe angefragt: Dateisystem sichern\n");
+    } else {
+        aufg_laden(); int na = aufg_zahl(); scopy(z, TR("Offene Aufgaben: ", "Open tasks: "), 100); dec(a, (uint32_t)na); cat(z, a, 100); al(z);
+        for (int n = 0; n < na && n < 5; n++) { char t[90]; if (aufg_zeile(n, t, 90)) { scopy(z, "- ", 100); cat(z, t, 100); al(z); } }
+        if (na) { al(TR("Vorschlag: alle Aufgaben als erledigt entfernen.", "Proposal: remove all tasks as done.")); pend = 2; al(TR("Wartet auf deine Freigabe.", "Waiting for your approval.")); kprint("[AGENT] Freigabe angefragt: Aufgaben entfernen\n"); }
+        else al(TR("Nichts zu tun.", "Nothing to do."));
+    }
+}
+static void ag_entscheid(int ja) {
+    if (!pend) return;
+    if (ja) {
+        if (pend == 1) { synfs_sync(); al(TR("Freigegeben: Dateisystem gesichert.", "Approved: file system synced.")); }
+        else { aufg_leeren(); al(TR("Freigegeben: Aufgaben entfernt.", "Approved: tasks removed.")); }
+        kprint("[AGENT] Freigabe erteilt\n");
+    } else { al(TR("Abgelehnt: es wurde nichts veraendert.", "Rejected: nothing was changed.")); kprint("[AGENT] Freigabe abgelehnt\n"); }
+    pend = 0;
+}
+
+/* ---------- Design: Karten ---------- */
+enum { K_CHIP0 = 1, K_SUG0 = 8, K_DOT0 = 14, K_PREV = 18, K_NEXT = 19, K_SPEICHERN = 20, K_NEU, K_SCHLIESSEN, K_AG0 = 30, K_FREI = 34, K_ABL, K_NEUDOK, K_AUFLEER };
+static int flaeche;                                                  /* 0 Zynie, 1 System, 2 Agenten, 3 Aufgaben */
+static const char* const fl_name[4][2] = { { "Zynie", "Zynie" }, { "System", "System" }, { "Agenten", "Agents" }, { "Aufgaben", "Tasks" } };
+static void kn_loesche(int lo, int hi) { int k = 0; for (int i = 0; i < nkn; i++) if (knoepfe[i].id < lo || knoepfe[i].id > hi) knoepfe[k++] = knoepfe[i]; nkn = k; }
+static void karte(int x, int y, int w, int h, const char* titel) {
+    rrect_rand(x, y, w, h, 14, C_CARD, C_BORDER);
+    gfx_rect(x + 16, y + 1, w - 32, 2, C_ACC);
+    gtxt(x + 18, y + 14, titel, C_MUTED, 1);
+}
+
 static void zeichne_eingabe(void) {
     gfx_begin();
-    gfx_rect(bar_x - 10, bar_y - 6, bar_w + 20, 130, C_BG);
+    kn_loesche(K_CHIP0, K_SUG0 + 5);
+    gfx_rect(bar_x - 10, bar_y - 6, bar_w + 20, 215, C_BG);
     rrect_rand(bar_x, bar_y, bar_w, 52, 18, C_FIELD, C_ACC);
     rrect(bar_x + 14, bar_y + 20, 12, 12, 6, C_OK);
-    if (einlen == 0) gtxt(bar_x + 40, bar_y + 18, TR("Sag Zynie, was du tun moechtest ...", "Tell Zynie what you want to do ..."), 0x00647488u, 1);
+    if (einlen == 0) gtxt(bar_x + 40, bar_y + 18, TR("Frag mich alles - schon der erste Buchstabe zeigt Vorschlaege ...", "Ask me anything - the first letter already shows suggestions ..."), 0x00647488u, 1);
     else gfx_text(bar_x + 40, bar_y + 18, eingabe, C_TEXT, 1);
     gfx_rect(bar_x + 40 + einlen * 8, bar_y + 14, 2, 24, C_TEXT);
-    nkn = 0;
-    int x = bar_x;
-    for (int i = 0; i < 5; i++) {
-        int w = gtw(chip_text[i], 1) + 24;
-        rrect_rand(x, bar_y + 66, w, 30, 15, C_CARD, C_BORDER);
-        gtxt(x + 12, bar_y + 73, chip_text[i], C_MUTED, 1);
-        kn_reg(K_CHIP0 + i, x, bar_y + 66, w, 30);
-        x += w + 8;
+    if (nsug > 0) {
+        int y0 = bar_y + 60;
+        rrect_rand(bar_x, y0, bar_w, nsug * 30 + 12, 14, C_CARD, C_BORDER);
+        for (int i = 0; i < nsug; i++) {
+            int ry = y0 + 6 + i * 30;
+            if (i == sugsel) rrect(bar_x + 6, ry, bar_w - 12, 28, 10, mix(C_CARD, C_ACC, 120));
+            char a[96]; int pl = sugpre[i] < 95 ? sugpre[i] : 95; for (int j = 0; j < pl; j++) a[j] = sug[i][j]; a[pl] = 0;
+            int px = bar_x + 20;
+            if (pl) { gtxt(px, ry + 6, a, C_TEXT, 1); px += gtw(a, 1); }
+            gtxt(px, ry + 6, sug[i] + pl, i == sugsel ? C_TEXT : C_MUTED, 1);
+            const char* tg = sugtyp[i] == 0 ? TR("Befehl", "command") : sugtyp[i] == 1 ? TR("Frage", "question") : TR("Verlauf", "history");
+            gtxt(bar_x + bar_w - 20 - gtw(tg, 1), ry + 6, tg, sugtyp[i] == 1 ? 0x00A78BFAu : sugtyp[i] == 0 ? C_ACC2 : C_MUTED, 1);
+            kn_reg(K_SUG0 + i, bar_x + 6, ry, bar_w - 12, 28);
+        }
+    } else {
+        int x = bar_x;
+        for (int i = 0; i < 5; i++) {
+            int w = gtw(chip_text[i], 1) + 24;
+            rrect_rand(x, bar_y + 66, w, 30, 15, C_CARD, C_BORDER);
+            gtxt(x + 12, bar_y + 73, chip_text[i], C_MUTED, 1);
+            kn_reg(K_CHIP0 + i, x, bar_y + 66, w, 30);
+            x += w + 8;
+        }
+        gtxt(bar_x, bar_y + 108, TR("Tab/Pfeile: Vorschlaege   |   F1-F4 oder Bild auf/ab: Arbeitsflaeche drehen", "Tab/arrows: suggestions   |   F1-F4 or PgUp/PgDn: rotate workspace"), 0x00647488u, 1);
     }
     gfx_end();
 }
+
 static void zeichne_leiste(void) {
     gfx_begin();
+    kn_loesche(K_DOT0, K_NEXT);
     gfx_rect(0, 0, W, 40, C_BG);
-    gtxt(16, 12, "Zynex OS Quantum", C_CYAN, 1);
+    gfx_rect(0, 39, W, 1, C_BORDER);
+    gtxt(16, 12, "Zynex OS Quantum", C_ACC2, 1);
     char r[48]; scopy(r, benutzer_name(), 20); cat(r, " (", 48); cat(r, benutzer_rollentext(benutzer_rolle()), 48); cat(r, ")", 48);
     uint32_t ymd, hm; char zt[12] = "";
     if (rtc_get(&ymd, &hm) == 0 || hm) { char a[8]; dec(a, hm / 100); if (hm / 100 < 10) { zt[0] = '0'; zt[1] = 0; } cat(zt, a, 12); cat(zt, ":", 12); dec(a, hm % 100); if (hm % 100 < 10) cat(zt, "0", 12); cat(zt, a, 12); }
     int x = W - 16;
-    for (int i = 3; i >= 0; i--) { rrect(x - 10, 15, 10, 10, 5, C_CYAN); x -= 16; }
-    x -= 8; x -= gtw(r, 1); gtxt(x, 12, r, C_MUTED, 1);
+    x -= gtw(r, 1); gtxt(x, 12, r, C_MUTED, 1);
     if (zt[0]) { x -= 16 + gtw(zt, 1); gtxt(x, 12, zt, C_TEXT, 1); }
+    /* Wuerfel-Anzeige in der Mitte: < o o o o > Name */
+    const char* nm = TR(fl_name[flaeche][0], fl_name[flaeche][1]);
+    int tw = 4 * 26 + 80 + gtw(nm, 1), sx = (W - tw) / 2;
+    gtxt(sx, 12, "<", C_MUTED, 1); kn_reg(K_PREV, sx - 8, 4, 28, 32);
+    for (int i = 0; i < 4; i++) {
+        int cx = sx + 30 + i * 26;
+        if (i == flaeche) rrect(cx, 14, 12, 12, 6, C_ACC2); else rrect_rand(cx, 14, 12, 12, 6, C_BG, C_OFF);
+        kn_reg(K_DOT0 + i, cx - 6, 4, 24, 32);
+    }
+    gtxt(sx + 30 + 4 * 26 + 4, 12, ">", C_MUTED, 1); kn_reg(K_NEXT, sx + 30 + 4 * 26 - 4, 4, 28, 32);
+    gtxt(sx + 30 + 4 * 26 + 30, 12, nm, C_TEXT, 1);
     gfx_end();
 }
+
+/* Arbeitsflaeche 1: System */
+static void sys_pos(int i, int* x, int* y, int* w, int* h) {
+    int pad = 40, gw = (W - 3 * pad) / 2, gh = (H - 56 - 90) / 2; if (gh > 300) gh = 300;
+    *x = pad + (i % 2) * (gw + pad); *y = 62 + (i / 2) * (gh + 30); *w = gw; *h = gh;
+}
+static void sys_k_speicher(void) {
+    int x, y, w, h; sys_pos(0, &x, &y, &w, &h);
+    uint32_t fr = pmm_get_free_pages() / 256, to = pmm_get_total_pages() / 256; char a[12], t[40];
+    karte(x, y, w, h, TR("Arbeitsspeicher", "Memory"));
+    dec(a, fr); scopy(t, a, 40); cat(t, " MiB", 40); gfx_text(x + 18, y + 48, t, C_TEXT, 3);
+    scopy(t, TR("frei von ", "free of "), 40); dec(a, to); cat(t, a, 40); cat(t, " MiB", 40); gtxt(x + 18, y + 96, t, C_MUTED, 1);
+    int bw = w - 36, used = to ? (int)((to - fr) * (uint32_t)bw / to) : 0;
+    rrect(x + 18, y + 130, bw, 12, 6, C_FIELD); if (used > 0) rrect(x + 18, y + 130, used < 12 ? 12 : used, 12, 6, mix(C_ACC, C_VIOLET, 128));
+}
+static void sys_k_zeit(void) {
+    int x, y, w, h; sys_pos(1, &x, &y, &w, &h); char t[24];
+    karte(x, y, w, h, TR("Laufzeit und Uhr", "Uptime and clock"));
+    zeit_text(t, timer_get_seconds()); gfx_text(x + 18, y + 48, t, C_TEXT, 3);
+    gtxt(x + 18, y + 96, TR("seit dem Start (Stunden:Minuten:Sekunden)", "since boot (hours:minutes:seconds)"), C_MUTED, 1);
+}
+static void sys_k_netz(void) {
+    int x, y, w, h; sys_pos(2, &x, &y, &w, &h); char ip[32] = "";
+    karte(x, y, w, h, TR("Netzwerk", "Network"));
+    int ns = net_status(ip, 32);
+    rrect(x + 18, y + 52, 14, 14, 7, ns == 2 ? C_OK : ns == 1 ? 0x00F59E0Bu : C_OFF);
+    gtxt(x + 42, y + 50, ns == 2 ? TR("verbunden", "connected") : ns == 1 ? TR("Karte da, keine Adresse", "card found, no address") : TR("keine Netzwerkkarte", "no network card"), C_TEXT, 1);
+    if (ns == 2) gfx_text(x + 18, y + 90, ip, C_ACC2, 2);
+}
+static void sys_k_sich(void) {
+    int x, y, w, h; sys_pos(3, &x, &y, &w, &h); char z[100];
+    karte(x, y, w, h, TR("Sicherheit und KI", "Security and AI"));
+    int sig = (g_boot.flags & BOOT_SIGNIERT) != 0;
+    rrect(x + 18, y + 52, 14, 14, 7, sig ? C_OK : C_ERR);
+    gtxt(x + 42, y + 50, sig ? TR("Startkette durch LMS-Signatur geprueft", "Boot chain verified by LMS signature") : TR("Kernel nicht durch Signatur geprueft", "Kernel not verified by signature"), C_TEXT, 1);
+    scopy(z, TR("Benutzer: ", "User: "), 100); cat(z, benutzer_name(), 100); cat(z, " (", 100); cat(z, benutzer_rollentext(benutzer_rolle()), 100); cat(z, ")", 100); gtxt(x + 18, y + 84, z, C_MUTED, 1);
+    rrect(x + 18, y + 118, 14, 14, 7, gehirn_vorhanden() ? C_OK : C_OFF);
+    gtxt(x + 42, y + 116, gehirn_vorhanden() ? TR("Sprachmodell bereit (laeuft lokal)", "Language model ready (runs locally)") : TR("kein Sprachmodell geladen", "no language model loaded"), C_TEXT, 1);
+}
+static void zeichne_f_system(void) { sys_k_speicher(); sys_k_zeit(); sys_k_netz(); sys_k_sich(); }
+
+/* Arbeitsflaeche 2: Agenten */
+static void zeichne_f_agenten(void) {
+    int lx = 40, lw = (W - 120) * 45 / 100; if (lw < 360) lw = 360;
+    int rx = lx + lw + 40, rw = W - rx - 40, ah = (H - 62 - 50) / NAG - 10; if (ah > 110) ah = 110;
+    for (int i = 0; i < NAG; i++) {
+        int y = 62 + i * (ah + 10);
+        rrect_rand(lx, y, lw, ah, 14, i == alauf ? mix(C_CARD, C_ACC, 40) : C_CARD, i == alauf ? C_ACC : C_BORDER);
+        gtxt(lx + 18, y + 12, TR(ag_name[i][0], ag_name[i][1]), C_TEXT, 1);
+        absatz(lx + 18, y + 36, lw - 160, TR(ag_desc[i][0], ag_desc[i][1]), C_MUTED);
+        knopf(K_AG0 + i, TR("Starten", "Run"), lx + lw - 120, y + (ah - 34) / 2, 100, 1);
+    }
+    int rh = H - 62 - 50; karte(rx, 62, rw, rh, alauf >= 0 ? TR(ag_name[alauf][0], ag_name[alauf][1]) : TR("Lauf-Protokoll", "Run log"));
+    if (alauf < 0) absatz(rx + 18, 62 + 46, rw - 36, TR("Waehle links einen Agenten. Alles mit Wirkung wartet auf deine Freigabe. Du kannst auch sagen: briefing, agent sicherheit ...", "Pick an agent on the left. Anything with an effect waits for your approval. You can also say: briefing, agent security ..."), C_MUTED);
+    for (int i = 0; i < nalog; i++) { rrect(rx + 18, 62 + 52 + i * 24, 8, 8, 4, C_OK); gtxt(rx + 36, 62 + 48 + i * 24, alog[i], i == nalog - 1 ? C_TEXT : C_MUTED, 1); }
+    if (pend) {
+        int by = 62 + rh - 78;
+        rrect_rand(rx + 14, by, rw - 28, 64, 12, C_FIELD, 0x00F59E0Bu);
+        gtxt(rx + 28, by + 8, TR("Freigabe noetig", "Approval needed"), 0x00F59E0Bu, 1);
+        knopf(K_FREI, TR("Freigeben", "Approve"), rx + 28, by + 24, 130, 1);
+        knopf(K_ABL, TR("Ablehnen", "Reject"), rx + 170, by + 24, 130, 0);
+    }
+}
+
+/* Arbeitsflaeche 3: Dokumente und Aufgaben */
+static void zeichne_f_aufgaben(void) {
+    int pad = 40, cw = (W - 3 * pad) / 2, ch = H - 62 - 50;
+    char nm[8][24]; int nd = doks_liste(nm, 8);
+    karte(pad, 62, cw, ch, TR("Deine Dokumente", "Your documents"));
+    if (!nd) gtxt(pad + 18, 62 + 46, TR("Noch keine Dokumente.", "No documents yet."), C_MUTED, 1);
+    for (int i = 0; i < nd; i++) { rrect(pad + 18, 62 + 52 + i * 26, 8, 8, 4, C_ACC2); gtxt(pad + 36, 62 + 48 + i * 26, nm[i], C_TEXT, 1); }
+    knopf(K_NEUDOK, TR("Neues Dokument", "New document"), pad + 18, 62 + ch - 52, 180, 1);
+    int rx = pad + cw + pad; aufg_laden(); int na = aufg_zahl();
+    karte(rx, 62, cw, ch, TR("Aufgaben", "Tasks"));
+    if (!na) absatz(rx + 18, 62 + 46, cw - 36, TR("Keine Aufgaben. Sag zum Beispiel: aufgabe Rechnung bezahlen", "No tasks. Try saying: task pay the invoice"), C_MUTED);
+    for (int i = 0; i < na && i < 10; i++) { char t[100]; if (!aufg_zeile(i, t, 100)) break; rrect_rand(rx + 18, 62 + 50 + i * 26, 12, 12, 4, C_FIELD, C_ACC); gtxt(rx + 40, 62 + 48 + i * 26, t, C_TEXT, 1); }
+    knopf(K_AUFLEER, TR("Alle erledigt", "All done"), rx + 18, 62 + ch - 52, 180, 0);
+}
+
 static void zeichne_desktop(void) {
     gfx_begin(); gfx_rect(0, 0, W, H, C_BG); gfx_end();
-    lbw = 0; zeichne_leiste(); zeichne_robot(); zeichne_antwort(); zeichne_eingabe();
-    hv_status_zeichnen();
+    nkn = 0; lbw = 0; zeichne_leiste();
+    if (flaeche == 0) { zeichne_robot(); zeichne_antwort(); zeichne_eingabe(); }
+    else { gfx_begin(); if (flaeche == 1) zeichne_f_system(); else if (flaeche == 2) zeichne_f_agenten(); else zeichne_f_aufgaben(); gfx_end(); }
+}
+
+/* ---------- Wuerfel: die Arbeitsflaechen drehen sich wie die Seiten eines Wuerfels ---------- */
+extern uint32_t* gfx_fbptr(uint32_t* pitch_px);
+static uint32_t *snapA, *snapB; static int snap_fehler;
+static const int sin90[19] = { 0, 89, 178, 265, 350, 433, 512, 587, 658, 724, 784, 839, 887, 928, 962, 989, 1008, 1020, 1024 };
+static void fb_sichern(uint32_t* d) { uint32_t pp; uint32_t* f = gfx_fbptr(&pp); if (!f) return; for (int y = 0; y < H; y++) { uint32_t* s = f + (uint64_t)y * pp; uint32_t* t = d + (uint64_t)y * W; for (int x = 0; x < W; x++) t[x] = s[x]; } }
+static void wuerfel_flaeche(const uint32_t* src, int deg, int dir, int neu) {
+    uint32_t pp; uint32_t* f = gfx_fbptr(&pp); if (!f) return;
+    int a = W / 2, D = 3 * a, F = D - a;
+    int s = sin90[deg / 5], c = sin90[(90 - deg) / 5];
+    int prev = 0, havePrev = 0;
+    for (int i = 0; i < W; i++) {
+        int x, z;
+        if (!neu) { int u = i - a; x = (u * c - a * s) / 1024; z = (-u * s - a * c) / 1024; }
+        else { int w = i - a; x = (a * c + w * s) / 1024; z = (-a * s + w * c) / 1024; }
+        int den = z + D; if (den < 1) den = 1;
+        int sx = W / 2 + (int)((int64_t)x * F / den);
+        int sc16 = (int)(((int64_t)F << 16) / den);
+        if (!havePrev) { prev = sx; havePrev = 1; continue; }
+        int d0 = prev, d1 = sx; prev = sx;
+        if (d1 <= d0) continue;
+        int col = dir > 0 ? i : W - 1 - i;
+        int hd = (int)(((int64_t)H * sc16) >> 16); if (hd < 2) continue; if (hd > H) hd = H;
+        int y0 = (H - hd) / 2; int inv = (int)(((int64_t)H << 16) / hd); int dunkel = sc16 < 52000;
+        for (int dx = d0; dx < d1; dx++) {
+            int ox = dir > 0 ? dx : W - 1 - dx; if (ox < 0 || ox >= W) continue;
+            uint32_t* o = f + (uint64_t)y0 * pp + ox; int sy16 = 0;
+            for (int dy = 0; dy < hd; dy++, o += pp, sy16 += inv) {
+                uint32_t p = src[(uint64_t)(sy16 >> 16) * W + col];
+                if (dunkel) p = ((p >> 1) & 0x007F7F7Fu) + ((p >> 2) & 0x003F3F3Fu);
+                *o = p;
+            }
+        }
+    }
+}
+static void wuerfel_dreh(int nach) {
+    int von = flaeche; int diff = (nach - von + 4) % 4; int dir = diff == 3 ? -1 : 1;
+    if (!snapA && !snap_fehler) {
+        uint32_t seiten = ((uint32_t)W * (uint32_t)H * 4 + 4095) / 4096;
+        if (pmm_get_free_pages() > seiten * 2 + 16384) { snapA = (uint32_t*)pmm_alloc_pages(seiten); snapB = (uint32_t*)pmm_alloc_pages(seiten); }
+        if (!snapA || !snapB) { snapA = snapB = 0; snap_fehler = 1; }
+    }
+    if (snap_fehler || !gfx_fbptr(&(uint32_t){0})) { flaeche = nach; zeichne_desktop(); kprint("[DESKTOP] Wuerfel: ohne Animation\n"); return; }
+    gfx_begin(); fb_sichern(snapA); gfx_end();
+    flaeche = nach; zeichne_desktop();
+    gfx_begin(); fb_sichern(snapB);
+    uint32_t pp; uint32_t* f = gfx_fbptr(&pp);
+    for (int deg = 5; deg < 90; deg += 5) {
+        uint32_t t0 = timer_get_ticks();
+        for (int y = 0; y < H; y++) { uint32_t* r = f + (uint64_t)y * pp; for (int x = 0; x < W; x++) r[x] = C_BG; }
+        wuerfel_flaeche(snapA, deg, dir, 0); wuerfel_flaeche(snapB, deg, dir, 1);
+        while (timer_get_ticks() - t0 < 2) __asm__ volatile ("pause");
+    }
+    for (int y = 0; y < H; y++) { uint32_t* r = f + (uint64_t)y * pp; uint32_t* q = snapB + (uint64_t)y * W; for (int x = 0; x < W; x++) r[x] = q[x]; }
+    gfx_end();
+    kprint("[DESKTOP] Wuerfel: gedreht\n");
+}
+static void flaeche_wechsel(int nach) {
+    nach = ((nach % 4) + 4) % 4; if (nach == flaeche) return;
+    wuerfel_dreh(nach);
+    kprint("[DESKTOP] Arbeitsflaeche "); kprint_dec((uint32_t)nach + 1); kprint(": "); kprint(fl_name[nach][1]); kprint("\n");
 }
 
 /* ---------- Textverarbeitung ---------- */
@@ -409,7 +723,8 @@ static void editor_taste(uint8_t k, int shift, int altgr) {
 }
 
 /* ---------- Intents ---------- */
-enum { I_NICHTS, I_TEXT, I_RECHNEN, I_SYSTEM, I_DATEIEN, I_QUBIT, I_SICHER, I_ABMELDEN, I_NEUSTART, I_WARTUNG, I_HILFE };
+enum { I_NICHTS, I_TEXT, I_RECHNEN, I_SYSTEM, I_DATEIEN, I_QUBIT, I_SICHER, I_ABMELDEN, I_NEUSTART, I_WARTUNG, I_HILFE, I_AGENT, I_AUFGABE, I_FLAECHE };
+static int in_par; static const char* in_text;
 static int enthaelt(const char* s, const char* w) {
     for (; *s; s++) { int i = 0; while (w[i] && s[i] == w[i]) i++; if (!w[i]) return 1; }
     return 0;
@@ -429,6 +744,22 @@ static int erkenne(const char* s) {
     static const char* const w_out[] = { "abmeld", "logout", "log out", "sperr", "lock", "sign out", 0 };
     static const char* const w_nst[] = { "neustart", "restart", "reboot", "neu starten", 0 };
     static const char* const w_hlp[] = { "hilfe", "help", "was kannst", "what can", 0 };
+    if (enthaelt(s, "arbeitsfl") || enthaelt(s, "workspace") || enthaelt(s, "wuerfel") || enthaelt(s, "cube")) {
+        in_par = -1;
+        if (enthaelt(s, "1") || enthaelt(s, "zynie")) in_par = 0; else if (enthaelt(s, "2") || enthaelt(s, "system")) in_par = 1;
+        else if (enthaelt(s, "3") || enthaelt(s, "agent")) in_par = 2; else if (enthaelt(s, "4") || enthaelt(s, "aufgab") || enthaelt(s, "task")) in_par = 3;
+        return I_FLAECHE;
+    }
+    if (enthaelt(s, "agent") || enthaelt(s, "briefing")) {
+        in_par = -1;
+        if (enthaelt(s, "briefing")) in_par = 0; else if (enthaelt(s, "sicher") || enthaelt(s, "secur")) in_par = 1;
+        else if (enthaelt(s, "wartung") || enthaelt(s, "mainten")) in_par = 2; else if (enthaelt(s, "aufgab") || enthaelt(s, "task")) in_par = 3;
+        return I_AGENT;
+    }
+    if ((s[0] == 'a' && s[1] == 'u' && s[2] == 'f' && s[3] == 'g' && s[4] == 'a' && s[5] == 'b' && s[6] == 'e') || (s[0] == 't' && s[1] == 'a' && s[2] == 's' && s[3] == 'k' && (s[4] == ' ' || !s[4]))) {
+        const char* t = s; while (*t && *t != ' ') t++; while (*t == ' ' || *t == ':') t++;
+        in_text = t; return I_AUFGABE;
+    }
     if (enthaelt(s, "wartung") || enthaelt(s, "maintenance")) return I_WARTUNG;
     if (enthaelt(s, "rechne") || enthaelt(s, "calc") || hat_rechnung(s)) return I_RECHNEN;
     if (hat(s, w_text)) return I_TEXT;
@@ -549,9 +880,10 @@ static void ausfuehren(void) {
     char s[96]; int k = 0; for (int i = 0; eingabe[i] && k < 94; i++) { char c = eingabe[i]; s[k++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; } s[k] = 0;
     char roh[96]; scopy(roh, eingabe, 96);
     int in = erkenne(s);
-    if (gehirn_vorhanden() && in != I_WARTUNG && in != I_RECHNEN) { int w = 1; for (int i = 0; s[i]; i++) if (s[i] == ' ' && s[i + 1] && s[i + 1] != ' ') w++; if (w > 3) in = I_NICHTS; }   /* ganze Saetze gehen an das Sprachmodell */
-    einlen = 0; eingabe[0] = 0;
+    if (gehirn_vorhanden() && in != I_WARTUNG && in != I_RECHNEN && in != I_AGENT && in != I_AUFGABE && in != I_FLAECHE) { int w = 1; for (int i = 0; s[i]; i++) if (s[i] == ' ' && s[i + 1] && s[i + 1] != ' ') w++; if (w > 3) in = I_NICHTS; }   /* ganze Saetze gehen an das Sprachmodell */
+    einlen = 0; eingabe[0] = 0; nsug = 0; sugsel = -1;
     if (!k) return;
+    hist_add(roh);
     kprint("[DESKTOP] Intent '"); kprint(roh); kprint("' -> ");
     switch (in) {
     case I_TEXT: kprint("Textverarbeitung\n"); editor_oeffnen(); return;
@@ -564,7 +896,16 @@ static void ausfuehren(void) {
                                          : TR("ACHTUNG: Der Kernel wurde nicht durch eine Signatur geprueft.", "WARNING: the kernel was not verified by a signature."), 0, 0, 0, 0); break;
     case I_HILFE: kprint("Hilfe\n"); antwort_setze(TR("Sag mir einfach, was du tun moechtest. Zum Beispiel:", "Just tell me what you want to do. For example:"),
             TR("\"text erstellen\" - schreibt ein Dokument", "\"write a text\" - opens a document"), TR("\"rechne (12+3)*7\" - rechnet", "\"calc (12+3)*7\" - calculates"),
-            TR("\"system\" - zeigt den Zustand, \"dateien\" - deine Dokumente", "\"system\" - shows the status, \"files\" - your documents"), TR("\"quanten\" - Quanten-Demo, \"abmelden\" - sperrt den Bildschirm", "\"quantum\" - quantum demo, \"sign out\" - locks the screen"), 0); break;
+            TR("\"system\" - zeigt den Zustand, \"dateien\" - deine Dokumente", "\"system\" - shows the status, \"files\" - your documents"), TR("\"briefing\", \"agenten\", \"aufgabe ...\", \"quanten\", \"abmelden\" - oder frag mich einfach alles", "\"briefing\", \"agents\", \"task ...\", \"quantum\", \"sign out\" - or just ask me anything"), 0); break;
+    case I_FLAECHE: kprint("Arbeitsflaeche\n"); { int z = in_par < 0 ? (flaeche + 1) % 4 : in_par; if (z == flaeche) { reply1(TR("Du bist schon dort.", "You are already there.")); break; }
+            reply1(TR("Ich drehe den Wuerfel.", "Rotating the cube.")); flaeche_wechsel(z); return; }
+    case I_AGENT: kprint("Agent\n"); if (in_par < 0) { reply1(TR("Ich zeige dir die Agenten.", "Showing the agents.")); flaeche_wechsel(2); return; }
+        reply1(TR("Ich starte den Agenten ...", "Starting the agent ...")); ag_start(in_par); if (flaeche != 2) flaeche_wechsel(2); else zeichne_desktop(); return;
+    case I_AUFGABE: kprint("Aufgabe\n");
+        if (!*in_text) { reply1(TR("Aufgaben ansehen ...", "Opening tasks ...")); flaeche_wechsel(3); return; }
+        if (aufg_add(roh + (in_text - s)) < 0) { reply1(TR("Die Aufgabenliste ist voll.", "The task list is full.")); break; }
+        kprint("[DESKTOP] Aufgabe gespeichert: "); kprint(roh + (in_text - s)); kprint("\n");
+        antwort_setze(TR("Aufgabe gespeichert:", "Task saved:"), roh + (in_text - s), TR("Sag \"aufgaben\" oder druecke F4, um alle zu sehen.", "Press F4 to see all tasks."), 0, 0, 0); break;
     case I_ABMELDEN: kprint("Abmelden\n"); benutzer_abmelden(); fname[0] = fpw[0] = 0; ffocus = 0; fmsg = 0; zustand = Z_LOGIN; zeichne_login(); return;
     case I_NEUSTART: kprint("Neustart\n"); system_neustart(); return;
     case I_WARTUNG:
@@ -599,11 +940,31 @@ static void taste(uint8_t k, int shift, int altgr) {
         else { char c = usb_key_char(k, shift, altgr); if (c >= 32 && c < 127 && n < max) { t[n] = c; t[n + 1] = 0; fmsg = 0; zeichne_login(); } }
         return;
     }
-    if (k == 0x28 || k == 0x58) { ausfuehren(); return; }
-    if (k == 0x2A) { if (einlen) { eingabe[--einlen] = 0; zeichne_eingabe(); } return; }
-    if (k == 0x29) { einlen = 0; eingabe[0] = 0; zeichne_eingabe(); return; }
+    if (k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }                       /* F1-F4 */
+    if (k == 0x4B) { flaeche_wechsel(flaeche + 3); return; }                                 /* Bild auf */
+    if (k == 0x4E) { flaeche_wechsel(flaeche + 1); return; }                                 /* Bild ab */
+    if (k == 0x28 || k == 0x58) {
+        if (flaeche != 0) return;
+        if (sugsel >= 0 && sugsel < nsug) {
+            scopy(eingabe, sug[sugsel], 96); einlen = slen(eingabe);
+            if (einlen && eingabe[einlen - 1] == ' ') { sug_suche(); zeichne_eingabe(); return; }          /* braucht noch Text */
+        }
+        ausfuehren(); return;
+    }
+    if (flaeche == 0 && nsug > 0 && (k == 0x51 || k == 0x52)) {                              /* Pfeil runter / hoch */
+        sugsel += (k == 0x51) ? 1 : -1; if (sugsel >= nsug) sugsel = -1; if (sugsel < -1) sugsel = nsug - 1;
+        zeichne_eingabe(); return;
+    }
+    if (flaeche == 0 && nsug > 0 && k == 0x2B) {                                             /* Tab: Vorschlag uebernehmen */
+        scopy(eingabe, sug[sugsel >= 0 ? sugsel : 0], 96); einlen = slen(eingabe); sug_suche(); zeichne_eingabe(); return;
+    }
+    if (k == 0x2A) { if (flaeche == 0 && einlen) { eingabe[--einlen] = 0; sug_suche(); zeichne_eingabe(); } return; }
+    if (k == 0x29) { if (flaeche != 0) return; einlen = 0; eingabe[0] = 0; sug_suche(); zeichne_eingabe(); return; }
     char c = usb_key_char(k, shift, altgr);
-    if (((c >= 32 && c < 127) || (unsigned char)c >= 0xA0) && einlen < 80) { eingabe[einlen++] = c; eingabe[einlen] = 0; zeichne_eingabe(); }
+    if (((c >= 32 && c < 127) || (unsigned char)c >= 0xA0) && einlen < 80) {
+        if (flaeche != 0) flaeche_wechsel(0);
+        eingabe[einlen++] = c; eingabe[einlen] = 0; sug_suche(); zeichne_eingabe();
+    }
 }
 
 static void klick(int x, int y) {
@@ -611,6 +972,17 @@ static void klick(int x, int y) {
         if (x < knoepfe[i].x || x >= knoepfe[i].x + knoepfe[i].w || y < knoepfe[i].y || y >= knoepfe[i].y + knoepfe[i].h) continue;
         int id = knoepfe[i].id;
         if (zustand == Z_DESK && id >= K_CHIP0 && id < K_CHIP0 + 5) { scopy(eingabe, chip_text[id - K_CHIP0], 96); einlen = slen(eingabe); ausfuehren(); }
+        else if (zustand == Z_DESK && id >= K_SUG0 && id < K_SUG0 + 5 && id - K_SUG0 < nsug) {
+            scopy(eingabe, sug[id - K_SUG0], 96); einlen = slen(eingabe);
+            if (einlen && eingabe[einlen - 1] == ' ') { sug_suche(); zeichne_eingabe(); } else ausfuehren();
+        }
+        else if (zustand == Z_DESK && id >= K_DOT0 && id < K_DOT0 + 4) flaeche_wechsel(id - K_DOT0);
+        else if (zustand == Z_DESK && id == K_PREV) flaeche_wechsel(flaeche + 3);
+        else if (zustand == Z_DESK && id == K_NEXT) flaeche_wechsel(flaeche + 1);
+        else if (zustand == Z_DESK && id >= K_AG0 && id < K_AG0 + NAG) { ag_start(id - K_AG0); zeichne_desktop(); }
+        else if (zustand == Z_DESK && (id == K_FREI || id == K_ABL)) { ag_entscheid(id == K_FREI); zeichne_desktop(); }
+        else if (zustand == Z_DESK && id == K_NEUDOK) editor_oeffnen();
+        else if (zustand == Z_DESK && id == K_AUFLEER) { aufg_leeren(); kprint("[DESKTOP] Aufgaben geleert\n"); zeichne_desktop(); }
         else if (zustand == Z_EDIT && id == K_SPEICHERN) { dok_speichern(); zeichne_editor(0); }
         else if (zustand == Z_EDIT && id == K_NEU) { if (doklen > 0 && dokgeaendert) dok_speichern(); dok_neu(); zeichne_editor(1); }
         else if (zustand == Z_EDIT && id == K_SCHLIESSEN) editor_schliessen();
@@ -630,12 +1002,12 @@ static void tick(void) {
         if (p->x != lpx || p->y != lpy) { lpx = p->x; lpy = p->y; letzte_eingabe = t; }
         int down = p->buttons & 1;
         if (down && !was_down) {
-            if (zustand == Z_DESK && p->x >= zr_x() && p->x < zr_x() + zr_w() && p->y >= zr_y() && p->y < zr_y() + zr_h()) {
+            if (zustand == Z_DESK && flaeche == 0 && p->x >= zr_x() && p->x < zr_x() + zr_w() && p->y >= zr_y() && p->y < zr_y() + zr_h()) {
                 if (p->x >= zr_x() + zr_w() - 24 && p->y >= zr_y() + zr_h() - 24) zdrag = 2;
                 else { zdrag = 1; zdx = p->x - zx; zdy = p->y - zy; }
             } else klick(p->x, p->y);
         }
-        if (down && zdrag && zustand == Z_DESK) {
+        if (down && zdrag && zustand == Z_DESK && flaeche == 0) {
             int bxl = zr_x(), byl = zr_y();
             if (zdrag == 1) { zx = p->x - zdx; zy = p->y - zdy; if (zy - SC(108) < 44) zy = 44 + SC(108); if (zx - SC(90) < 0) zx = SC(90); if (zx + SC(90) > W) zx = W - SC(90); if (zy + SC(124) > H) zy = H - SC(124); }
             else { int ns = (p->x - bxl) * 100 / 180; if (ns < 50) ns = 50; if (ns > 220) ns = 220; if (byl + ns * 232 / 100 <= H) { zs = ns; zx = bxl + SC(90); zy = byl + SC(108); } }
@@ -647,7 +1019,8 @@ static void tick(void) {
     static int war_ruhe;
     int r = ruhend(); if (r != war_ruhe) { war_ruhe = r; kprint(r ? "[DESKTOP] Zynie: Ruhemodus\n" : "[DESKTOP] Zynie: wach\n"); }
     uint32_t ph = t / (t < sprech_bis ? 6 : r ? 30 : 12);
-    if (ph != robot_phase) { robot_phase = ph; if (zustand == Z_DESK && !zdrag) zeichne_robot(); }
+    if (ph != robot_phase) { robot_phase = ph; if (zustand == Z_DESK && !zdrag && flaeche == 0) zeichne_robot(); }
+    { static uint32_t lsek; if (zustand == Z_DESK && flaeche == 1 && t / 100 != lsek) { lsek = t / 100; gfx_begin(); sys_k_zeit(); gfx_end(); } }
 }
 
 int desktop_start(void) {
@@ -656,8 +1029,8 @@ int desktop_start(void) {
     lang = 0;
     static char cfg[64]; int r = synfs_read("sys.config", cfg, sizeof(cfg) - 1);
     if (r > 0) { cfg[r] = 0; for (int i = 0; cfg[i]; i++) if (cfg[i] == 'l' && cfg[i + 1] == 'a' && cfg[i + 2] == 'n' && cfg[i + 3] == 'g' && cfg[i + 4] == '=') { lang = (cfg[i + 5] == 'd' ? 0 : 1); break; } }
-    bar_w = W - 80 < 760 ? W - 80 : 760; bar_x = (W - bar_w) / 2; bar_y = H - 150;
-    fname[0] = fpw[0] = 0; ffocus = 0; fmsg = 0; einlen = 0; eingabe[0] = 0; nantwort = 0; qh = qt = 0; was_down = 0;
+    bar_w = W - 80 < 760 ? W - 80 : 760; bar_x = (W - bar_w) / 2; bar_y = H - 230;
+    fname[0] = fpw[0] = 0; ffocus = 0; fmsg = 0; einlen = 0; eingabe[0] = 0; nsug = 0; sugsel = -1; flaeche = 0; alauf = -1; nalog = 0; pend = 0; nantwort = 0; qh = qt = 0; was_down = 0;
     zx = 24 + 90; zy = 56 + 108; zs = 100; lbw = 0; zdrag = 0; letzte_eingabe = timer_get_ticks();
     gfx_console(0);
     usb_set_rawgrab(rohtaste);
