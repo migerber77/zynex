@@ -1,0 +1,8 @@
+# Erstes Syn-Programm
+print "Hallo aus einer .synbin-Datei!\n"
+let a = 6
+let b = 7
+print "6 mal 7 = "
+printnum a * b
+print "\n"
+return a * b

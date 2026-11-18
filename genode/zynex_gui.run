@@ -1,0 +1,70 @@
+# Zynex-Gesicht auf Genode (hw-Kernel, QEMU): Treiber -> nitpicker -> zynex_gui
+assert {[have_recipe pkg/[drivers_interactive_pkg]]} "Rezept pkg/[drivers_interactive_pkg] fehlt"
+
+build { core init timer lib/ld lib/libc lib/libm lib/stdcxx lib/posix lib/vfs server/nitpicker }
+
+create_boot_directory
+
+import_from_depot [depot_user]/pkg/[drivers_interactive_pkg]
+
+install_config {
+<config verbose="yes">
+	<parent-provides>
+		<service name="CPU"/> <service name="IO_MEM"/> <service name="IO_PORT"/>
+		<service name="IRQ"/> <service name="LOG"/> <service name="PD"/>
+		<service name="RM"/> <service name="ROM"/>
+	</parent-provides>
+	<default-route> <any-service> <parent/> <any-child/> </any-service> </default-route>
+	<default caps="200"/>
+	<start name="timer">
+		<resource name="RAM" quantum="1M"/>
+		<provides> <service name="Timer"/> </provides>
+	</start>
+	<start name="drivers" caps="1500" managing_system="yes">
+		<resource name="RAM" quantum="64M"/>
+		<binary name="init"/>
+		<route>
+			<service name="ROM" label="config"> <parent label="drivers.config"/> </service>
+			<service name="Timer">   <child name="timer"/> </service>
+			<service name="Capture"> <child name="nitpicker"/> </service>
+			<service name="Event">   <child name="nitpicker"/> </service>
+			<any-service> <parent/> </any-service>
+		</route>
+	</start>
+	<start name="nitpicker" caps="300">
+		<resource name="RAM" quantum="12M"/>
+		<provides>
+			<service name="Gui"/> <service name="Capture"/> <service name="Event"/>
+		</provides>
+		<config>
+			<capture/> <event/>
+			<domain name="default" layer="1" content="client" label="no" focus="click"/>
+			<default-policy domain="default"/>
+			<background color="#00426f"/>
+		</config>
+		<route>
+			<service name="Timer"> <child name="timer"/> </service>
+			<any-service> <parent/> </any-service>
+		</route>
+	</start>
+	<start name="zynex_gui" caps="3000">
+		<resource name="RAM" quantum="3G"/>
+		<config>
+			<libc stdout="/dev/log" stderr="/dev/log"/>
+			<vfs> <dir name="dev"> <log/> <null/> </dir> <rom name="modell.gguf"/> </vfs>
+		</config>
+		<route>
+			<service name="Gui">   <child name="nitpicker"/> </service>
+			<service name="Timer"> <child name="timer"/> </service>
+			<any-service> <parent/> </any-service>
+		</route>
+	</start>
+</config>
+}
+
+build_boot_image [list {*}[build_artifacts] zynex_gui modell.gguf]
+
+append qemu_args " -nographic -m 6144 -cpu max -smp 2 "
+
+if {[info exists ::env(ZX_BILD)]} { puts "ISO fertig"; exit 0 }
+run_genode_until {zynex: antwort} 1500

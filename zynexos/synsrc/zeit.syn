@@ -1,0 +1,4 @@
+# Braucht die Timer-Faehigkeit (Maske 0x03)
+print "Ticks seit dem Start: "
+printnum ticks
+print "\n"

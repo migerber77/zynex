@@ -1,0 +1,14 @@
+name: zynexos-lader
+# Schneller Lauf nur fuer den Lader: bauen + Signatur-Tests (einige Minuten)
+on:
+  workflow_dispatch:
+jobs:
+  lader:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y nasm gcc clang lld xorriso mtools gdisk dosfstools qemu-system-x86 qemu-utils ovmf >/dev/null
+      - run: tools/zynexos_build.sh
+      - run: |
+          python3 tools/zynexos_test.py zynexos-test.iso uefi boot
+          python3 tools/zynexos_test.py zynexos-manip.iso uefi manip

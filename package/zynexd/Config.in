@@ -1,0 +1,8 @@
+config BR2_PACKAGE_ZYNEXD
+	bool "zynexd"
+	select BR2_PACKAGE_ZYNEX_LLAMA
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	help
+	  Hauptprogramm von Zynex: Gesicht, Regelschicht und
+	  Schnittstelle zum lokalen Sprachmodell.

@@ -1,0 +1,21 @@
+#!/bin/sh
+# Netzwerk: jede Netzwerkkarte (ausser lo) per DHCP, im Hintergrund (Treiber erscheinen etwas spaeter).
+case "$1" in
+  start)
+    ( ifconfig lo up 2>/dev/null
+      i=0
+      while [ $i -lt 30 ]; do
+        for d in /sys/class/net/*; do
+          n=${d##*/}
+          [ "$n" = lo ] && continue
+          [ -e "/run/zynexnetz.$n" ] && continue
+          : > "/run/zynexnetz.$n"
+          ifconfig "$n" up 2>/dev/null
+          udhcpc -i "$n" -b -q -t 6 >/dev/null 2>&1 &
+        done
+        i=$((i+1)); sleep 1
+      done ) >/dev/null 2>&1 &
+    ;;
+  stop) ;;
+esac
+exit 0

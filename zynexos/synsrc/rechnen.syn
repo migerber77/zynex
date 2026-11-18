@@ -1,0 +1,9 @@
+# Punkt vor Strich und Klammern
+print "(2+3)*4-1 = "
+printnum (2 + 3) * 4 - 1
+print "\n"
+let x = 10
+x = x * x - 1
+print "10*10-1 = "
+printnum x
+print "\n"

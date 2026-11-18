@@ -1,0 +1,6 @@
+_/src/llmtest
+genodelabs/src/libc
+genodelabs/src/libm
+genodelabs/src/stdcxx
+genodelabs/src/posix
+genodelabs/src/vfs

@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.14)
+project(zynex_gui C CXX)
+add_subdirectory(llama.cpp EXCLUDE_FROM_ALL)
+add_executable(zynex_gui genode_main.cpp zynex_ui.c zynex_face.c zynex_gfx.c zynex_font.c zynex_visemes.c zynex_model.c zynex_rules.c zynex_llm.c)
+target_compile_definitions(zynex_gui PRIVATE ZYNEX_NO_MMAP=1)
+target_link_libraries(zynex_gui PRIVATE llama m)

@@ -1,0 +1,12 @@
+config BR2_PACKAGE_ZYNEX_LLAMA
+	bool "llama.cpp"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	depends on BR2_x86_64
+	help
+	  Inferenz-Bibliothek fuer lokale Sprachmodelle (nur Bibliothek,
+	  kein Server). Der Quellcode liegt in third_party/llama.cpp
+	  (festgelegte Version, wird von tools/holen-llama.sh geholt).
+
+comment "llama.cpp braucht eine Toolchain mit C++ und Threads"
+	depends on !BR2_INSTALL_LIBSTDCPP || !BR2_TOOLCHAIN_HAS_THREADS

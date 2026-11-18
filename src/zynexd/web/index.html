@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zynex</title>
+<style>
+:root{--bg:#020617;--panel:#0f172a;--panel2:#111c33;--line:#1e293b;--txt:#e2e8f0;--mut:#94a3b8;--acc:#4fd8ff;--acc2:#2563eb;--ok:#34d399;--warn:#fbbf24;--bad:#f87171}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,input,textarea{font:inherit;color:inherit}
+#app{display:flex;height:100%}
+#side{width:272px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;flex-shrink:0}
+.brand{display:flex;align-items:center;gap:10px;padding:16px 16px 12px}
+.logo{width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#7fe6ff,var(--acc) 45%,#0b5c78);box-shadow:0 0 14px #4fd8ff55}
+.brand b{font-size:18px;letter-spacing:.04em}
+#gesicht{display:block;width:calc(100% - 24px);margin:0 12px 12px;aspect-ratio:4/3}
+#dot{margin-left:auto;width:9px;height:9px;border-radius:50%;background:var(--warn)}
+#dot.ok{background:var(--ok)}
+.tabs{display:flex;gap:4px;padding:0 10px 10px}
+.tab{flex:1;background:transparent;border:1px solid transparent;border-radius:10px;padding:7px 4px;cursor:pointer;color:var(--mut);font-size:13px}
+.tab.on{background:var(--panel2);border-color:var(--line);color:var(--txt)}
+#neu{margin:0 12px 10px;background:var(--acc2);border:0;border-radius:12px;padding:9px;cursor:pointer;font-weight:600}
+#neu:hover{filter:brightness(1.15)}
+#liste{flex:1;overflow:auto;padding:0 8px 8px}
+.chat-item{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:10px;cursor:pointer;color:var(--mut);font-size:14px}
+.chat-item span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-item:hover,.chat-item.on{background:var(--panel2);color:var(--txt)}
+.chat-item button{background:none;border:0;color:var(--mut);cursor:pointer;opacity:0;font-size:16px}
+.chat-item:hover button{opacity:1}
+.foot{padding:10px 14px;border-top:1px solid var(--line);color:var(--mut);font-size:12px}
+#main{flex:1;display:flex;flex-direction:column;min-width:0}
+#top{display:none;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+#top button{background:none;border:0;font-size:22px;cursor:pointer}
+.view{display:none;flex:1;flex-direction:column;min-height:0}
+.view.on{display:flex}
+#msgs{flex:1;overflow:auto;padding:22px 0}
+.row{max-width:820px;margin:0 auto;padding:6px 20px;display:flex;gap:12px}
+.row.u{justify-content:flex-end}
+.bub{padding:10px 14px;border-radius:16px;max-width:88%;white-space:pre-wrap;word-wrap:break-word}
+.u .bub{background:var(--acc2);border-bottom-right-radius:4px}
+.z .bub{background:var(--panel2);border:1px solid var(--line);border-bottom-left-radius:4px}
+.who{width:28px;height:28px;border-radius:50%;flex-shrink:0;margin-top:2px;background:radial-gradient(circle at 35% 35%,#7fe6ff,var(--acc) 45%,#0b5c78)}
+.meta{font-size:11px;color:var(--mut);margin-top:4px}
+.leer{max-width:560px;margin:12vh auto 0;text-align:center;color:var(--mut);padding:0 20px}
+.leer h2{color:var(--txt);margin:14px 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
+.chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 13px;cursor:pointer;color:var(--txt);font-size:13px}
+.chip:hover{border-color:var(--acc)}
+#dok{max-width:820px;margin:0 auto 6px;width:100%;padding:0 20px;display:none}
+#dok div{display:inline-flex;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:5px 10px;font-size:13px}
+#dok button{background:none;border:0;cursor:pointer;color:var(--mut)}
+#bar{max-width:820px;margin:0 auto 18px;width:100%;padding:0 20px}
+#box{display:flex;align-items:flex-end;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:8px}
+#box:focus-within{border-color:var(--acc)}
+#eing{flex:1;background:none;border:0;outline:0;resize:none;max-height:160px;padding:6px 8px}
+.ib{width:38px;height:38px;border-radius:50%;border:0;background:none;cursor:pointer;color:var(--mut);font-size:18px;flex-shrink:0}
+.ib:hover{color:var(--txt);background:var(--panel2)}
+.ib.on{color:var(--bad)}
+#send{background:var(--acc2);color:#fff}
+#send:disabled{opacity:.4}
+.page{max-width:820px;margin:0 auto;width:100%;padding:22px 20px;overflow:auto;flex:1}
+.page h2{margin:0 0 4px}
+.page p.h{color:var(--mut);margin:0 0 16px;font-size:13px}
+.karte{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.karte h4{margin:0 0 4px;display:flex;gap:8px;align-items:center}
+.karte h4 span{flex:1}
+.karte pre{margin:0;white-space:pre-wrap;word-wrap:break-word;font:inherit;color:var(--mut)}
+.karte button,.knopf{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:4px 10px;cursor:pointer;color:var(--mut);font-size:13px}
+.karte button:hover,.knopf:hover{color:var(--txt);border-color:var(--acc)}
+.form{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+.form input,.form textarea{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 11px;outline:0}
+.form input:focus,.form textarea:focus{border-color:var(--acc)}
+.zeile{display:flex;gap:8px}.zeile input{flex:1}
+.gz{display:flex;align-items:center;gap:10px}.gz span{flex:1}
+.pri{background:var(--acc2);border:0;border-radius:10px;padding:9px 14px;cursor:pointer;font-weight:600;color:#fff}
+.gefahr{color:var(--bad)!important}
+@media(max-width:760px){
+#side{position:fixed;z-index:20;left:0;top:0;bottom:0;transform:translateX(-100%);transition:.2s}
+#side.offen{transform:none;box-shadow:0 0 0 100vmax #0008}
+#top{display:flex}}
+</style>
+</head>
+<body>
+<div id="app">
+ <aside id="side">
+  <div class="brand"><div class="logo"></div><b>Zynex</b><span id="dot" title="Sprachmodell"></span></div>
+  <canvas id="gesicht" width="400" height="300"></canvas>
+  <div class="tabs">
+   <button class="tab on" data-v="chat">Chat</button>
+   <button class="tab" data-v="notizen">Notizen</button>
+   <button class="tab" data-v="gedaechtnis">Gedächtnis</button>
+  </div>
+  <button id="neu">+ Neue Unterhaltung</button>
+  <div id="liste"></div>
+  <div class="foot" id="fuss">Läuft lokal auf diesem Gerät.</div>
+ </aside>
+ <section id="main">
+  <div id="top"><button id="menue" aria-label="Menü">☰</button><b>Zynex</b></div>
+
+  <div class="view on" id="v-chat">
+   <div id="msgs"></div>
+   <div id="dok"><div><span id="dokname"></span><button id="dokweg" title="Entfernen">✕</button></div></div>
+   <div id="bar"><div id="box">
+     <button class="ib" id="anhang" title="Textdokument anhängen">📎</button>
+     <textarea id="eing" rows="1" placeholder="Schreib Zynex etwas …"></textarea>
+     <button class="ib" id="mik" title="Diktieren">🎤</button>
+     <button class="ib" id="vor" title="Antworten vorlesen">🔇</button>
+     <button class="ib" id="send" title="Senden">➤</button>
+   </div>
+   <input type="file" id="datei" accept=".txt,.md,.csv,.json,.log,.html,.xml,.js,.py,.c,.h,text/*" hidden>
+   </div>
+  </div>
+
+  <div class="view" id="v-notizen"><div class="page">
+   <h2>Notizen</h2><p class="h">Liegen auf diesem Gerät, nicht in der Cloud.</p>
+   <div class="form"><input id="nt" placeholder="Titel"><textarea id="nx" rows="4" placeholder="Text der Notiz"></textarea>
+    <div><button class="pri" id="nspeich">Notiz speichern</button></div></div>
+   <div id="nlist"></div>
+  </div></div>
+
+  <div class="view" id="v-gedaechtnis"><div class="page">
+   <h2>Gedächtnis</h2><p class="h">Das hat sich Zynex über dich gemerkt. Du kannst es auch im Chat sagen: „merke dir …“, „was weisst du“, „vergiss …“.</p>
+   <div class="form zeile"><input id="gt" placeholder="Etwas merken, z. B. Ich heisse Michel"><button class="pri" id="gneu">Merken</button></div>
+   <div id="glist"></div>
+   <p><button class="knopf gefahr" id="galle">Alles vergessen</button></p>
+  </div></div>
+ </section>
+</div>
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const enc=encodeURIComponent;
+async function post(p,o){const b=Object.keys(o||{}).map(k=>k+"="+enc(o[k])).join("&");const r=await fetch(p,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:b});return r}
+
+/* ---------- Das Gesicht von Zynex (wie auf dem Bildschirm: Blinzeln, Blick, Atmen, Stimmung, Mund) ---------- */
+const Gesicht=(()=>{
+ const cv=$("#gesicht"),g=cv.getContext("2d");
+ const ST={neutral:[1,1,0,0,0],freundlich:[.85,1,9,0,0],zuhoeren:[1.1,1.05,3,0,0],denkt:[.8,.95,-2,-.6,-.7],ueberrascht:[1.25,1.05,0,0,0]};
+ const z={mood:"freundlich",sprech:false,eh:1,ew:1,smile:0,gx:0,gy:0,tgx:0,tgy:0,mo:0,blink:-1e4,nextBlink:1500,nextGaze:2000,until:0};
+ function rr(x,y,hw,hh,r,f){g.beginPath();g.roundRect(x-hw,y-hh,hw*2,hh*2,r);g.fillStyle=f;g.fill()}
+ function draw(t){
+  const s=ST[z.mood]||ST.neutral;
+  if(z.until&&t>z.until){z.mood="neutral";z.until=0}
+  if(t>z.nextBlink){z.blink=t;z.nextBlink=t+2500+Math.random()*3500}
+  if(t>z.nextGaze){z.tgx=s[3]||(Math.random()*2-1)*.6;z.tgy=s[4]||(Math.random()*2-1)*.35;z.nextGaze=t+1500+Math.random()*2500}
+  const k=.12;z.eh+=(s[0]-z.eh)*k;z.ew+=(s[1]-z.ew)*k;z.smile+=(s[2]-z.smile)*k;z.gx+=(z.tgx-z.gx)*.08;z.gy+=(z.tgy-z.gy)*.08;
+  const want=z.sprech?(.35+.65*Math.abs(Math.sin(t/95)*Math.sin(t/230+1)))*.9:0;z.mo+=(want-z.mo)*.35;
+  const bt=(t-z.blink)/160,lid=bt>=0&&bt<1?Math.abs(1-2*bt):1,atem=Math.sin(t/1800)*2;
+  g.clearRect(0,0,400,300);
+  rr(200,150,200,150,46,"#24344c");rr(200,150,198,148,44,"#131925");
+  const eh=40*z.eh*(.08+.92*lid),ew=32*z.ew;
+  for(const ex of [132,268]){const x=ex+z.gx*12,y=112+atem+z.gy*9;
+   g.beginPath();g.roundRect(x-ew,y-eh,ew*2,eh*2,Math.min(ew,eh)*.8);g.fillStyle="#4fd8ff";g.fill();
+   if(lid>.5)rr(x-10,y-14*z.eh,7,7,3.5,"#e8fbff")}
+  /* Mund: Linse, oeffnet sich beim Sprechen */
+  const cy=212+atem,hw=24,off=z.mo*17;g.beginPath();
+  for(let i=0;i<=24;i++){const u=-1+i/12,y=cy+z.smile*(1-u*u)-(1.6+off*(1-u*u));i?g.lineTo(200+u*hw,y):g.moveTo(200+u*hw,y)}
+  for(let i=24;i>=0;i--){const u=-1+i/12,y=cy+z.smile*(1-u*u)+(1.6+off*(1-u*u));g.lineTo(200+u*hw,y)}
+  g.closePath();g.fillStyle="#4fd8ff";g.fill();
+  requestAnimationFrame(draw);
+ }
+ requestAnimationFrame(draw);
+ return{denkt(){z.mood="denkt";z.sprech=false;z.until=0},spricht(){z.mood="freundlich";z.sprech=true;z.until=0},fertig(){z.sprech=false;z.mood="freundlich";z.until=performance.now()+2500},zuhoeren(on){if(on){z.mood="zuhoeren";z.until=0}else z.until=performance.now()+300}};
+})();
+
+/* ---------- Unterhaltungen (nur im Browser gespeichert) ---------- */
+let chats=[];try{chats=JSON.parse(localStorage.getItem("zynex.chats")||"[]")}catch(e){}
+let cur=null,busy=false,dok=null,vorlesen=localStorage.getItem("zynex.vor")==="1";
+const speich=()=>{try{localStorage.setItem("zynex.chats",JSON.stringify(chats.slice(0,60)))}catch(e){}};
+function neuChat(){const c={id:Date.now(),titel:"Neue Unterhaltung",m:[]};chats.unshift(c);cur=c;speich();zeigeListe();zeigeChat();}
+function zeigeListe(){
+ $("#liste").innerHTML=chats.map(c=>`<div class="chat-item ${cur&&c.id===cur.id?"on":""}" data-id="${c.id}"><span>${esc(c.titel)}</span><button data-del="${c.id}" title="Löschen">✕</button></div>`).join("");
+}
+$("#liste").addEventListener("click",e=>{
+ const d=e.target.closest("[data-del]");
+ if(d){chats=chats.filter(c=>c.id!=d.dataset.del);if(cur&&cur.id==d.dataset.del)cur=chats[0]||null;if(!cur)return neuChat();speich();zeigeListe();zeigeChat();return}
+ const i=e.target.closest(".chat-item");if(i){cur=chats.find(c=>c.id==i.dataset.id);zeigeListe();zeigeChat();zeige("chat");$("#side").classList.remove("offen")}
+});
+function blase(rolle,text,meta){
+ const z=rolle==="u"?"":'<div class="who"></div>';
+ return `<div class="row ${rolle}">${z}<div><div class="bub">${esc(text)}</div>${meta?`<div class="meta">${esc(meta)}</div>`:""}</div></div>`;
+}
+function zeigeChat(){
+ const m=$("#msgs");
+ if(!cur||!cur.m.length){
+  m.innerHTML=`<div class="leer"><div class="logo" style="width:54px;height:54px;margin:0 auto"></div><h2>Hallo, ich bin Zynex</h2><div>Ich laufe lokal auf diesem Gerät. Frag mich etwas oder sag mir, was ich mir merken soll.</div>
+  <div class="chips"><span class="chip">Was kannst du?</span><span class="chip">Merke dir: ich heisse …</span><span class="chip">Was weisst du über mich?</span><span class="chip">Erkläre mir kurz, was ein Betriebssystem ist</span></div></div>`;
+  return}
+ m.innerHTML=cur.m.map(x=>blase(x.r,x.t,x.meta)).join("");m.scrollTop=m.scrollHeight;
+}
+$("#msgs").addEventListener("click",e=>{const c=e.target.closest(".chip");if(c){$("#eing").value=c.textContent.replace(/…$/,"");$("#eing").focus()}});
+
+/* ---------- Senden und Antwort-Strom ---------- */
+async function senden(){
+ const eing=$("#eing");let t=eing.value.trim();if(!t||busy)return;
+ if(!cur)neuChat();
+ const anzeige=t;
+ if(dok){t="Dokument \u201e"+dok.name+"\u201c:\n"+dok.text+"\n\nFrage: "+t}
+ eing.value="";eing.style.height="";
+ cur.m.push({r:"u",t:anzeige,meta:dok?"mit Dokument: "+dok.name:""});
+ if(cur.titel==="Neue Unterhaltung")cur.titel=anzeige.slice(0,40);
+ const dokname=dok&&dok.name;dok=null;$("#dok").style.display="none";
+ const z={r:"z",t:"…",meta:""};cur.m.push(z);zeigeListe();zeigeChat();
+ busy=true;$("#send").disabled=true;Gesicht.denkt();
+ /* Verlauf: die letzten Frage/Antwort-Paare dieser Unterhaltung */
+ const paare=[];const h=cur.m.slice(0,-2);
+ for(let i=h.length-2;i>=0&&paare.length<3;i-=2){if(h[i].r==="u"&&h[i+1]&&h[i+1].r==="z")paare.unshift([h[i].t.slice(0,300),h[i+1].t.slice(0,300)])}
+ const o={q:t};paare.forEach((p,i)=>{o["f"+i]=p[0];o["a"+i]=p[1]});
+ let ganz="",rest="";
+ try{
+  const r=await post("/api/chat",o);
+  const rd=r.body.getReader(),dc=new TextDecoder();
+  for(;;){const {done,value}=await rd.read();if(done)break;ganz+=dc.decode(value,{stream:true});
+   const i=ganz.indexOf("\x1e");const live=i<0?ganz:ganz.slice(0,i);
+   if(live)Gesicht.spricht();
+   z.t=live.replace(/\n?AKTION:.*$/s,"").trim()||"…";
+   const m=$("#msgs");const row=m.lastElementChild&&m.lastElementChild.querySelector(".bub");if(row)row.textContent=z.t;m.scrollTop=m.scrollHeight}
+  const i=ganz.indexOf("\x1e");
+  if(i>=0){let f=ganz.slice(i+1);const k=f.indexOf("\x1f");if(k>=0){rest=f.slice(k+1);f=f.slice(0,k)}z.t=f.trim()||z.t}
+  if(rest.startsWith("t")){const v=parseFloat(rest.slice(1));if(v>0)z.meta=v.toFixed(1)+" Tokens/s"}
+  if(rest.startsWith("g"))ladeGed();
+ }catch(e){z.t="Die Verbindung zu Zynex ist abgebrochen."}
+ busy=false;$("#send").disabled=false;Gesicht.fertig();speich();zeigeChat();
+ if(vorlesen&&z.t&&"speechSynthesis" in window){const u=new SpeechSynthesisUtterance(z.t);u.lang="de-DE";speechSynthesis.cancel();speechSynthesis.speak(u)}
+}
+$("#send").onclick=senden;
+$("#eing").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();senden()}});
+$("#eing").addEventListener("input",e=>{e.target.style.height="auto";e.target.style.height=Math.min(160,e.target.scrollHeight)+"px"});
+$("#neu").onclick=()=>{neuChat();zeige("chat");$("#side").classList.remove("offen")};
+
+/* ---------- Dokument anhängen (wird nur im Browser gelesen und mit der Frage mitgeschickt) ---------- */
+$("#anhang").onclick=()=>$("#datei").click();
+$("#datei").onchange=async e=>{
+ const f=e.target.files[0];if(!f)return;
+ const t=await f.text();dok={name:f.name,text:t.slice(0,3500)};
+ $("#dokname").textContent="📄 "+f.name+(t.length>3500?" (erste 3500 Zeichen)":"");$("#dok").style.display="block";e.target.value="";
+};
+$("#dokweg").onclick=()=>{dok=null;$("#dok").style.display="none"};
+
+/* ---------- Sprache ---------- */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
+$("#mik").onclick=()=>{
+ if(!SR){alert("Dein Browser kann nicht diktieren.");return}
+ if(rec){rec.stop();return}
+ rec=new SR();rec.lang="de-DE";rec.interimResults=true;rec.continuous=false;
+ const vor=$("#eing").value;
+ rec.onresult=e=>{let s="";for(const r of e.results)s+=r[0].transcript;$("#eing").value=(vor?vor+" ":"")+s};
+ rec.onerror=e=>{if(e.error==="not-allowed"||e.error==="service-not-allowed")alert("Diktieren braucht eine sichere Verbindung (https oder localhost) und die Mikrofon-Erlaubnis.")};
+ rec.onend=()=>{rec=null;Gesicht.zuhoeren(false);$("#mik").classList.remove("on")};
+ $("#mik").classList.add("on");Gesicht.zuhoeren(true);rec.start();
+};
+function vorLabel(){$("#vor").textContent=vorlesen?"🔊":"🔇";$("#vor").title=vorlesen?"Vorlesen ist an":"Antworten vorlesen"}
+$("#vor").onclick=()=>{vorlesen=!vorlesen;localStorage.setItem("zynex.vor",vorlesen?"1":"0");if(!vorlesen&&window.speechSynthesis)speechSynthesis.cancel();vorLabel()};vorLabel();
+
+/* ---------- Notizen ---------- */
+async function ladeNotizen(r){
+ const l=await (r||await fetch("/api/notizen")).json();
+ $("#nlist").innerHTML=l.length?l.map((n,i)=>`<div class="karte"><h4><span>${esc(n.t)}</span><button data-n="${i}" class="gefahr">Löschen</button></h4><pre>${esc(n.x)}</pre></div>`).join(""):'<p class="h">Noch keine Notizen.</p>';
+}
+$("#nspeich").onclick=async()=>{const x=$("#nx").value.trim();if(!x)return;await ladeNotizen(await post("/api/notizen/neu",{t:$("#nt").value.trim(),x}));$("#nt").value="";$("#nx").value=""};
+$("#nlist").onclick=async e=>{const b=e.target.closest("[data-n]");if(b)await ladeNotizen(await post("/api/notizen/loeschen",{i:b.dataset.n}))};
+
+/* ---------- Gedächtnis ---------- */
+async function ladeGed(r){
+ const l=await (r||await fetch("/api/gedaechtnis")).json();
+ $("#glist").innerHTML=l.length?l.map((n,i)=>`<div class="karte gz"><span>${esc(n)}</span><button data-g="${i}" class="gefahr">Vergessen</button></div>`).join(""):'<p class="h">Noch nichts gemerkt.</p>';
+}
+$("#gneu").onclick=async()=>{const t=$("#gt").value.trim();if(!t)return;await ladeGed(await post("/api/gedaechtnis/neu",{t}));$("#gt").value=""};
+$("#glist").onclick=async e=>{const b=e.target.closest("[data-g]");if(b)await ladeGed(await post("/api/gedaechtnis/loeschen",{i:b.dataset.g}))};
+$("#galle").onclick=async()=>{if(confirm("Wirklich alles vergessen?"))await ladeGed(await post("/api/gedaechtnis/loeschen",{alle:1}))};
+
+/* ---------- Ansichten ---------- */
+function zeige(v){
+ document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.v===v));
+ document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v-"+v));
+ if(v==="notizen")ladeNotizen();if(v==="gedaechtnis")ladeGed();
+}
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{zeige(t.dataset.v);if(t.dataset.v!=="chat")$("#side").classList.remove("offen")});
+$("#menue").onclick=()=>$("#side").classList.toggle("offen");
+
+/* ---------- Status ---------- */
+async function status(){try{const s=await (await fetch("/api/status")).json();$("#dot").className=s.bereit?"ok":"";$("#dot").title=s.bereit?"Sprachmodell bereit":"Sprachmodell lädt …"}catch(e){$("#dot").className="";$("#dot").title="keine Verbindung"}}
+status();setInterval(status,5000);
+if(!chats.length)neuChat();else{cur=chats[0];zeigeListe();zeigeChat()}
+</script>
+</body>
+</html>

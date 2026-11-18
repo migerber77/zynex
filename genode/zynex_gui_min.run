@@ -1,0 +1,40 @@
+# Zynex-Gesicht auf Genode (hw-Kernel, QEMU): Treiber -> nitpicker -> zynex_gui
+
+build { core init timer lib/ld lib/libc lib/libm lib/stdcxx lib/posix lib/vfs  }
+
+create_boot_directory
+
+
+install_config {
+<config verbose="yes">
+	<parent-provides>
+		<service name="CPU"/> <service name="IO_MEM"/> <service name="IO_PORT"/>
+		<service name="IRQ"/> <service name="LOG"/> <service name="PD"/>
+		<service name="RM"/> <service name="ROM"/>
+	</parent-provides>
+	<default-route> <any-service> <parent/> <any-child/> </any-service> </default-route>
+	<default caps="200"/>
+	<start name="timer">
+		<resource name="RAM" quantum="1M"/>
+		<provides> <service name="Timer"/> </provides>
+	</start>
+	<start name="zynex_llmtest" caps="3000">
+		<resource name="RAM" quantum="1G"/>
+		<config>
+			<libc stdout="/dev/log" stderr="/dev/log"/>
+			<vfs> <dir name="dev"> <log/> <null/> </dir> </vfs>
+		</config>
+		<route>
+			
+			<service name="Timer"> <child name="timer"/> </service>
+			<any-service> <parent/> </any-service>
+		</route>
+	</start>
+</config>
+}
+
+build_boot_image [list {*}[build_artifacts] zynex_llmtest]
+
+append qemu_args " -nographic -m 3072 -cpu max -smp 2 "
+
+run_genode_until {zynex_llmtest: fertig} 120

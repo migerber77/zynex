@@ -1,0 +1,30 @@
+#pragma once
+#include <stdint.h>
+
+/* xHCI-USB mit HID (Tastatur, Maus, Touch/Tablet). Nur Geraete direkt an den Root-Ports (kein Hub). */
+int  usb_init(void);          /* 0 = Controller gefunden und gestartet */
+void usb_poll(void);          /* Ereignisse abholen (regelmaessig aufrufen) */
+void usb_list(void);
+int  usb_has_keyboard(void);
+
+/* Zeigerzustand (Bildschirmkoordinaten) */
+struct usb_pointer { int x, y; uint8_t buttons; uint8_t down; uint8_t present; uint32_t events; };
+const struct usb_pointer* usb_pointer_state(void);
+
+/* vom Bildschirmtreiber (kernel.c) */
+void fb_cursor_move(int x, int y);
+void fb_get_size(int* w, int* h);
+
+/* USB-Netzwerk (CDC-ECM, RNDIS: USB-Tethering, USB-Ethernet-Adapter) und Hot-Plug */
+void usb_hotplug(void);                 /* aus der Hauptschleife aufrufen: neue/entfernte Geraete verarbeiten */
+void usb_net_prefer(int rndis);         /* 0 = ECM bevorzugen, 1 = RNDIS; nimmt das Netzwerkgeraet neu auf */
+int  usbnet_present(void);
+
+char usb_key_char(uint8_t k, int shift, int altgr);   /* HID-Tastennummer -> Zeichen (aktuelles Layout) */
+void usb_ps2_mouse(int dx, int dy, uint8_t buttons);  /* aus dem PS/2-Mausinterrupt */
+
+void usb_set_layout(int id);   /* Nummer der Tastaturbelegung (layouts.h), 0 = Schweiz (Standard) */
+char usb_key_char(uint8_t k, int shift, int altgr);
+void usb_key_event(uint8_t k, int shift, int altgr);            /* Tastenereignis von USB/PS2 */
+void usb_set_rawgrab(void (*fn)(uint8_t k, int shift, int altgr));         /* Roh-Tastennummern abgreifen (0 = aus) */
+int  usb_get_layout(void);

@@ -1,0 +1,123 @@
+name: build
+on:
+  push:
+    paths-ignore:
+      - '.github/workflows/genode.yml'
+      - 'genode/**'
+      - 'docs/**'
+  workflow_dispatch:
+env:
+  MODELL_URL: https://huggingface.co/ggml-org/SmolLM3-3B-GGUF/resolve/main/SmolLM3-Q4_K_M.gguf
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C src/zynexd test CFLAGS="-O2 -Werror"
+
+  # Schneller Test des Sprachmodells auf dem Runner, mit Geschwindigkeitsmessung
+  llm:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/holen-llama.sh
+      - uses: actions/cache@v4
+        with:
+          path: ~/modell
+          key: modell-${{ env.MODELL_URL }}
+      - name: Modell laden
+        run: |
+          mkdir -p ~/modell
+          [ -s ~/modell/modell.gguf ] || curl -fL --retry 3 -o ~/modell/modell.gguf "$MODELL_URL"
+          ls -la ~/modell
+      - name: llama.cpp bauen
+        run: |
+          cmake -S third_party/llama.cpp -B llb -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DGGML_OPENMP=OFF -DLLAMA_BUILD_COMMON=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_TOOLS=OFF -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF
+          cmake --build llb -j$(nproc)
+          cmake --install llb --prefix $PWD/llinst
+      - name: zynexd mit Modell bauen
+        run: |
+          make -C src/zynexd clean
+          make -C src/zynexd LLAMA=1 CFLAGS="-O2 -Werror" LLAMA_CFLAGS="-I$PWD/llinst/include" \
+            LLAMA_LIBS="-L$PWD/llinst/lib -lllama -lggml -lggml-cpu -lggml-base"
+      - name: Modelltest
+        run: |
+          echo "CPU: $(nproc) Kerne" ; grep -m1 "model name" /proc/cpuinfo
+          src/zynexd/zynexd --llmtest ~/modell/modell.gguf "Hallo, wer bist du?" | tee llm.log
+          src/zynexd/zynexd --llmtest ~/modell/modell.gguf "Zeig mir meine Termine." | tee -a llm.log
+          { echo '### Sprachmodell-Test'; echo '```'; cat llm.log; echo '```'; } >> $GITHUB_STEP_SUMMARY
+
+  image:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [bios, efi]
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/holen-llama.sh
+      - name: Pakete
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses-dev bc cpio rsync unzip wget file libssl-dev qemu-system-x86 qemu-utils ovmf
+      - name: Buildroot holen
+        run: git clone --depth 1 --branch 2026.02.3 https://gitlab.com/buildroot.org/buildroot.git $HOME/buildroot
+      - uses: actions/cache@v4
+        with:
+          path: ~/dl
+          key: dl-${{ hashFiles('configs/*_defconfig') }}
+          restore-keys: dl-
+      - uses: actions/cache@v4
+        with:
+          path: ~/modell
+          key: modell-${{ env.MODELL_URL }}
+      - name: Modell in das Image legen
+        run: |
+          mkdir -p ~/modell
+          [ -s ~/modell/modell.gguf ] || curl -fL --retry 3 -o ~/modell/modell.gguf "$MODELL_URL"
+          cp ~/modell/modell.gguf board/zynex/model-overlay/usr/share/zynex/modell.gguf
+      - name: Bauen
+        run: |
+          CFG=zynex_x86_64_defconfig
+          [ "${{ matrix.mode }}" = "efi" ] && CFG=zynex_x86_64_efi_defconfig
+          make -C $HOME/buildroot O=$GITHUB_WORKSPACE/out BR2_EXTERNAL=$GITHUB_WORKSPACE $CFG
+          make -C $HOME/buildroot O=$GITHUB_WORKSPACE/out BR2_DL_DIR=$HOME/dl -j$(nproc)
+      - name: Starttest in QEMU
+        run: tools/qemu-smoke.sh out/images/disk.img serial.log ${{ matrix.mode }}
+      - name: Setup-ISO bauen
+        if: matrix.mode == 'bios'
+        run: |
+          sudo apt-get install -y busybox-static grub-pc-bin grub-efi-amd64-bin mtools xorriso cpio >/dev/null
+          mkdir -p isodist
+          tools/mk-iso.sh out/images "$PWD/isodist/zynex-setup.iso"
+      - name: ISO-Test in QEMU (Start, Installation, Neustart)
+        if: matrix.mode == 'bios'
+        continue-on-error: true
+        run: tools/qemu-iso-test.sh "$PWD/isodist/zynex-setup.iso" out/images/bzImage
+      - uses: actions/upload-artifact@v4
+        if: matrix.mode == 'bios'
+        with:
+          name: zynex-iso
+          path: isodist/zynex-setup.iso
+          compression-level: 0
+      - name: Installationstest in QEMU
+        if: matrix.mode == 'bios'
+        continue-on-error: true
+        run: tools/qemu-install-test.sh "$PWD/out/images/disk.img"
+      - name: Images erzeugen
+        run: |
+          mkdir -p dist
+          mv out/images/disk.img dist/zynex-${{ matrix.mode }}.img
+          qemu-img convert -f raw -O vhdx -o subformat=dynamic dist/zynex-${{ matrix.mode }}.img dist/zynex-${{ matrix.mode }}.vhdx
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zynex-${{ matrix.mode }}
+          path: |
+            dist/
+            serial.log

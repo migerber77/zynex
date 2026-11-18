@@ -1,0 +1,157 @@
+name: genode-spike
+# Machbarkeitstest: Genode in QEMU starten. Wird nur von Hand gestartet.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/genode.yml'
+      - 'genode/**'
+env:
+  GENODE_VERSION: "26.08"
+jobs:
+  boot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pakete
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git curl wget xz-utils tclsh expect qemu-system-x86 xorriso \
+            libncurses-dev libsdl2-dev gawk bison flex libfl2 libfl-dev byacc libssl-dev bc rsync python3
+      - name: Genode holen
+        run: git clone --depth 1 --branch "$GENODE_VERSION" https://codeberg.org/genodelabs/genode.git $HOME/genode
+      - name: Toolchain 25.05 installieren
+        run: |
+          cd $HOME
+          F=genode-toolchain-25.05-ubuntu-24.04.tar.xz
+          SHA=6cab8e5f4490399a296a73b01695d5fb055a40f6ac04d61a3f7a7344003eb739
+          for U in \
+            "https://downloads.sourceforge.net/project/genode.mirror/25.05/$F" \
+            "https://sourceforge.net/projects/genode.mirror/files/25.05/$F/download" \
+            "https://github.com/genodelabs/genode/releases/download/25.05/$F" \
+            "https://codeberg.org/genodelabs/genode/releases/download/25.05/$F"; do
+            echo "Versuch: $U"
+            if curl -fL --retry 2 -o tc.tar.xz "$U" && echo "$SHA  tc.tar.xz" | sha256sum -c -; then OK=1; break; fi
+          done
+          [ -n "$OK" ] || { echo "Toolchain nicht herunterladbar"; exit 1; }
+          sudo tar xPf tc.tar.xz
+          ls /usr/local/genode/tool/
+      - name: Build-Verzeichnis
+        run: |
+          cd $HOME/genode
+          ./tool/create_builddir x86_64
+          grep -nE "^#?(KERNEL|BOARD|REPOSITORIES|QEMU_OPT|RUN_OPT)" build/x86_64/etc/build.conf | head -30
+      - name: Boot-Test (run/log) auf dem hw-Kernel
+        run: |
+          set -o pipefail
+          cd $HOME/genode
+          ./tool/ports/prepare_port grub2 || true
+          cd build/x86_64
+          echo 'QEMU_OPT += -display none' >> etc/build.conf
+          timeout 1500 make run/log KERNEL=hw BOARD=pc 2>&1 | tail -150 | tee $GITHUB_WORKSPACE/genode.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: genode-log
+          path: genode.log
+
+  goa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pakete
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git curl wget xz-utils tclsh expect qemu-system-x86 \
+            libsdl2-dev libdrm-dev libgbm-dev libxml2-utils gnupg bubblewrap squashfs-tools squashfuse \
+            cmake libfl2 python3 xorriso libncurses-dev gawk bison flex libssl-dev bc rsync byacc libfl-dev
+          # Ubuntu 24.04 blockiert Benutzer-Namensraeume, die Goa (bubblewrap) braucht
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Toolchain 25.05 installieren
+        run: |
+          cd $HOME
+          F=genode-toolchain-25.05-ubuntu-24.04.tar.xz
+          curl -fL --retry 3 -o tc.tar.xz "https://github.com/genodelabs/genode/releases/download/25.05/$F"
+          echo "6cab8e5f4490399a296a73b01695d5fb055a40f6ac04d61a3f7a7344003eb739  tc.tar.xz" | sha256sum -c -
+          sudo tar xPf tc.tar.xz
+      - name: Goa holen
+        run: git clone --depth 1 https://codeberg.org/genodelabs/goa.git $HOME/goa
+      - name: llama.cpp in das Goa-Projekt legen
+        run: |
+          tools/holen-llama.sh
+          cp -r third_party/llama.cpp genode/zynexgui/src/llama.cpp
+          rm -rf genode/zynexgui/src/llama.cpp/.git
+          cp src/zynexd/zynex_*.c src/zynexd/zynex_*.h genode/zynexgui/src/
+          rm -f genode/zynexgui/src/zynex_llm_stub.c
+          python3 genode/patch-llama.py genode/zynexgui/src/llama.cpp
+      - name: Goa build GUI
+        run: |
+          cd genode/zynexgui
+          export PATH=$PATH:$HOME/goa/bin
+          goa build --no-warn-strict > $HOME/gbuild.log 2>&1 || { sed 's/\x1b\[[0-9;]*[mK]//g' $HOME/gbuild.log | grep -B2 -A8 "error:\|Error \|undefined\|fatal" | head -100; exit 1; }
+      - name: Genode holen
+        run: git clone --depth 1 --branch "$GENODE_VERSION" https://codeberg.org/genodelabs/genode.git $HOME/genode
+      - name: Dateien einsammeln und Build-Verzeichnis
+        run: |
+          cd $HOME/genode
+          ./tool/create_builddir x86_64
+          ./tool/ports/prepare_port grub2 libc stdcxx || true
+          sed -i 's/^#\(REPOSITORIES.*libports\)/\1/' build/x86_64/etc/build.conf
+          grep -n REPOSITORIES build/x86_64/etc/build.conf
+          B=build/x86_64/bin
+          mkdir -p $B
+          cp "$(find $GITHUB_WORKSPACE/genode/zynexgui/var -name zynex_gui -type f | head -1)" $B/
+          curl -fL --retry 3 -o $B/modell.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
+          ls -la $B
+          cp $GITHUB_WORKSPACE/genode/zynex_gui.run repos/base/run/
+      - name: Treiber-Paket lokal bauen
+        run: |
+          cd $HOME/genode
+          ./tool/ports/prepare_port jitterentropy linux x86emu 2>&1 | tail -5
+          ./tool/depot/create genodelabs/pkg/x86_64/drivers_interactive-pc CROSS_DEV_PREFIX=/usr/local/genode/tool/25.05/bin/genode-x86- -j4 2>&1 | tail -25
+      - name: Start auf dem hw-Kernel (QEMU)
+        run: |
+          set -o pipefail
+          cd $HOME/genode/build/x86_64
+          echo 'QEMU_OPT += -display none' >> etc/build.conf
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; echo 'QEMU_OPT += -enable-kvm' >> etc/build.conf; echo KVM an; fi
+          timeout 1700 make run/zynex_gui KERNEL=hw BOARD=pc 2>&1 | tail -150 | tee $GITHUB_WORKSPACE/llm.log
+          { echo '```'; tail -60 $GITHUB_WORKSPACE/llm.log; echo '```'; } >> $GITHUB_STEP_SUMMARY
+      - name: Kleines Image (Qwen 0.5B) als ISO und VHDX
+        run: |
+          set -o pipefail
+          sudo apt-get install -y grub-pc-bin qemu-utils parted xorriso >/dev/null
+          cd $HOME/genode/build/x86_64
+          ZX_BILD=1 timeout 1500 make run/zynex_gui KERNEL=hw BOARD=pc 2>&1 | tail -3
+          mkdir -p $GITHUB_WORKSPACE/klein; cp var/run/zynex_gui.iso $GITHUB_WORKSPACE/klein/zynex-klein.iso
+          cd $GITHUB_WORKSPACE/klein && bash ../genode/mkdisk.sh zynex-klein.iso 1200M zynex-klein
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zynex-klein
+          path: |
+            klein/zynex-klein.iso
+            klein/zynex-klein.vhdx
+          compression-level: 0
+      - name: Kleine Platte in QEMU ausprobieren (Information)
+        continue-on-error: true
+        run: |
+          cd $GITHUB_WORKSPACE/klein
+          timeout 400 qemu-system-x86_64 -enable-kvm -nographic -m 4096 -cpu max -smp 2 -drive file=zynex-klein.img,format=raw,if=ide -serial mon:stdio -machine q35 2>&1 | sed 's/\x1b\[[0-9;]*[mK]//g' | grep -a "zynex:" | tee $GITHUB_STEP_SUMMARY || true
+      - name: Grosses Image (SmolLM3) als ISO und VHDX
+        run: |
+          set -o pipefail
+          cd $HOME/genode/build/x86_64
+          rm -f $GITHUB_WORKSPACE/klein/*.img
+          curl -fL --retry 3 -o bin/modell.gguf "https://huggingface.co/ggml-org/SmolLM3-3B-GGUF/resolve/main/SmolLM3-Q4_K_M.gguf"
+          ZX_BILD=1 timeout 1500 make run/zynex_gui KERNEL=hw BOARD=pc 2>&1 | tail -3
+          mkdir -p $GITHUB_WORKSPACE/gross; cp var/run/zynex_gui.iso $GITHUB_WORKSPACE/gross/zynex-gross.iso
+          cd $GITHUB_WORKSPACE/gross && bash ../genode/mkdisk.sh zynex-gross.iso 3600M zynex-gross && rm zynex-gross.img
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zynex-gross
+          path: |
+            gross/zynex-gross.iso
+            gross/zynex-gross.vhdx
+          compression-level: 0

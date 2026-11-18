@@ -1,0 +1,2 @@
+source "$BR2_EXTERNAL_ZYNEX_PATH/package/zynex-llama/Config.in"
+source "$BR2_EXTERNAL_ZYNEX_PATH/package/zynexd/Config.in"

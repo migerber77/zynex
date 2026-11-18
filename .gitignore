@@ -1,0 +1,8 @@
+out/
+*.o
+src/zynexd/zynexd
+src/zynexd/tests/test_core
+*.gguf
+third_party/llama.cpp/
+dist/
+serial.log

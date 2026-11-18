@@ -1,0 +1,116 @@
+#!/bin/sh
+# Zynex auf eine Festplatte installieren.
+#   zynex-setup liste                 -> Zeilen "geraet|groesse_mb|name" fuer moegliche Ziele
+#   zynex-setup installieren <geraet> -> partitioniert, kopiert das System, richtet den Start ein
+# Quelle: /cd/zynex/rootfs.ext2 (Start von der Setup-ISO) oder die Systempartition des laufenden Systems.
+ST=/run/zynex-setup.status
+LOG=/run/zynex-setup.log
+
+meld() { echo "$1" >> "$ST"; }
+# Diagnose ins Kernel-Log (erscheint auf der seriellen Konsole, fuer den automatischen Test)
+dbg() { echo "zynexsetup: $* | $(tail -c 300 "$LOG" 2>/dev/null | tr '\n' ' ')" > /dev/kmsg 2>/dev/null; }
+
+# Platte zu einem Geraetenamen (sdb1 -> sdb)
+platte_von() {
+    p=$(readlink -f "/sys/class/block/$1" 2>/dev/null) || { echo "$1"; return; }
+    if [ -f "$p/partition" ]; then basename "$(dirname "$p")"; else basename "$p"; fi
+}
+
+# Setzt SRCDEV (Datei oder Block), SRCMB (Groesse in MB) und SRCDISK (Platte, die nie Ziel sein darf)
+quelle() {
+    if [ -f /cd/zynex/rootfs.ext2 ]; then
+        SRCDEV=/cd/zynex/rootfs.ext2
+        SRCMB=$(( $(stat -c %s "$SRCDEV") / 1048576 + 1 ))
+        cd_dev=$(grep ' /cd ' /proc/mounts | head -1 | cut -d' ' -f1)
+        SRCDISK=$(platte_von "${cd_dev##*/}")
+    else
+        mm=$(mountpoint -d /) || return 1
+        sp=$(readlink -f "/sys/dev/block/$mm") || return 1
+        PART=${sp##*/}
+        SRCDEV=/dev/$PART
+        SRCMB=$(( $(cat "$sp/size") / 2048 + 1 ))
+        SRCDISK=$(platte_von "$PART")
+    fi
+    return 0
+}
+
+kandidaten() {
+    quelle || return 1
+    need=$((SRCMB + 512))
+    for d in /sys/block/*; do
+        n=${d##*/}
+        case "$n" in loop*|ram*|zram*|sr*|fd*|dm-*|md*|nbd*) continue;; esac
+        [ "$n" = "$SRCDISK" ] && continue
+        s=$(cat "$d/size" 2>/dev/null) || continue
+        mb=$((s / 2048))
+        [ "$mb" -ge "$need" ] || continue
+        name=$(cat "$d/device/model" 2>/dev/null | tr -s ' ' | tr -d '|')
+        [ -n "$name" ] || name="Laufwerk"
+        echo "$n|$mb|$name"
+    done
+}
+
+warte_auf() {  # warte_auf <block-geraet> [sekunden]
+    i=0
+    while [ ! -b "$1" ] && [ "$i" -lt "${2:-20}" ]; do sleep 1; i=$((i+1)); done
+    [ -b "$1" ]
+}
+
+case "$1" in
+liste)
+    [ -d /sys/firmware/efi ] && { echo "EFI|0|Installation geht im Moment nur im BIOS-Startmodus"; exit 2; }
+    kandidaten
+    ;;
+installieren)
+    DST=$2
+    : > "$ST"; : > "$LOG"
+    [ -d /sys/firmware/efi ] && { meld "fehler: nur BIOS-Start unterstuetzt"; exit 1; }
+    kandidaten | grep -q "^$DST|" || { meld "fehler: $DST ist kein erlaubtes Ziel"; exit 1; }
+    quelle
+    command -v grub-install >/dev/null || { dbg "grub-install fehlt"; meld "fehler: grub-install fehlt"; exit 1; }
+    case "$DST" in *[0-9]) P1="${DST}p1";; *) P1="${DST}1";; esac
+
+    meld "partition"
+    command -v udevadm >/dev/null && udevadm settle --timeout=10 >/dev/null 2>&1
+    dd if=/dev/zero of="/dev/$DST" bs=1M count=4 conv=fsync >>"$LOG" 2>&1
+    ID=$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    t=0
+    while [ $t -lt 6 ]; do
+        printf 'label: dos\nlabel-id: 0x%s\n,,L,*\n' "$ID" | sfdisk "/dev/$DST" >>"$LOG" 2>&1
+        warte_auf "/dev/$P1" 4 && break
+        t=$((t+1)); sleep 2
+    done
+    warte_auf "/dev/$P1" 20 || { dbg "keine Partition $P1"; meld "fehler: Partition anlegen"; exit 1; }
+
+    meld "kopiere"
+    dd if="$SRCDEV" of="/dev/$P1" bs=4M conv=fsync >>"$LOG" 2>&1 || { dbg "dd"; meld "fehler: Kopieren fehlgeschlagen"; exit 1; }
+    sync
+
+    meld "dateisystem"
+    command -v e2fsck >/dev/null && e2fsck -fy "/dev/$P1" >>"$LOG" 2>&1
+    resize2fs -f "/dev/$P1" >>"$LOG" 2>&1 || { dbg "resize2fs"; meld "fehler: Dateisystem vergroessern"; exit 1; }
+
+    meld "start"
+    mkdir -p /mnt/zx
+    mount "/dev/$P1" /mnt/zx >>"$LOG" 2>&1 || { dbg "mount"; meld "fehler: Einbinden"; exit 1; }
+    GD=/lib/grub/i386-pc
+    [ -d "$GD" ] || GD=/usr/lib/grub/i386-pc
+    mkdir -p /mnt/zx/boot/grub
+    grub-install --target=i386-pc --directory="$GD" --boot-directory=/mnt/zx/boot --modules="part_msdos ext2" --no-floppy "/dev/$DST" >>"$LOG" 2>&1 \
+        || { dbg "grub-install"; umount /mnt/zx; meld "fehler: Startlader"; exit 1; }
+    cat > /mnt/zx/boot/grub/grub.cfg <<GRUB
+set default="0"
+set timeout="2"
+
+menuentry "Zynex" {
+	linux /boot/bzImage root=PARTUUID=$ID-01 rootwait console=ttyS0,115200 console=tty1
+}
+GRUB
+    sync
+    umount /mnt/zx
+    meld "fertig"
+    ;;
+*)
+    echo "Aufruf: zynex-setup liste | zynex-setup installieren <geraet>"; exit 1
+    ;;
+esac

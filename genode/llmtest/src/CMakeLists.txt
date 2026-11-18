@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.14)
+project(zynex_llmtest C CXX)
+add_subdirectory(llama.cpp EXCLUDE_FROM_ALL)
+add_executable(zynex_llmtest main.cpp zynex_llm.c)
+target_link_libraries(zynex_llmtest PRIVATE llama)
+target_compile_definitions(zynex_llmtest PRIVATE ZYNEX_NO_MMAP=1)

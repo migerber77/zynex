@@ -1,0 +1,31 @@
+# Schleifen und Bedingungen
+let i = 1
+let summe = 0
+while i <= 10
+  summe = summe + i
+  i = i + 1
+end
+print "Summe 1..10 = "
+printnum summe
+print "\n"
+
+let n = 1
+while n <= 15
+  if n % 15 == 0
+    print "FizzBuzz "
+  else
+    if n % 5 == 0
+      print "Buzz "
+    else
+      if n % 3 == 0
+        print "Fizz "
+      else
+        printnum n
+        print " "
+      end
+    end
+  end
+  n = n + 1
+end
+print "\n"
+return summe
