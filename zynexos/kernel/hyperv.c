@@ -160,7 +160,7 @@ static int ring_lesen(struct kanal* c, uint8_t* out, uint32_t max, uint16_t* typ
 
 /* ---------- VMBus ---------- */
 static const uint8_t GUID_KBD[16] = { 0x6d, 0xad, 0x12, 0xf9, 0x17, 0x2b, 0xea, 0x48, 0xbd, 0x65, 0xf9, 0x27, 0xa6, 0x1c, 0x76, 0x84 };
-static const uint8_t GUID_MAUS[16] = { 0x6d, 0x5a, 0xf7, 0x58, 0x49, 0xd9, 0x20, 0x43, 0x99, 0xe1, 0xa2, 0xa2, 0x57, 0x6d, 0x58, 0x1c };
+static const uint8_t GUID_MAUS[16] = { 0x9e, 0xb6, 0xa8, 0xcf, 0x4a, 0x5b, 0xc0, 0x4c, 0xb9, 0x8b, 0x8b, 0xa1, 0xa1, 0xf3, 0xf9, 0x5a };
 static int geq(const uint8_t* a, const uint8_t* b) { for (int i = 0; i < 16; i++) if (a[i] != b[i]) return 0; return 1; }
 
 static uint32_t vp_index, verbunden_version, msg_conn = 1;
@@ -311,6 +311,7 @@ int hv_init(void) {
     st_anhaengen(" VMBus");
     int ng = angebote();
     if (ng < 0) { st_anhaengen(" keine Geraeteliste"); return 1; }
+    st_anhaengen(" Geraete:"); { char z[8]; int n=0,v=ng; char t[8]; if(!v) t[n++]='0'; while(v){t[n++]=(char)('0'+v%10); v/=10;} int k=0; while(n) z[k++]=t[--n]; z[k]=0; st_anhaengen(z);}
     if (!kb.art) st_anhaengen(" keine Tastatur gefunden");
     if (!ms.art) st_anhaengen(" keine Maus gefunden");
     if (kb.art) {
@@ -323,6 +324,8 @@ int hv_init(void) {
         if (e) { st_anhaengen(" Maus-Kanal Fehler "); char z[3] = { (char)('0' + (-e) % 10), 0, 0 }; st_anhaengen(z); }
         else { uint32_t req[5] = { 1, 12, 0, 4, 0x00020000 }; if (ring_senden(&ms, req, 20, 1)) st_anhaengen(" Maus-Anfrage Fehler"); }
     }
+    for (long i = 0; i < 40000000 && ((kb.offen && !kb.bereit) || (ms.offen && !ms.bereit)); i++) { hv_poll(); __asm__ volatile ("pause"); }
+    if (kb.offen && !kb.bereit) { struct ring r = ring_empfang(&kb); struct ring q = ring_sendung(&kb); char z[40]; const char* h = "0123456789ABCDEF"; int k = 0; z[k++]=' '; z[k++]='['; z[k++]=h[(q.hdr[0]>>4)&15]; z[k++]=h[q.hdr[0]&15]; z[k++]='/'; z[k++]=h[(q.hdr[1]>>4)&15]; z[k++]=h[q.hdr[1]&15]; z[k++]='|'; z[k++]=h[(r.hdr[0]>>4)&15]; z[k++]=h[r.hdr[0]&15]; z[k++]='/'; z[k++]=h[(r.hdr[1]>>4)&15]; z[k++]=h[r.hdr[1]&15]; z[k++]=']'; z[k]=0; st_anhaengen(" Tastatur ohne Antwort"); st_anhaengen(z); }
     kprint("[HV] "); kprint(status); kprint("\n");
     return 1;
 }
