@@ -13,3 +13,4 @@ int  net_http_fp(const char* url, const char* fp);   /* fp: SHA-256-Fingerabdruc
 int  net_http(const char* url);            /* http://host[:port]/pfad (nur HTTP, kein TLS) */
 int  net_status(char* out, int max);   /* 0 keine Karte, 1 ohne IP, 2 bereit (out = IP) */
 int  net_wget(const char* url, const char* name, const char* fp);   /* Seite ins SynFS speichern */
+int  net_seite(const char* url, const char** kopf, uint32_t* kopflen, const char** body, uint32_t* len, uint32_t* status);   /* fuer den Browser */

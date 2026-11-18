@@ -938,6 +938,14 @@ int net_wget(const char* url, const char* name, const char* fp) {
     return 0;
 }
 
+/* Seite fuer den Browser: Kopf und Inhalt bleiben bis zum naechsten Abruf im Empfangspuffer */
+int net_seite(const char* url, const char** kopf, uint32_t* kopflen, const char** body, uint32_t* len, uint32_t* status) {
+    http_zeigen = 0; int r = net_http_fp(url, 0); http_zeigen = 1;
+    if (r != 0) return r;
+    *status = http_status; *kopf = (const char*)http_rb; *kopflen = http_body; *body = (const char*)http_rb + http_body; *len = http_len - http_body;
+    return 0;
+}
+
 /* Kurzer Netzstatus fuer die grafische Oberflaeche: 0 = keine Karte, 1 = Karte ohne Adresse, 2 = bereit (Text enthaelt die IP) */
 int net_status(char* out, int max) {
     int n = 0;

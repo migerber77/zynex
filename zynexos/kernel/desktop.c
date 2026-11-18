@@ -143,14 +143,14 @@ void desktop_splash_ende(void) {
 }
 
 /* ---------- Zustand ---------- */
-enum { Z_LOGIN, Z_DESK, Z_EDIT };
+enum { Z_LOGIN, Z_DESK, Z_EDIT, Z_WEB };
 static int zustand;
 static char fname[16], fpw[40]; static int ffocus, fmsg;
 static char eingabe[96]; static int einlen;
 static char antwort[6][100]; static int nantwort;
 #define QN 32
 static uint16_t kq[QN]; static unsigned qh, qt; static int was_down;
-static struct { int x, y, w, h, id; } knoepfe[48]; static int nkn;
+static struct { int x, y, w, h, id; } knoepfe[80]; static int nkn;
 static uint32_t robot_phase;
 static uint32_t sprech_bis, letzte_eingabe;               /* Ticks (100 pro Sekunde) */
 
@@ -159,7 +159,7 @@ static uint32_t sprech_bis, letzte_eingabe;               /* Ticks (100 pro Seku
 static char dok[DOK_MAX + 1]; static int doklen, dokcur, dokscroll, dokgeaendert; static char dokname[24];
 static int ed_x, ed_y, ed_w, ed_h, ed_cols, ed_rows, ed_s;
 
-static void kn_reg(int id, int x, int y, int w, int h) { if (nkn < 48) { knoepfe[nkn].x = x; knoepfe[nkn].y = y; knoepfe[nkn].w = w; knoepfe[nkn].h = h; knoepfe[nkn].id = id; nkn++; } }
+static void kn_reg(int id, int x, int y, int w, int h) { if (nkn < 80) { knoepfe[nkn].x = x; knoepfe[nkn].y = y; knoepfe[nkn].w = w; knoepfe[nkn].h = h; knoepfe[nkn].id = id; nkn++; } }
 static void knopf(int id, const char* label, int x, int y, int w, int primaer) {
     rrect_rand(x, y, w, 34, 10, primaer ? C_ACC : C_CARD, primaer ? C_ACC : C_BORDER);
     gtxt(x + (w - gtw(label, 1)) / 2, y + 9, label, C_TEXT, 1);
@@ -246,7 +246,7 @@ static void zeichne_login(void) {
 }
 
 /* ---------- Desktop ---------- */
-static const char* const chip_text[5] = { "text erstellen", "rechne 12*7", "system", "dateien", "quanten" };
+static const char* const chip_text[6] = { "text erstellen", "rechne 12*7", "system", "dateien", "quanten", "browser" };
 static int bar_x, bar_y, bar_w;
 
 static void zeichne_robot(void) {
@@ -283,7 +283,7 @@ static void zeichne_antwort(void) {
 /* ---------- Autovorschlaege (ab dem ersten Buchstaben) ---------- */
 typedef struct { const char* de; const char* en; int typ; } sug_e;       /* typ 0 Befehl, 1 Frage an Zynie, 2 Verlauf */
 static const sug_e katalog[] = {
-    { "text erstellen", "write a text", 0 }, { "rechne 12*7", "calc 12*7", 0 }, { "system", "system status", 0 }, { "dateien", "files", 0 },
+    { "text erstellen", "write a text", 0 }, { "browser", "browser", 0 }, { "browser de.wikipedia.org", "browser en.wikipedia.org", 0 }, { "suche ", "search ", 0 }, { "rechne 12*7", "calc 12*7", 0 }, { "system", "system status", 0 }, { "dateien", "files", 0 },
     { "quanten", "quantum demo", 0 }, { "sicherheit", "security", 0 }, { "agenten", "agents", 0 }, { "briefing", "briefing", 0 },
     { "agent sicherheit", "agent security", 0 }, { "agent wartung", "agent maintenance", 0 }, { "agent aufgaben", "agent tasks", 0 },
     { "aufgabe ", "task ", 0 }, { "arbeitsflaeche system", "workspace system", 0 }, { "arbeitsflaeche agenten", "workspace agents", 0 },
@@ -447,7 +447,7 @@ static void zeichne_eingabe(void) {
         }
     } else {
         int x = bar_x;
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             int w = gtw(chip_text[i], 1) + 24;
             rrect_rand(x, bar_y + 66, w, 30, 15, C_CARD, C_BORDER);
             gtxt(x + 12, bar_y + 73, chip_text[i], C_MUTED, 1);
@@ -722,8 +722,317 @@ static void editor_taste(uint8_t k, int shift, int altgr) {
     zeichne_editor(0);
 }
 
+/* ---------- Zwischenablage, Drucken (PDF), Rechtsklick-Menue und Browser ---------- */
+static char clip[4096]; static int cliplen;
+static char meldung[100];                                          /* kurze Rueckmeldung (Statuszeile) */
+static void clip_setze(const char* t, int n) { if (n > (int)sizeof(clip) - 1) n = (int)sizeof(clip) - 1; for (int i = 0; i < n; i++) clip[i] = t[i]; clip[n] = 0; cliplen = n; }
+static int sel1;                                                   /* alles im aktiven Eingabefeld markiert */
+static int cur_ctrl;
+
+/* PDF: Courier 9 pt, A4, 60 Zeilen je Seite, WinAnsi; Ergebnis im SynFS (druck-N.pdf) - ein Druckertreiber kann die Datei spaeter senden */
+static char pdfb[200000]; static int pdfn; static int pdf_off[140];
+static void pw(const char* s) { while (*s && pdfn < (int)sizeof(pdfb) - 8) pdfb[pdfn++] = *s++; }
+static void pwn(int v) { char a[12]; dec(a, (uint32_t)v); pw(a); }
+static char pdf_name[24];
+static char pdf_zl[60][100];
+static void pdf_seite(int nz, int nr) {
+    static char strm[6000]; int sl = 0, co = 5 + 2 * nr, po = 4 + 2 * nr;
+    const char* kop = "BT /F1 9 Tf 12 TL 40 800 Td\n"; for (int i = 0; kop[i]; i++) strm[sl++] = kop[i];
+    for (int z = 0; z < nz && sl < 5600; z++) {
+        strm[sl++] = '(';
+        for (int i = 0; pdf_zl[z][i] && sl < 5600; i++) {
+            unsigned char c = (unsigned char)pdf_zl[z][i];
+            if (c == '(' || c == ')' || c == '\\') { strm[sl++] = '\\'; strm[sl++] = (char)c; }
+            else if (c >= 32 && c < 127) strm[sl++] = (char)c;
+            else if (c >= 160) { strm[sl++] = '\\'; strm[sl++] = (char)('0' + (c >> 6)); strm[sl++] = (char)('0' + ((c >> 3) & 7)); strm[sl++] = (char)('0' + (c & 7)); }
+            else strm[sl++] = ' ';
+        }
+        const char* e = ") Tj T*\n"; for (int i = 0; e[i]; i++) strm[sl++] = e[i];
+    }
+    strm[sl++] = 'E'; strm[sl++] = 'T';
+    pdf_off[co] = pdfn; pwn(co); pw(" 0 obj\n<< /Length "); pwn(sl); pw(" >>\nstream\n");
+    for (int i = 0; i < sl && pdfn < (int)sizeof(pdfb) - 200; i++) pdfb[pdfn++] = strm[i];
+    pw("\nendstream\nendobj\n");
+    pdf_off[po] = pdfn; pwn(po); pw(" 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents "); pwn(co); pw(" 0 R >>\nendobj\n");
+}
+static int pdf_drucken(const char* titel, const char* text) {
+    int nseiten = 0, nz = 0, ll = 0; char l[100]; const char* p = text; pdfn = 0; (void)titel;
+    pw("%PDF-1.4\n"); pdf_off[3] = pdfn; pw("3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>\nendobj\n");
+    for (;;) {
+        if (*p == 0) { if (ll == 0) break; }
+        else if (*p == '\n') p++;
+        else if (ll < 92) { l[ll++] = *p++; continue; }
+        l[ll] = 0; for (int i = 0; i <= ll; i++) pdf_zl[nz][i] = l[i]; nz++; ll = 0;
+        if (nz == 60) { if (nseiten < 60) { pdf_seite(nz, nseiten); nseiten++; } nz = 0; }
+        if (*p == 0) break;
+    }
+    if (nz > 0 && nseiten < 60) { pdf_seite(nz, nseiten); nseiten++; }
+    if (!nseiten) return -1;
+    pdf_off[2] = pdfn; pw("2 0 obj\n<< /Type /Pages /Count "); pwn(nseiten); pw(" /Kids [");
+    for (int i = 0; i < nseiten; i++) { pwn(4 + 2 * i); pw(" 0 R "); }
+    pw("] >>\nendobj\n");
+    pdf_off[1] = pdfn; pw("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+    int xr = pdfn, nobj = 4 + 2 * nseiten;
+    pw("xref\n0 "); pwn(nobj); pw("\n0000000000 65535 f \n");
+    for (int i = 1; i < nobj; i++) { char a[12]; dec(a, (uint32_t)pdf_off[i]); int n = slen(a); for (int k = n; k < 10; k++) pdfb[pdfn++] = '0'; pw(a); pw(" 00000 n \n"); }
+    pw("trailer\n<< /Size "); pwn(nobj); pw(" /Root 1 0 R >>\nstartxref\n"); pwn(xr); pw("\n%%EOF\n");
+    for (int n = 1; n < 100; n++) { char a[8], b[2]; dec(a, (uint32_t)n); scopy(pdf_name, "druck-", 24); cat(pdf_name, a, 24); cat(pdf_name, ".pdf", 24); if (synfs_read(pdf_name, b, 1) < 0) break; }
+    synfs_create(pdf_name, SYNFS_FILE);
+    if (synfs_write(pdf_name, pdfb, (uint32_t)pdfn) < 0) return -2;
+    synfs_sync();
+    kprint("[DESKTOP] Gedruckt als PDF: "); kprint(pdf_name); kprint(" ("); kprint_dec((uint32_t)nseiten); kprint(" Seiten)\n");
+    return nseiten;
+}
+
+/* ---------- Browser-Oberflaeche ---------- */
+#include "browser.h"
+static char adr[192]; static int adrlen;
+static int wscroll, wcols, wrows, wok, wlauf;                       /* wok: Seite geladen; wlauf: Abruf laeuft */
+static char whist[16][200]; static int nwh, whp = -1;
+static char lesez[1500]; static int lzlen;
+static int wx0, wy0, ww, wh;                                         /* Seitenbereich */
+enum { K_WB = 60, K_WV, K_WR, K_WL, K_WX, K_WS, K_LZ0 = 70 };
+static void lz_laden(void) { int r = synfs_read("lesezeichen.txt", lesez, sizeof(lesez) - 1); lzlen = r > 0 ? r : 0; lesez[lzlen] = 0; }
+static int lz_zeile(int n, char* out, int max) {
+    int z = 0, i = 0;
+    while (i < lzlen) { int e = i; while (e < lzlen && lesez[e] != '\n') e++; if (e > i) { if (z == n) { int k = 0; for (int j = i; j < e && k < max - 1; j++) out[k++] = lesez[j]; out[k] = 0; return 1; } z++; } i = e + 1; }
+    return 0;
+}
+static void lz_add(const char* u) {
+    lz_laden(); char t[200]; for (int n = 0; lz_zeile(n, t, 200); n++) if (gleich(t, u)) { scopy(meldung, TR("Schon in den Lesezeichen.", "Already bookmarked."), 100); return; }
+    int n = slen(u); if (lzlen + n + 2 >= (int)sizeof(lesez) - 4) { scopy(meldung, TR("Lesezeichen voll.", "Bookmarks full."), 100); return; }
+    for (int i = 0; i < n; i++) lesez[lzlen++] = u[i];
+    lesez[lzlen++] = '\n'; lesez[lzlen] = 0;
+    synfs_create("lesezeichen.txt", SYNFS_FILE); synfs_write("lesezeichen.txt", lesez, (uint32_t)lzlen); synfs_sync();
+    scopy(meldung, TR("Lesezeichen gespeichert.", "Bookmark saved."), 100); kprint("[WEB] Lesezeichen: "); kprint(u); kprint("\n");
+}
+static const char* const web_vorgabe[] = { "de.wikipedia.org", "en.wikipedia.org", "example.com", "duckduckgo.com", "news.ycombinator.com", 0 };
+static void web_sug_suche(void) {
+    nsug = 0; sugsel = -1; const char* q = adr; while (*q == ' ') q++; if (!*q) return;
+    sug_q = q; int ql = slen(q); char t[200];
+    for (int i = nwh - 1; i >= 0; i--) { const char* u = whist[i]; if (praefix(u, "https://")) u += 8; else if (praefix(u, "http://")) u += 7; if (praefix(u, q)) sug_add(u, 2, ql); }
+    lz_laden(); for (int n = 0; lz_zeile(n, t, 200); n++) { const char* u = t; if (praefix(u, "https://")) u += 8; else if (praefix(u, "http://")) u += 7; if (praefix(u, q)) sug_add(u, 0, ql); }
+    for (int i = 0; web_vorgabe[i]; i++) if (praefix(web_vorgabe[i], q)) sug_add(web_vorgabe[i], 0, ql);
+}
+static void zeichne_web(int voll);
+static void web_gehe(const char* eingabe_url, int push) {
+    char u[200]; web_url_bauen(eingabe_url, u, 200);
+    wlauf = 1; scopy(meldung, TR("Lade ", "Loading "), 100); cat(meldung, u, 100); zeichne_web(0);
+    kprint("[WEB] Lade: "); kprint(u); kprint("\n");
+    int r = web_laden(u, wcols);
+    wlauf = 0; nsug = 0; sugsel = -1;
+    if (r != 0) { wok = 0; scopy(meldung, web_fehler, 100); kprint("[WEB] Fehler: "); kprint(web_fehler); kprint("\n"); scopy(adr, u, 192); adrlen = slen(adr); }
+    else {
+        wok = 1; wscroll = 0; scopy(adr, web_url, 192); adrlen = slen(adr); meldung[0] = 0;
+        if (push) { if (whp + 1 < 16) { whp++; } else { for (int i = 0; i < 15; i++) scopy(whist[i], whist[i + 1], 200); } scopy(whist[whp], web_url, 200); nwh = whp + 1; }
+        kprint("[WEB] Seite: "); kprint(web_titel); kprint(" ("); kprint_dec((uint32_t)web_nz); kprint(" Zeilen, "); kprint_dec((uint32_t)web_nlinks); kprint(" Links)\n");
+    }
+    sel1 = 0; zeichne_web(1);
+}
+static void web_zurueck(int d) { int n = whp + d; if (n < 0 || n >= nwh) return; whp = n; web_gehe(whist[whp], 0); }
+static void zeichne_web(int voll) {
+    gfx_begin();
+    if (voll) {
+        gfx_rect(0, 0, W, H, C_BG); nkn = 0; zeichne_leiste();
+        int fx = 24 + 3 * 42, fw = W - fx - 24 - 3 * 100;
+        knopf(K_WB, "<", 24, 48, 36, 0); knopf(K_WV, ">", 66, 48, 36, 0); knopf(K_WR, "R", 108, 48, 36, 0);
+        rrect_rand(fx, 48, fw, 34, 12, C_FIELD, C_ACC);
+        { char a[200]; scopy(a, adr, 200); int mc = (fw - 24) / 8; if (slen(a) > mc) { for (int i = 0; i < mc - 1; i++) a[i] = adr[slen(adr) - (mc - 1) + i]; a[mc - 1] = 0; }
+          if (sel1 && adrlen) rrect(fx + 8, 53, gtw(a, 1) + 8, 24, 6, mix(C_FIELD, C_ACC, 140));
+          if (!adrlen) gtxt(fx + 14, 57, TR("Adresse oder Suchbegriff ...", "Address or search ..."), 0x00647488u, 1); else gfx_text(fx + 14, 57, a, C_TEXT, 1);
+          gfx_rect(fx + 14 + slen(a) * 8, 54, 2, 22, C_TEXT); }
+        knopf(K_WS, TR("Merken", "Save"), fx + fw + 10, 48, 90, 0); knopf(K_WX, TR("Schliessen", "Close"), fx + fw + 110, 48, 110, 0);
+        wx0 = 24; wy0 = 92; ww = W - 48; wh = H - 92 - 44;
+        wcols = (ww - 60) / 8; if (wcols > 110) wcols = 110; wrows = (wh - 24) / 20;
+    }
+    /* Seite */
+    rrect_rand(wx0, wy0, ww, wh, 14, C_CARD, C_BORDER);
+    if (wlauf) gtxt(wx0 + 24, wy0 + 24, TR("Seite wird geladen ...", "Loading page ..."), C_MUTED, 1);
+    else if (!wok) {
+        int y = wy0 + 20;
+        if (meldung[0] && !wlauf) { gtxt(wx0 + 24, y, meldung, 0x00F59E0Bu, 1); y += 34; }
+        gtxt(wx0 + 24, y, TR("Zynex Browser - Lesezeichen und Vorschlaege", "Zynex browser - bookmarks and suggestions"), C_TEXT, 1); y += 30;
+        lz_laden(); int n = 0; char t[200];
+        for (; lz_zeile(n, t, 200) && n < 10; n++) { gtxt(wx0 + 40, y + n * 28, t, C_ACC2, 1); kn_reg(K_LZ0 + n, wx0 + 30, y + n * 28 - 4, ww - 60, 26); }
+        y += n * 28 + 8;
+        for (int i = 0; web_vorgabe[i] && n < 14; i++, n++) { gtxt(wx0 + 40, y, web_vorgabe[i], C_MUTED, 1); kn_reg(K_LZ0 + 10 + i, wx0 + 30, y - 4, ww - 60, 26); y += 28; }
+        int ns = net_status(t, 32); if (ns != 2) gtxt(wx0 + 24, wy0 + wh - 36, TR("Kein Netzwerk: zuerst verbinden (netz dhcp).", "No network: connect first (net dhcp)."), C_MUTED, 1);
+        else gtxt(wx0 + 24, wy0 + wh - 36, TR("Tippe eine Adresse oder einen Suchbegriff. Rechtsklick: Menue.", "Type an address or a search term. Right click: menu."), C_MUTED, 1);
+    } else {
+        if (wscroll > web_nz - wrows) wscroll = web_nz - wrows;
+        if (wscroll < 0) wscroll = 0;
+        for (int r = 0; r < wrows && wscroll + r < web_nz; r++) {
+            struct web_zeile* z = &web_z[wscroll + r]; int y = wy0 + 14 + r * 20, x = wx0 + 24;
+            uint32_t c = z->stil == 1 ? C_TEXT : z->stil == 2 ? C_ACC2 : z->stil == 3 ? C_MUTED : C_TEXT;
+            if (z->stil == 3) rrect(wx0 + 14, y - 2, ww - 40, 20, 4, C_FIELD);
+            gfx_text(x, y, z->t, c, 1); if (z->stil == 1) gfx_text(x + 1, y, z->t, c, 1);
+            for (int k = 0; k < z->nl; k++) {
+                char seg[120]; int a = z->l[k].a, b = z->l[k].b, n = 0; for (int q = a; q < b && q < 115; q++) seg[n++] = z->t[q]; seg[n] = 0;
+                rrect(x + a * 8 - 1, y, (b - a) * 8 + 2, 18, 0, C_CARD); gfx_text(x + a * 8, y, seg, C_ACC2, 1); gfx_rect(x + a * 8, y + 16, (b - a) * 8, 1, C_ACC2);
+            }
+        }
+        int sbx = wx0 + ww - 18, sbh = wh - 24; rrect(sbx, wy0 + 12, 8, sbh, 4, C_FIELD);
+        if (web_nz > wrows) { int kh = sbh * wrows / web_nz; if (kh < 24) kh = 24; int ky = wy0 + 12 + (sbh - kh) * wscroll / (web_nz - wrows); rrect(sbx, ky, 8, kh, 4, C_ACC); }
+    }
+    /* Statuszeile */
+    gfx_rect(0, H - 40, W, 40, C_BG);
+    { char s[140]; if (meldung[0] && wok) scopy(s, meldung, 140); else if (wok) { scopy(s, web_titel[0] ? web_titel : web_url, 140); } else s[0] = 0; gtxt(24, H - 30, s, C_MUTED, 1);
+      char z[40], a[12]; scopy(z, "", 40); if (wok && web_nz > wrows) { dec(a, (uint32_t)wscroll + 1); cat(z, a, 40); cat(z, "-", 40); int e = wscroll + wrows; if (e > web_nz) e = web_nz; dec(a, (uint32_t)e); cat(z, a, 40); cat(z, " / ", 40); dec(a, (uint32_t)web_nz); cat(z, a, 40); }
+      gtxt(W - 24 - gtw(z, 1), H - 30, z, C_MUTED, 1); }
+    if (nsug > 0) {
+        int fx = 24 + 3 * 42, fw = W - fx - 24 - 3 * 100, y0 = 86;
+        rrect_rand(fx, y0, fw, nsug * 30 + 12, 14, C_CARD, C_ACC); kn_loesche(K_SUG0, K_SUG0 + 5);
+        for (int i = 0; i < nsug; i++) {
+            int ry = y0 + 6 + i * 30; if (i == sugsel) rrect(fx + 6, ry, fw - 12, 28, 10, mix(C_CARD, C_ACC, 120));
+            char a[96]; int pl = sugpre[i] < 95 ? sugpre[i] : 95; for (int j = 0; j < pl; j++) a[j] = sug[i][j]; a[pl] = 0; int px = fx + 20;
+            if (pl) { gtxt(px, ry + 6, a, C_TEXT, 1); px += gtw(a, 1); } gtxt(px, ry + 6, sug[i] + pl, i == sugsel ? C_TEXT : C_MUTED, 1);
+            const char* tg = sugtyp[i] == 0 ? TR("Lesezeichen", "bookmark") : TR("Verlauf", "history"); gtxt(fx + fw - 20 - gtw(tg, 1), ry + 6, tg, C_MUTED, 1);
+            kn_reg(K_SUG0 + i, fx + 6, ry, fw - 12, 28);
+        }
+    }
+    gfx_end();
+}
+static void web_oeffnen(const char* url) {
+    zustand = Z_WEB; whp = whp < 0 ? -1 : whp; nsug = 0; sugsel = -1; sel1 = 0; wlauf = 0; meldung[0] = 0;
+    if (!adrlen) { adr[0] = 0; }
+    kprint("[DESKTOP] Browser geoeffnet\n");
+    zeichne_web(1);
+    if (url && *url) web_gehe(url, 1);
+}
+static void web_schliessen(void) { zustand = Z_DESK; nsug = 0; sugsel = -1; sel1 = 0; zeichne_desktop(); }
+static int web_link_bei(int x, int y) {                              /* Link unter der Maus oder -1 */
+    if (!wok || x < wx0 + 24 || y < wy0 + 14) return -1;
+    int r = (y - wy0 - 14) / 20; if (r < 0 || r >= wrows || wscroll + r >= web_nz) return -1;
+    struct web_zeile* z = &web_z[wscroll + r]; int sp = (x - wx0 - 24) / 8;
+    for (int k = 0; k < z->nl; k++) if (sp >= z->l[k].a && sp < z->l[k].b) return z->l[k].id;
+    return -1;
+}
+
+/* ---------- Rechtsklick-Menue ---------- */
+enum { M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN };
+static struct { int offen, x, y, w, n, hover, ziel; struct { int id; const char* de; const char* en; } p[9]; } menu;
+static int menu_link;
+static void menu_add(int id, const char* de, const char* en) { if (menu.n < 9) { menu.p[menu.n].id = id; menu.p[menu.n].de = de; menu.p[menu.n].en = en; menu.n++; } }
+static void zeichne_menu(void) {
+    if (!menu.offen) return;
+    gfx_begin();
+    int h = menu.n * 30 + 12;
+    rrect_rand(menu.x, menu.y, menu.w, h, 12, C_CARD, C_ACC);
+    for (int i = 0; i < menu.n; i++) {
+        int ry = menu.y + 6 + i * 30; if (i == menu.hover) rrect(menu.x + 6, ry, menu.w - 12, 28, 8, mix(C_CARD, C_ACC, 140));
+        gtxt(menu.x + 20, ry + 6, TR(menu.p[i].de, menu.p[i].en), C_TEXT, 1);
+    }
+    gfx_end();
+}
+static void redraw_alles(void) { if (zustand == Z_WEB) zeichne_web(1); else if (zustand == Z_EDIT) zeichne_editor(1); else if (zustand == Z_DESK) zeichne_desktop(); }
+static void menu_schliessen(void) { if (!menu.offen) return; menu.offen = 0; redraw_alles(); }
+static void menu_oeffnen(int x, int y) {
+    menu.n = 0; menu.hover = -1; menu_link = -1;
+    int eingabefeld = (zustand == Z_DESK && flaeche == 0 && x >= bar_x && x < bar_x + bar_w && y >= bar_y && y < bar_y + 52);
+    if (zustand == Z_WEB) {
+        int fx = 24 + 3 * 42, fw = W - fx - 24 - 3 * 100;
+        if (x >= fx && x < fx + fw && y >= 48 && y < 82) { menu_add(M_AUSSCHN, "Ausschneiden", "Cut"); menu_add(M_KOPIEREN, "Kopieren", "Copy"); menu_add(M_EINFUEGEN, "Einfuegen", "Paste"); menu_add(M_ALLES, "Alles auswaehlen", "Select all"); }
+        else {
+            menu_link = web_link_bei(x, y);
+            if (menu_link >= 0) { menu_add(M_LINKOEFFNEN, "Link oeffnen", "Open link"); menu_add(M_LINKKOPIEREN, "Link kopieren", "Copy link"); }
+            menu_add(M_ZURUECK, "Zurueck", "Back"); menu_add(M_VOR, "Vor", "Forward"); menu_add(M_NEULADEN, "Neu laden", "Reload");
+            menu_add(M_SEITEKOPIEREN, "Seitentext kopieren", "Copy page text"); menu_add(M_LESEZEICHEN, "Lesezeichen setzen", "Bookmark page"); menu_add(M_DRUCKEN, "Drucken (PDF)", "Print (PDF)");
+            if (menu.n < 9) menu_add(M_SEITESPEICHERN, "Als Datei speichern", "Save as file");
+        }
+    } else if (zustand == Z_EDIT) {
+        menu_add(M_AUSSCHN, "Ausschneiden", "Cut"); menu_add(M_KOPIEREN, "Kopieren", "Copy"); menu_add(M_EINFUEGEN, "Einfuegen", "Paste"); menu_add(M_ALLES, "Alles auswaehlen", "Select all");
+        menu_add(M_DRUCKEN, "Drucken (PDF)", "Print (PDF)"); menu_add(M_SPEICHERN, "Speichern", "Save"); menu_add(M_SCHLIESSEN, "Schliessen", "Close");
+    } else if (eingabefeld) {
+        menu_add(M_AUSSCHN, "Ausschneiden", "Cut"); menu_add(M_KOPIEREN, "Kopieren", "Copy"); menu_add(M_EINFUEGEN, "Einfuegen", "Paste"); menu_add(M_ALLES, "Alles auswaehlen", "Select all"); menu_add(M_LEEREN, "Leeren", "Clear");
+    } else {
+        menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_VORIGE, "Vorherige Arbeitsflaeche", "Previous workspace");
+        if (flaeche == 0) menu_add(M_EINFUEGEN, "Einfuegen", "Paste");
+    }
+    menu.w = 250; menu.x = x + menu.w > W ? W - menu.w - 4 : x; menu.y = y + menu.n * 30 + 12 > H ? H - menu.n * 30 - 16 : y; menu.offen = 1;
+    zeichne_menu();
+}
+static void ed_einfuegen_text(const char* t, int n) {
+    for (int i = 0; i < n && doklen < DOK_MAX; i++) { unsigned char c = (unsigned char)t[i]; if (c == '\r') continue; if (!(c == '\n' || (c >= 32 && c < 127) || c >= 0xA0)) continue; for (int k = doklen; k > dokcur; k--) dok[k] = dok[k - 1]; dok[dokcur++] = (char)c; doklen++; }
+    dok[doklen] = 0; dokgeaendert = 1;
+}
+/* Aktionen fuer das aktive Eingabeziel: Chat-Leiste, Adressleiste oder Dokument */
+static void ziel_aktion(int id) {
+    char* b = zustand == Z_WEB ? adr : eingabe; int* n = zustand == Z_WEB ? &adrlen : &einlen; int mx = zustand == Z_WEB ? 190 : 80;
+    if (zustand == Z_EDIT) {
+        if (id == M_KOPIEREN || id == M_AUSSCHN) { clip_setze(dok, doklen); if (id == M_AUSSCHN) { doklen = 0; dokcur = 0; dok[0] = 0; dokgeaendert = 1; } scopy(meldung, TR("Dokument kopiert.", "Document copied."), 100); }
+        else if (id == M_EINFUEGEN) ed_einfuegen_text(clip, cliplen);
+        zeichne_editor(1); return;
+    }
+    if (id == M_KOPIEREN || id == M_AUSSCHN) { if (*n) { clip_setze(b, *n); if (id == M_AUSSCHN) { *n = 0; b[0] = 0; } } }
+    else if (id == M_EINFUEGEN) { if (sel1) { *n = 0; b[0] = 0; } for (int i = 0; i < cliplen && *n < mx; i++) { unsigned char c = (unsigned char)clip[i]; if (c >= 32 && (c < 127 || c >= 0xA0)) b[(*n)++] = (char)c; } b[*n] = 0; }
+    else if (id == M_LEEREN) { *n = 0; b[0] = 0; }
+    if (id == M_ALLES) sel1 = *n > 0; else sel1 = 0;
+    if (zustand == Z_WEB) { web_sug_suche(); zeichne_web(1); } else { sug_suche(); zeichne_eingabe(); }
+}
+static void menu_aktion(int id) {
+    menu.offen = 0;
+    switch (id) {
+    case M_AUSSCHN: case M_KOPIEREN: case M_EINFUEGEN: case M_ALLES: case M_LEEREN: ziel_aktion(id); return;
+    case M_DRUCKEN: {
+        static char txt[40000]; int r;
+        if (zustand == Z_EDIT) r = pdf_drucken(dokname, dok); else { web_text(txt, sizeof(txt)); r = pdf_drucken(web_titel, txt); }
+        if (r > 0) { scopy(meldung, TR("Gedruckt als PDF: ", "Printed as PDF: "), 100); cat(meldung, pdf_name, 100); cat(meldung, TR(" (Druckertreiber folgt)", " (printer driver follows)"), 100); } else scopy(meldung, TR("Drucken fehlgeschlagen.", "Printing failed."), 100);
+        redraw_alles(); return; }
+    case M_ZURUECK: web_zurueck(-1); return;
+    case M_VOR: web_zurueck(1); return;
+    case M_NEULADEN: web_gehe(web_url[0] ? web_url : adr, 0); return;
+    case M_LINKOEFFNEN: if (menu_link >= 0) web_gehe(web_links[menu_link], 1); return;
+    case M_LINKKOPIEREN: if (menu_link >= 0) { clip_setze(web_links[menu_link], slen(web_links[menu_link])); scopy(meldung, TR("Link kopiert.", "Link copied."), 100); } break;
+    case M_SEITEKOPIEREN: { static char t[4096]; int n = web_text(t, sizeof(t)); clip_setze(t, n); scopy(meldung, TR("Seitentext kopiert.", "Page text copied."), 100); break; }
+    case M_LESEZEICHEN: if (wok) lz_add(web_url); break;
+    case M_SEITESPEICHERN: { static char t[40000]; int n = web_text(t, sizeof(t)); char nm[24], a[8], b[2]; for (int i = 1; i < 100; i++) { dec(a, (uint32_t)i); scopy(nm, "seite-", 24); cat(nm, a, 24); cat(nm, ".txt", 24); if (synfs_read(nm, b, 1) < 0) break; }
+        synfs_create(nm, SYNFS_FILE); synfs_write(nm, t, (uint32_t)n); synfs_sync(); scopy(meldung, TR("Gespeichert: ", "Saved: "), 100); cat(meldung, nm, 100); break; }
+    case M_SPEICHERN: dok_speichern(); break;
+    case M_SCHLIESSEN: editor_schliessen(); return;
+    case M_NAECHSTE: flaeche_wechsel(flaeche + 1); return;
+    case M_VORIGE: flaeche_wechsel(flaeche + 3); return;
+    }
+    redraw_alles();
+}
+static int menu_treffer(int x, int y) { if (x < menu.x || x >= menu.x + menu.w) return -1; int i = (y - menu.y - 6) / 30; return (y >= menu.y + 6 && i >= 0 && i < menu.n) ? i : -1; }
+
+/* Kurztasten mit Strg (a c x v p l d r) */
+static int strg_taste(uint8_t k) {
+    int id = 0;
+    if (k == 0x06) id = M_KOPIEREN; else if (k == 0x1B) id = M_AUSSCHN; else if (k == 0x19) id = M_EINFUEGEN; else if (k == 0x04) id = M_ALLES;
+    else if (k == 0x13 && (zustand == Z_WEB || zustand == Z_EDIT)) id = M_DRUCKEN;
+    else if (k == 0x07 && zustand == Z_WEB) id = M_LESEZEICHEN; else if (k == 0x15 && zustand == Z_WEB) id = M_NEULADEN;
+    else if (k == 0x0F && zustand == Z_WEB) { sel1 = adrlen > 0; zeichne_web(1); return 1; }
+    else return 0;
+    if (zustand == Z_DESK && flaeche != 0) return 1;
+    menu.offen = 0;
+    if (id == M_KOPIEREN || id == M_AUSSCHN || id == M_EINFUEGEN || id == M_ALLES) { if (zustand == Z_EDIT && id == M_ALLES) return 1; ziel_aktion(id); }
+    else menu_aktion(id);
+    return 1;
+}
+
+
+static void web_taste(uint8_t k, int shift, int altgr) {
+    if (cur_ctrl && strg_taste(k)) return;
+    if (k == 0x29) { if (nsug) { nsug = 0; sugsel = -1; zeichne_web(1); } else web_schliessen(); return; }
+    if (k == 0x28 || k == 0x58) {
+        if (sugsel >= 0 && sugsel < nsug) { scopy(adr, sug[sugsel], 192); adrlen = slen(adr); }
+        if (adrlen) web_gehe(adr, 1); return;
+    }
+    if (nsug > 0 && (k == 0x51 || k == 0x52)) { sugsel += (k == 0x51) ? 1 : -1; if (sugsel >= nsug) sugsel = -1; if (sugsel < -1) sugsel = nsug - 1; zeichne_web(1); return; }
+    if (nsug > 0 && k == 0x2B) { scopy(adr, sug[sugsel >= 0 ? sugsel : 0], 192); adrlen = slen(adr); web_sug_suche(); zeichne_web(1); return; }
+    if (k == 0x3E) { web_gehe(web_url[0] ? web_url : adr, 0); return; }                               /* F5 */
+    if (k == 0x51 || k == 0x52 || k == 0x4E || k == 0x4B || k == 0x4A || k == 0x4D) {
+        int d = k == 0x51 ? 1 : k == 0x52 ? -1 : k == 0x4E ? wrows - 1 : k == 0x4B ? -(wrows - 1) : k == 0x4A ? -100000 : 100000;
+        wscroll += d; if (wscroll > web_nz - wrows) wscroll = web_nz - wrows; if (wscroll < 0) wscroll = 0; zeichne_web(0); return;
+    }
+    if (k == 0x2A) { if (sel1) { adrlen = 0; adr[0] = 0; sel1 = 0; } else if (adrlen) adr[--adrlen] = 0; web_sug_suche(); zeichne_web(1); return; }
+    char c = usb_key_char(k, shift, altgr);
+    if (c >= 32 && c < 127 && adrlen < 190) { if (sel1) { adrlen = 0; sel1 = 0; } adr[adrlen++] = c; adr[adrlen] = 0; web_sug_suche(); zeichne_web(1); }
+}
+
 /* ---------- Intents ---------- */
-enum { I_NICHTS, I_TEXT, I_RECHNEN, I_SYSTEM, I_DATEIEN, I_QUBIT, I_SICHER, I_ABMELDEN, I_NEUSTART, I_WARTUNG, I_HILFE, I_AGENT, I_AUFGABE, I_FLAECHE };
+enum { I_NICHTS, I_TEXT, I_RECHNEN, I_SYSTEM, I_DATEIEN, I_QUBIT, I_SICHER, I_ABMELDEN, I_NEUSTART, I_WARTUNG, I_HILFE, I_AGENT, I_AUFGABE, I_FLAECHE, I_WEB };
 static int in_par; static const char* in_text;
 static int enthaelt(const char* s, const char* w) {
     for (; *s; s++) { int i = 0; while (w[i] && s[i] == w[i]) i++; if (!w[i]) return 1; }
@@ -744,6 +1053,13 @@ static int erkenne(const char* s) {
     static const char* const w_out[] = { "abmeld", "logout", "log out", "sperr", "lock", "sign out", 0 };
     static const char* const w_nst[] = { "neustart", "restart", "reboot", "neu starten", 0 };
     static const char* const w_hlp[] = { "hilfe", "help", "was kannst", "what can", 0 };
+    {
+        static const char* const kw[] = { "browser", "internet", "web", "surfe", "suche", "search", "oeffne", "open", 0 };
+        int erstes = -1; for (int i = 0; kw[i]; i++) { int n = slen(kw[i]), ok = 1; for (int j = 0; j < n; j++) if (s[j] != kw[i][j]) { ok = 0; break; } if (ok && (s[n] == 0 || s[n] == ' ')) { erstes = i; break; } }
+        const char* t = s; if (erstes >= 0) { while (*t && *t != ' ') t++; while (*t == ' ') t++; }
+        int punkt = 0; for (const char* q = t; *q; q++) if (*q == '.') punkt = 1;
+        if ((erstes >= 0 && erstes <= 5) || (erstes >= 6 && punkt) || (erstes < 0 && (enthaelt(s, "http://") || enthaelt(s, "https://") || enthaelt(s, "www.")))) { in_text = t; return I_WEB; }
+    }
     if (enthaelt(s, "arbeitsfl") || enthaelt(s, "workspace") || enthaelt(s, "wuerfel") || enthaelt(s, "cube")) {
         in_par = -1;
         if (enthaelt(s, "1") || enthaelt(s, "zynie")) in_par = 0; else if (enthaelt(s, "2") || enthaelt(s, "system")) in_par = 1;
@@ -880,8 +1196,8 @@ static void ausfuehren(void) {
     char s[96]; int k = 0; for (int i = 0; eingabe[i] && k < 94; i++) { char c = eingabe[i]; s[k++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; } s[k] = 0;
     char roh[96]; scopy(roh, eingabe, 96);
     int in = erkenne(s);
-    if (gehirn_vorhanden() && in != I_WARTUNG && in != I_RECHNEN && in != I_AGENT && in != I_AUFGABE && in != I_FLAECHE) { int w = 1; for (int i = 0; s[i]; i++) if (s[i] == ' ' && s[i + 1] && s[i + 1] != ' ') w++; if (w > 3) in = I_NICHTS; }   /* ganze Saetze gehen an das Sprachmodell */
-    einlen = 0; eingabe[0] = 0; nsug = 0; sugsel = -1;
+    if (gehirn_vorhanden() && in != I_WARTUNG && in != I_RECHNEN && in != I_AGENT && in != I_AUFGABE && in != I_FLAECHE && in != I_WEB) { int w = 1; for (int i = 0; s[i]; i++) if (s[i] == ' ' && s[i + 1] && s[i + 1] != ' ') w++; if (w > 3) in = I_NICHTS; }   /* ganze Saetze gehen an das Sprachmodell */
+    einlen = 0; eingabe[0] = 0; nsug = 0; sugsel = -1; sel1 = 0;
     if (!k) return;
     hist_add(roh);
     kprint("[DESKTOP] Intent '"); kprint(roh); kprint("' -> ");
@@ -897,6 +1213,7 @@ static void ausfuehren(void) {
     case I_HILFE: kprint("Hilfe\n"); antwort_setze(TR("Sag mir einfach, was du tun moechtest. Zum Beispiel:", "Just tell me what you want to do. For example:"),
             TR("\"text erstellen\" - schreibt ein Dokument", "\"write a text\" - opens a document"), TR("\"rechne (12+3)*7\" - rechnet", "\"calc (12+3)*7\" - calculates"),
             TR("\"system\" - zeigt den Zustand, \"dateien\" - deine Dokumente", "\"system\" - shows the status, \"files\" - your documents"), TR("\"briefing\", \"agenten\", \"aufgabe ...\", \"quanten\", \"abmelden\" - oder frag mich einfach alles", "\"briefing\", \"agents\", \"task ...\", \"quantum\", \"sign out\" - or just ask me anything"), 0); break;
+    case I_WEB: kprint("Browser\n"); web_oeffnen(roh + (in_text - s)); return;
     case I_FLAECHE: kprint("Arbeitsflaeche\n"); { int z = in_par < 0 ? (flaeche + 1) % 4 : in_par; if (z == flaeche) { reply1(TR("Du bist schon dort.", "You are already there.")); break; }
             reply1(TR("Ich drehe den Wuerfel.", "Rotating the cube.")); flaeche_wechsel(z); return; }
     case I_AGENT: kprint("Agent\n"); if (in_par < 0) { reply1(TR("Ich zeige dir die Agenten.", "Showing the agents.")); flaeche_wechsel(2); return; }
@@ -931,7 +1248,9 @@ static void anmelden(void) {
 }
 
 static void taste(uint8_t k, int shift, int altgr) {
-    if (zustand == Z_EDIT) { editor_taste(k, shift, altgr); return; }
+    if (menu.offen) { if (k == 0x29) menu_schliessen(); return; }
+    if (zustand == Z_EDIT) { if (cur_ctrl && strg_taste(k)) return; editor_taste(k, shift, altgr); return; }
+    if (zustand == Z_WEB) { web_taste(k, shift, altgr); return; }
     if (zustand == Z_LOGIN) {
         char* t = ffocus == 0 ? fname : fpw; int max = ffocus == 0 ? 15 : 39; int n = slen(t);
         if (k == 0x2B || k == 0x51 || k == 0x52) { ffocus = !ffocus; zeichne_login(); }
@@ -940,6 +1259,7 @@ static void taste(uint8_t k, int shift, int altgr) {
         else { char c = usb_key_char(k, shift, altgr); if (c >= 32 && c < 127 && n < max) { t[n] = c; t[n + 1] = 0; fmsg = 0; zeichne_login(); } }
         return;
     }
+    if (cur_ctrl && strg_taste(k)) return;
     if (k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }                       /* F1-F4 */
     if (k == 0x4B) { flaeche_wechsel(flaeche + 3); return; }                                 /* Bild auf */
     if (k == 0x4E) { flaeche_wechsel(flaeche + 1); return; }                                 /* Bild ab */
@@ -958,11 +1278,12 @@ static void taste(uint8_t k, int shift, int altgr) {
     if (flaeche == 0 && nsug > 0 && k == 0x2B) {                                             /* Tab: Vorschlag uebernehmen */
         scopy(eingabe, sug[sugsel >= 0 ? sugsel : 0], 96); einlen = slen(eingabe); sug_suche(); zeichne_eingabe(); return;
     }
-    if (k == 0x2A) { if (flaeche == 0 && einlen) { eingabe[--einlen] = 0; sug_suche(); zeichne_eingabe(); } return; }
+    if (k == 0x2A) { if (flaeche == 0 && einlen) { if (sel1) { einlen = 0; eingabe[0] = 0; sel1 = 0; } else eingabe[--einlen] = 0; sug_suche(); zeichne_eingabe(); } return; }
     if (k == 0x29) { if (flaeche != 0) return; einlen = 0; eingabe[0] = 0; sug_suche(); zeichne_eingabe(); return; }
     char c = usb_key_char(k, shift, altgr);
     if (((c >= 32 && c < 127) || (unsigned char)c >= 0xA0) && einlen < 80) {
         if (flaeche != 0) flaeche_wechsel(0);
+        if (sel1) { einlen = 0; sel1 = 0; }
         eingabe[einlen++] = c; eingabe[einlen] = 0; sug_suche(); zeichne_eingabe();
     }
 }
@@ -971,7 +1292,7 @@ static void klick(int x, int y) {
     for (int i = 0; i < nkn; i++) {
         if (x < knoepfe[i].x || x >= knoepfe[i].x + knoepfe[i].w || y < knoepfe[i].y || y >= knoepfe[i].y + knoepfe[i].h) continue;
         int id = knoepfe[i].id;
-        if (zustand == Z_DESK && id >= K_CHIP0 && id < K_CHIP0 + 5) { scopy(eingabe, chip_text[id - K_CHIP0], 96); einlen = slen(eingabe); ausfuehren(); }
+        if (zustand == Z_DESK && id >= K_CHIP0 && id < K_CHIP0 + 6) { scopy(eingabe, chip_text[id - K_CHIP0], 96); einlen = slen(eingabe); ausfuehren(); }
         else if (zustand == Z_DESK && id >= K_SUG0 && id < K_SUG0 + 5 && id - K_SUG0 < nsug) {
             scopy(eingabe, sug[id - K_SUG0], 96); einlen = slen(eingabe);
             if (einlen && eingabe[einlen - 1] == ' ') { sug_suche(); zeichne_eingabe(); } else ausfuehren();
@@ -981,6 +1302,13 @@ static void klick(int x, int y) {
         else if (zustand == Z_DESK && id == K_NEXT) flaeche_wechsel(flaeche + 1);
         else if (zustand == Z_DESK && id >= K_AG0 && id < K_AG0 + NAG) { ag_start(id - K_AG0); zeichne_desktop(); }
         else if (zustand == Z_DESK && (id == K_FREI || id == K_ABL)) { ag_entscheid(id == K_FREI); zeichne_desktop(); }
+        else if (zustand == Z_WEB && id == K_WB) web_zurueck(-1);
+        else if (zustand == Z_WEB && id == K_WV) web_zurueck(1);
+        else if (zustand == Z_WEB && id == K_WR) web_gehe(web_url[0] ? web_url : adr, 0);
+        else if (zustand == Z_WEB && id == K_WX) web_schliessen();
+        else if (zustand == Z_WEB && id == K_WS) { if (wok) lz_add(web_url); else scopy(meldung, TR("Erst eine Seite oeffnen.", "Open a page first."), 100); zeichne_web(1); }
+        else if (zustand == Z_WEB && id >= K_SUG0 && id < K_SUG0 + 5 && id - K_SUG0 < nsug) { scopy(adr, sug[id - K_SUG0], 192); adrlen = slen(adr); web_gehe(adr, 1); }
+        else if (zustand == Z_WEB && id >= K_LZ0 && id < K_LZ0 + 14) { char t[200]; int n = id - K_LZ0; if (n < 10) { if (lz_zeile(n, t, 200)) web_gehe(t, 1); } else if (web_vorgabe[n - 10]) web_gehe(web_vorgabe[n - 10], 1); }
         else if (zustand == Z_DESK && id == K_NEUDOK) editor_oeffnen();
         else if (zustand == Z_DESK && id == K_AUFLEER) { aufg_leeren(); kprint("[DESKTOP] Aufgaben geleert\n"); zeichne_desktop(); }
         else if (zustand == Z_EDIT && id == K_SPEICHERN) { dok_speichern(); zeichne_editor(0); }
@@ -988,19 +1316,31 @@ static void klick(int x, int y) {
         else if (zustand == Z_EDIT && id == K_SCHLIESSEN) editor_schliessen();
         return;
     }
+    if (zustand == Z_WEB && wok) {                                  /* Link oder Rollbalken */
+        int l = web_link_bei(x, y); if (l >= 0) { web_gehe(web_links[l], 1); return; }
+        if (x >= wx0 + ww - 26 && y >= wy0 && y < wy0 + wh && web_nz > wrows) { wscroll = (y - wy0 - 12) * (web_nz - wrows) / (wh - 24); if (wscroll < 0) wscroll = 0; zeichne_web(0); }
+    }
 }
 
-static void rohtaste(uint8_t k, int shift, int altgr) { unsigned n = (qt + 1) % QN; if (n != qh) { kq[qt] = (uint16_t)(k | (shift << 8) | (altgr << 9)); qt = n; } }
+static void rohtaste(uint8_t k, int shift, int altgr) { unsigned n = (qt + 1) % QN; if (n != qh) { kq[qt] = (uint16_t)(k | (shift << 8) | (altgr << 9) | (usb_ctrl << 10)); qt = n; } }
 
 static void tick(void) {
     uint32_t t = timer_get_ticks();
     if (qh != qt) letzte_eingabe = t;
-    while (qh != qt) { uint16_t e = kq[qh]; qh = (qh + 1) % QN; taste((uint8_t)(e & 255), (e >> 8) & 1, (e >> 9) & 1); }
+    while (qh != qt) { uint16_t e = kq[qh]; qh = (qh + 1) % QN; cur_ctrl = (e >> 10) & 1; taste((uint8_t)(e & 255), (e >> 8) & 1, (e >> 9) & 1); cur_ctrl = 0; }
     const struct usb_pointer* p = usb_pointer_state();
     if (p && p->present) {
         static int lpx, lpy;
         if (p->x != lpx || p->y != lpy) { lpx = p->x; lpy = p->y; letzte_eingabe = t; }
-        int down = p->buttons & 1;
+        int down = p->buttons & 1; static int was_r;
+        int rd = (p->buttons & 2) != 0;
+        if (rd && !was_r && zustand != Z_LOGIN) { if (menu.offen) menu_schliessen(); else menu_oeffnen(p->x, p->y); }
+        was_r = rd;
+        if (menu.offen) {
+            int i = menu_treffer(p->x, p->y); if (i != menu.hover) { menu.hover = i; zeichne_menu(); }
+            if (down && !was_down) { was_down = down; if (i >= 0) menu_aktion(menu.p[i].id); else menu_schliessen(); }
+            was_down = down; return;
+        }
         if (down && !was_down) {
             if (zustand == Z_DESK && flaeche == 0 && p->x >= zr_x() && p->x < zr_x() + zr_w() && p->y >= zr_y() && p->y < zr_y() + zr_h()) {
                 if (p->x >= zr_x() + zr_w() - 24 && p->y >= zr_y() + zr_h() - 24) zdrag = 2;

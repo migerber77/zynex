@@ -25,6 +25,7 @@ void usb_ps2_mouse(int dx, int dy, uint8_t buttons);  /* aus dem PS/2-Mausinterr
 
 void usb_set_layout(int id);   /* Nummer der Tastaturbelegung (layouts.h), 0 = Schweiz (Standard) */
 char usb_key_char(uint8_t k, int shift, int altgr);
+extern int usb_ctrl;                                           /* Strg gedrueckt (fuer Kurztasten im Desktop) */
 void usb_key_event(uint8_t k, int shift, int altgr);            /* Tastenereignis von USB/PS2 */
 void usb_set_rawgrab(void (*fn)(uint8_t k, int shift, int altgr));         /* Roh-Tastennummern abgreifen (0 = aus) */
 int  usb_get_layout(void);

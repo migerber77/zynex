@@ -286,8 +286,11 @@ def installieren():
     for b in ["text erstellen", "hallo welt"]:
         vm.tippe(b, 2.0)
     vm.mon("sendkey esc"); time.sleep(2.0)
-    for b in ["rechne 12*7", "system", "dateien", "quanten", "sicherheit", "hilfe", "briefing", "agent wartung", "aufgabe milch kaufen", "arbeitsflaeche system", "kauderwelsch"]:
+    for b in ["rechne 12*7", "system", "dateien", "quanten", "sicherheit", "hilfe", "briefing", "agent wartung", "aufgabe milch kaufen", "arbeitsflaeche system"]:
         vm.tippe(b, 2.0)
+    vm.tippe("browser", 3.0)
+    vm.mon("sendkey esc"); time.sleep(2.0)
+    vm.tippe("kauderwelsch", 2.0)
     hell_d = vm.hell()
     vm.tippe("wartung", 2.0)
     for b in ["whoami", "block", "synls", "syninfo", "synrun hallo.synbin", "benutzer liste", "install sata0 x ja"]:
@@ -316,6 +319,7 @@ def installieren():
     pruefe("Desktop: Agent fragt Freigabe an", "[AGENT] Freigabe angefragt: Dateisystem sichern" in out2)
     pruefe("Desktop: Aufgabe gespeichert", "[DESKTOP] Aufgabe gespeichert: milch kaufen" in out2)
     pruefe("Desktop: Arbeitsflaeche dreht sich", "[DESKTOP] Arbeitsflaeche 2: System" in out2)
+    pruefe("Desktop: Browser oeffnet sich", "[DESKTOP] Browser geoeffnet" in out2)
     pruefe("Desktop: Unbekanntes wird nicht verstanden", "kauderwelsch' -> nicht verstanden" in out2)
     pruefe("Desktop: Bildschirm ist belegt", hell_d > 300)
     pruefe("Desktop: Wartungs-Konsole fuer Admin", "[WARTUNG] Text-Konsole" in out2)

@@ -185,6 +185,7 @@ char usb_key_char(uint8_t k, int shift, int altgr) { return kbd_char(layout_id, 
 
 /* Tastenereignis (USB und PS/2): normal -> Zeichen an die Shell, mit Roh-Abgriff -> Tastennummer an den Empfaenger (Layout-Erkennung) */
 static void (*raw_grab)(uint8_t k, int shift, int altgr) = 0;
+int usb_ctrl;
 void usb_set_rawgrab(void (*fn)(uint8_t k, int shift, int altgr)) { raw_grab = fn; }
 void usb_key_event(uint8_t k, int shift, int altgr) {
     if (raw_grab) { raw_grab(k, shift, altgr); return; }
@@ -216,6 +217,7 @@ static void ps2_apply(void) {
 static void key_report(struct usbdev* d, const uint8_t* r) {
     int shift = (r[0] & 0x22) != 0;
     int altgr = (r[0] & 0x40) != 0;
+    usb_ctrl = (r[0] & 0x11) != 0;
     for (int i = 2; i < 8; i++) {
         uint8_t k = r[i];
         if (k < 4) continue;

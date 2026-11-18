@@ -242,7 +242,8 @@ static void taste(uint16_t make, uint32_t info) {
     uint8_t k = 0;
     if (!e0) {
         if (make == 0x2A || make == 0x36) { shift_down = !brk; return; }
-        if (make == 0x1D || make == 0x38) return;                              /* Strg, Alt: keine Zeichen */
+        if (make == 0x1D) { usb_ctrl = !brk; return; }
+        if (make == 0x38) return;                              /* Strg, Alt: keine Zeichen */
         if (make < sizeof(xt2hid)) k = xt2hid[make];
     } else {
         if (make == 0x38) { altgr_down = !brk; return; }

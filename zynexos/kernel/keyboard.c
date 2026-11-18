@@ -41,6 +41,7 @@ void keyboard_irq_handler(void) {
         return;
     }
     if (make == 0x2A || make == 0x36) { shift_pressed = !release; return; }
+    if (make == 0x1D) { usb_ctrl = !release; return; }
     if (release) return;
     if (make == 0x3A) { caps_lock = !caps_lock; return; }
     if (make >= sizeof(sc2hid)) return;
