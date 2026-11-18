@@ -26,6 +26,7 @@
 #include "lms.h"
 #include "lms_testvec.h"
 #include "net.h"
+#include "wifi.h"
 #include "x509.h"
 #include "benutzer.h"
 #include "installer.h"
@@ -374,6 +375,7 @@ static void process_command(void) {
     else if (streq(cmd, "pci")) pci_list();
     else if (streq(cmd, "usb")) usb_list();
     else if (streq(cmd, "net")) net_info();
+    else if (streq(cmd, "wifi")) wifi_info();
     else if (streq(cmd, "dhcp")) { if (net_dhcp() == 0) net_info(); else kprint("DHCP ohne Antwort\n"); }
     else if (starts_with(cmd, "ping ")) { const char* z = cmd + 5; while (*z == ' ') z++; net_ping(z); }
     else if (starts_with(cmd, "http ")) {
