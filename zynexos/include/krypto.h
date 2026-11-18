@@ -21,3 +21,5 @@ void krypto_vergessen(const char* dev);                  /* Schluessel loeschen,
 void krypto_merke_gesperrt(const char* dev);
 const char* krypto_gesperrt_dev(void);                   /* Geraet, das beim Einbinden gesperrt war, sonst "" */
 void krypto_status(void);
+int  krypto_aktiv_fuer_aktuelles(void);               /* Schluessel fuer das gerade aktive Geraet geladen? */
+int  krypto_ableiten(const char* label, uint8_t out[32]);   /* abgeleiteter Schluessel (0 ok, -1 keine Verschluesselung aktiv) */

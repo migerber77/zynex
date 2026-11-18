@@ -783,7 +783,7 @@ def usbnet():
 def boot():
     print("\n===== Szenario boot (eigener Lader, Signatur) =====")
     vm = starten()
-    vm.tippe("sicherheit", 1.5); vm.tippe("pqtest", 3.0); vm.tippe("mem", 1.5); vm.tippe("firewall status", 1.5); vm.tippe("krypto status", 1.5)
+    vm.tippe("sicherheit", 1.5); vm.tippe("pqtest", 3.0); vm.tippe("mem", 1.5); vm.tippe("firewall status", 1.5); vm.tippe("krypto status", 1.5); vm.tippe("db setze netz.dns 1.1.1.1", 1.5); vm.tippe("db suche dns", 1.5); vm.tippe("db status", 1.5)
     out = vm.log()
     print(out)
     vm.ende()
@@ -796,6 +796,7 @@ def boot():
     pruefe("Kernel: pqtest bestanden", "pq: Selbsttest bestanden" in out)
     pruefe("Kernel: Firewall aktiv", "Firewall: normal" in out)
     pruefe("Kernel: Verschluesselung meldet Zustand", "Verschluesselung: aus" in out)
+    pruefe("Kernel: ZynDB speichert und findet", "netz.dns = 1.1.1.1" in out and "ZynDB: 1 Fakten" in out)
 
 
 def ki():

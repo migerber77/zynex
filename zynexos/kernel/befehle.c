@@ -68,6 +68,15 @@ static const zeile_t tab[] = {
     { "krypto|verschluesselung|encryption", "entsperren|unlock", "krypto entsperren", "verschluesselte Platte mit Passwort oeffnen" },
     { "krypto|verschluesselung|encryption", "passwort|password", "krypto passwort", "Passwort aendern" },
     { "krypto|verschluesselung|encryption", "fortsetzen|resume", "krypto fortsetzen", "unterbrochene Verschluesselung weiterfuehren" },
+    { "db|daten|gedaechtnis", "",                  "db status",        "Zustand der Gedaechtnis-Datenbank ZynDB" },
+    { "db|daten|gedaechtnis", "setze|set",         "db setze %",       "Fakt speichern: db setze <name> <wert>" },
+    { "db|daten|gedaechtnis", "hole|get",          "db hole %",        "Fakt lesen" },
+    { "db|daten|gedaechtnis", "liste|list",        "db liste %",       "Fakten auflisten (optional Namensanfang)" },
+    { "db|daten|gedaechtnis", "suche|frage|find",  "db suche %",       "nach Bedeutung suchen, tippfehlertolerant" },
+    { "db|daten|gedaechtnis", "verlauf|history",   "db verlauf %",     "alle Versionen eines Fakts" },
+    { "db|daten|gedaechtnis", "zurueck|undo",      "db zurueck %",     "auf die vorige Version zurueck" },
+    { "db|daten|gedaechtnis", "loesche|del",       "db loesche %",     "Fakt loeschen (im Verlauf wiederholbar)" },
+    { "db|daten|gedaechtnis", "pruefen|check",     "db pruefen",       "Manipulation pruefen" },
     { "ki|frag",        "*",                    "ki %",             "frag Zynie irgendetwas: ki was ist ein Qubit?" },
     { "quanten|quantum",   "*",                    "qubit %",          "Quantenkern: quanten h 0 | messen | zustand" },
     { "strom|power",       "neustart|restart",     "reboot",           "neu starten" },
@@ -142,8 +151,9 @@ void befehl_hilfe(const char* thema) {
         { "quanten",      "Quantenkern im Kernel ausprobieren" },                       { "strom",        "neustart oder aus" },
         { "installieren", "Zynex auf eine Platte bringen" },                            { "firewall",     "Schutz vor Angriffen, Regeln, Quarantaene" },
         { "krypto",       "Platte quantensicher verschluesseln, entsperren" },
+        { "db",           "Gedaechtnis-Datenbank: Konfiguration, Suche, Zeitreise" },
     };
-    for (int i = 0; i < 11; i++) { kprint("  "); kprint(ber[i][0]); int l = 2 + slen(ber[i][0]); for (; l < 20; l++) kprint(" "); kprint(ber[i][1]); kprint("\n"); }
+    for (int i = 0; i < 12; i++) { kprint("  "); kprint(ber[i][0]); int l = 2 + slen(ber[i][0]); for (; l < 20; l++) kprint(" "); kprint(ber[i][1]); kprint("\n"); }
     kprint("\n  Mehr zu einem Bereich: hilfe datei   |   ohne Aktion zeigt jeder Bereich das Wichtigste\n");
     kprint("  Ganze Saetze gehen an Zynie, zum Beispiel: wie viel Speicher ist frei?\n");
     kprint("  Die alten Kurzbefehle (synls, whoami, ps ...) funktionieren weiter: hilfe alt\n\n");

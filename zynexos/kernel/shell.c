@@ -36,6 +36,7 @@
 #include "multiboot.h"
 #include "befehle.h"
 #include "fw.h"
+#include "zyndb.h"
 #include "krypto.h"
 
 extern void kprint(const char* str);
@@ -113,7 +114,7 @@ static void kr_entsperr_fertig(const char* l) {
     if (r == -1) { kprint("Falsches Passwort\n"); return; }
     if (r != 0) { kprint("Dieses Geraet ist nicht verschluesselt\n"); return; }
     if (block_select(dev) == 0 && synfs_mount() == 0) {
-        kprint("Entsperrt und eingebunden\n"); benutzer_laden(); fw_laden();
+        kprint("Entsperrt und eingebunden\n"); benutzer_laden(); zdb_init(); fw_laden();
         if (benutzer_gesperrt()) login_start();
     } else kprint("Entsperrt, aber das Einbinden schlug fehl\n");
 }
@@ -480,6 +481,7 @@ static void run_legacy(char* cmd) {
         kprint(gut && msg_kaputt && sig_kaputt && kurz ? "\npq: Selbsttest bestanden\n" : "\npq: FEHLER\n");
     }
     else if (streq(cmd, "firewall") || starts_with(cmd, "firewall ")) { if (cmd[8] && !streq(cmd + 9, "status") && !streq(cmd + 9, "log") && !streq(cmd + 9, "regeln") && !require_cap(CAP_ADMIN, "firewall")) return; fw_befehl(cmd + 8); }
+    else if (streq(cmd, "db") || starts_with(cmd, "db ")) zdb_befehl(cmd + 2);
     else if (streq(cmd, "krypto") || starts_with(cmd, "krypto ")) krypto_befehl(cmd + 6);
     else if (streq(cmd, "sicherheit")) {
         kprint("Startkette: "); kprint((g_boot.flags & BOOT_SIGNIERT) ? "Kernel und Kommandozeile durch LMS-Signatur (SHA-256, quantensicher) geprueft\n" : "NICHT durch eine Signatur geprueft\n");
@@ -501,7 +503,7 @@ static void run_legacy(char* cmd) {
     else if (starts_with(cmd, "tastatur")) {
         const char* a1 = cmd + 8; while (*a1 == ' ') a1++;
         int w = *a1 ? kbd_find(a1) : -1;
-        if (w >= 0) { usb_set_layout(w); kprint("Tastatur: "); kprint(kbd_layouts[w].code); kprint(" ("); kprint(kbd_layouts[w].name); kprint(")\n"); }
+        if (w >= 0) { usb_set_layout(w); zdb_put("system.tastatur", kbd_layouts[w].code); kprint("Tastatur: "); kprint(kbd_layouts[w].code); kprint(" ("); kprint(kbd_layouts[w].name); kprint(")\n"); }
         else {
             int c = usb_get_layout();
             kprint("Tastatur: "); kprint(kbd_layouts[c].code); kprint(" ("); kprint(kbd_layouts[c].name); kprint("). Aendern: tastatur <kuerzel>\nVerfuegbar:");

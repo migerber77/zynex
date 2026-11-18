@@ -5,6 +5,10 @@
  * Sprachen: Deutsch und Englisch (die gespeicherte Sprache de/en, alle anderen zeigen Englisch).
  */
 #include "fw.h"
+#include "krypto.h"
+#include "block.h"
+#include "benutzer.h"
+#include "zyndb.h"
 #include "synfs.h"
 #include "desktop.h"
 #include "hyperv.h"
@@ -240,12 +244,19 @@ static void feld(int idx, const char* label, const char* text, int maskiert, int
     gfx_text(x + 14, y + 34, t, C_TEXT, 1);
     if (idx == ffocus) gfx_rect(x + 14 + n * 8, y + 32, 2, 20, C_TEXT);
 }
+static int entsperr;     /* 1 = die Platte ist verschluesselt und gesperrt: statt der Anmeldung wird das Plattenpasswort abgefragt */
 static void zeichne_login(void) {
     gfx_begin();
     gfx_rect(0, 0, W, H, C_BG);
     int cw = 360, cx = (W - cw) / 2, y = H / 2 - 250;
     gfx_bitmap((W - zynex_logo_w) / 2, y, zynex_logo_w, zynex_logo_h, zynex_logo);
     y += zynex_logo_h + 24;
+    if (entsperr) {
+        feld(0, TR("Festplatte entsperren (Passwort)", "Unlock disk (password)"), fpw, 1, cx, y, cw);
+        if (fmsg) gtxt(cx, y + 90, TR("Falsches Passwort", "Wrong password"), C_ERR, 1);
+        gtxt(cx, y + 190, TR("Die Daten sind verschluesselt. Weiter mit Enter", "Your data is encrypted. Continue with Enter"), C_MUTED, 1);
+        gfx_end(); hv_status_zeichnen(); return;
+    }
     feld(0, TR("Benutzer", "User"), fname, 0, cx, y, cw);
     feld(1, TR("Passwort", "Password"), fpw, 1, cx, y + 80, cw);
     if (fmsg) gtxt(cx, y + 160, TR("Anmeldung fehlgeschlagen", "Sign-in failed"), C_ERR, 1);
@@ -1466,6 +1477,17 @@ static void anmelden(void) {
     }
 }
 
+static void entsperren_versuch(void) {
+    char dev[20]; int i = 0; const char* g = krypto_gesperrt_dev(); while (g[i] && i < 19) { dev[i] = g[i]; i++; } dev[i] = 0;
+    if (krypto_entsperren(dev, fpw) != 0) { kprint("[DESKTOP] Entsperren fehlgeschlagen\n"); fpw[0] = 0; fmsg = 1; ffocus = 0; zeichne_login(); return; }
+    if (block_select(dev) != 0 || synfs_mount() != 0) { fpw[0] = 0; fmsg = 1; zeichne_login(); return; }
+    kprint("[DESKTOP] Festplatte entsperrt\n");
+    benutzer_laden(); fw_laden(); zdb_init();
+    entsperr = 0; fpw[0] = 0; fmsg = 0; ffocus = 0; fname[0] = 0;
+    if (benutzer_gesperrt()) zeichne_login();
+    else { zustand = Z_DESK; einlen = 0; eingabe[0] = 0; reply1(TR("Festplatte entsperrt. Was moechtest du tun?", "Disk unlocked. What would you like to do?")); zeichne_desktop(); }
+}
+
 static void taste(uint8_t k, int shift, int altgr) {
     if (menu.offen) { if (k == 0x29) menu_schliessen(); return; }
     if (zustand != Z_LOGIN && k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }
@@ -1473,6 +1495,13 @@ static void taste(uint8_t k, int shift, int altgr) {
     if (zustand == Z_INFO) { if (k == 0x29) fenster_schliessen_typ(FT_INFO); return; }
     if (zustand == Z_EDIT) { if (cur_ctrl && strg_taste(k)) return; editor_taste(k, shift, altgr); return; }
     if (zustand == Z_WEB) { web_taste(k, shift, altgr); return; }
+    if (zustand == Z_LOGIN && entsperr) {
+        int n = slen(fpw);
+        if (k == 0x28 || k == 0x58) entsperren_versuch();
+        else if (k == 0x2A) { if (n) { fpw[n - 1] = 0; fmsg = 0; zeichne_login(); } }
+        else { char c = usb_key_char(k, shift, altgr); if (c >= 32 && c < 127 && n < 39) { fpw[n] = c; fpw[n + 1] = 0; fmsg = 0; zeichne_login(); } }
+        return;
+    }
     if (zustand == Z_LOGIN) {
         char* t = ffocus == 0 ? fname : fpw; int max = ffocus == 0 ? 15 : 39; int n = slen(t);
         if (k == 0x2B || k == 0x51 || k == 0x52) { ffocus = !ffocus; zeichne_login(); }
@@ -1639,7 +1668,9 @@ int desktop_start(void) {
     usb_set_rawgrab(rohtaste);
     shell_set_tick(tick);
     kprint("[DESKTOP] Zynex OS Quantum Desktop, Bildschirm "); kprint_dec((uint32_t)W); kprint("x"); kprint_dec((uint32_t)H); kprint("\n");
-    if (benutzer_gesperrt()) { zustand = Z_LOGIN; kprint("[DESKTOP] Anmeldebildschirm\n"); zeichne_login(); }
+    entsperr = krypto_gesperrt_dev()[0] != 0;
+    if (entsperr) { zustand = Z_LOGIN; kprint("[DESKTOP] Platte verschluesselt: Entsperren-Bildschirm\n"); zeichne_login(); }
+    else if (benutzer_gesperrt()) { zustand = Z_LOGIN; kprint("[DESKTOP] Anmeldebildschirm\n"); zeichne_login(); }
     else { zustand = Z_DESK; reply1(TR("Hallo! Ich bin Zynie. Was moechtest du tun?", "Hello! I am Zynie. What would you like to do?")); zeichne_desktop(); }
     return 0;
 }

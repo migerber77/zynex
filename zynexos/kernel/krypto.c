@@ -3,6 +3,7 @@
 #include "crypto.h"
 #include "synfs.h"
 #include "block.h"
+#include "zyndb.h"
 #include <stddef.h>
 
 extern void kprint(const char* str);
@@ -110,6 +111,7 @@ int krypto_einrichten(const char* pw) {
     wische(dk, 32);
     synfs_krypto_sichern();
     int r = verschluessele_ab();
+    if (r == 0) zdb_neu_verpacken();
     return r;
 }
 
@@ -145,3 +147,6 @@ void krypto_status(void) {
     if (h->fortschritt < synfs_ende()) { kprint("  UNVOLLSTAENDIG: "); kprint_dec((uint32_t)((uint64_t)h->fortschritt * 100 / synfs_ende())); kprint(" % verschluesselt - weiter mit: krypto fortsetzen\n"); }
     else kprint("  alle Sektoren verschluesselt (nur der Superblock mit Name und Groesse bleibt lesbar)\n");
 }
+
+int krypto_aktiv_fuer_aktuelles(void) { return K.geladen && krypto_aktiv_fuer(block_get()->name); }
+int krypto_ableiten(const char* label, uint8_t out[32]) { if (!K.geladen) return -1; hmac_sha256(K.rk[0], 32, (const uint8_t*)label, slen(label), out); return 0; }

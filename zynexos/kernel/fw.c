@@ -1,7 +1,7 @@
 /* Firewall mit lokaler Anomalie-Erkennung (siehe fw.h). */
 #include "fw.h"
 #include "net.h"
-#include "synfs.h"
+#include "zyndb.h"
 #include "timer.h"
 
 extern void kprint(const char* str);
@@ -195,19 +195,29 @@ void fw_regeln_zeigen(void) {
     }
 }
 
-/* Regeln in SynFS ("firewall.cfg") */
+/* Regeln und Modus liegen in ZynDB (Schluessel firewall.*) */
+static void u2t(uint32_t v, char* o, int* n) { char t[12]; int k = 0; do { t[k++] = (char)('0' + v % 10); v /= 10; } while (v); while (k) o[(*n)++] = t[--k]; o[*n] = 0; }
+static uint32_t t2u(const char** p) { uint32_t v = 0; while (**p == ' ') (*p)++; while (**p >= '0' && **p <= '9') { v = v * 10 + (uint32_t)(**p - '0'); (*p)++; } return v; }
 void fw_speichern(void) {
-    static uint8_t b[8 + MAXR * sizeof(struct regel)]; b[0] = 'F'; b[1] = 'W'; b[2] = '1'; b[3] = (uint8_t)modus; b[4] = (uint8_t)nr;
-    uint8_t* p = (uint8_t*)R; for (uint32_t i = 0; i < (uint32_t)nr * sizeof(struct regel); i++) b[8 + i] = p[i];
-    synfs_write("firewall.cfg", b, 8 + (uint32_t)nr * (uint32_t)sizeof(struct regel));
+    char b[24]; int n = 0; u2t((uint32_t)modus, b, &n); zdb_put("firewall.modus", b);
+    for (int i = 0; i < MAXR; i++) {
+        char k[24] = "firewall.regel."; int kn = 15; u2t((uint32_t)i, k, &kn);
+        if (i >= nr) { if (zdb_get(k)) zdb_del(k); else break; continue; }
+        char v[100]; int vn = 0; v[0] = 0;
+        u2t(R[i].richtung, v, &vn); v[vn++] = ' '; u2t(R[i].erlauben, v, &vn); v[vn++] = ' '; u2t(R[i].proto, v, &vn); v[vn++] = ' ';
+        u2t(R[i].port, v, &vn); v[vn++] = ' '; u2t(R[i].ip, v, &vn); v[vn++] = ' '; u2t(R[i].maske, v, &vn);
+        zdb_put(k, v);
+    }
 }
 void fw_laden(void) {
-    static uint8_t b[8 + MAXR * sizeof(struct regel)];
-    int r = synfs_read("firewall.cfg", b, sizeof(b));
-    if (r < 8 || b[0] != 'F' || b[1] != 'W' || b[2] != '1') return;
-    int n = b[4]; if (n > MAXR || 8 + (uint32_t)n * sizeof(struct regel) > (uint32_t)r) return;
-    modus = b[3] <= FW_STRENG ? b[3] : FW_NORMAL; nr = n;
-    uint8_t* p = (uint8_t*)R; for (uint32_t i = 0; i < (uint32_t)n * sizeof(struct regel); i++) p[i] = b[8 + i];
+    const char* m = zdb_get("firewall.modus"); if (!m) return;
+    uint32_t mv = t2u(&m); modus = mv <= FW_STRENG ? (int)mv : FW_NORMAL; nr = 0;
+    for (int i = 0; i < MAXR; i++) {
+        char k[24] = "firewall.regel."; int kn = 15; u2t((uint32_t)i, k, &kn);
+        const char* v = zdb_get(k); if (!v) break;
+        R[nr].richtung = (uint8_t)t2u(&v); R[nr].erlauben = (uint8_t)t2u(&v); R[nr].proto = (uint8_t)t2u(&v); R[nr].port = (uint16_t)t2u(&v);
+        R[nr].ip = t2u(&v); R[nr].maske = t2u(&v); R[nr].benutzt = 0; nr++;
+    }
 }
 
 /* Shell: firewall [status|log|regeln|an|aus|streng|normal|erlaube|blockiere|freigeben|loeschen] ... */
