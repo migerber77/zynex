@@ -326,7 +326,7 @@ static void zeichne(void) {
     case S_PLATTE: {
         int y = kopf(T(T_PLA_H), T(T_PLA_S), 70);
         platten_laden();
-        if (!ndisk) gtxt(cx, y, T(T_PLA_NONE), C_ERR, 1);
+        if (!ndisk) { gtxt(cx, y, T(T_PLA_NONE), C_ERR, 1); if (hv_aktiv()) absatz(cx, y + 30, cw, hv_status(), C_MUTED); }
         for (int i = 0; i < ndisk; i++) {
             kprint("[GUI] Platte "); kprint_dec((uint32_t)(i + 1)); kprint(" "); kprint(disks[i]); kprint("\n");
             char t[48]; char d[12]; scopy(t, disks[i], 48); cat(t, "    ", 48); dec(d, disk_mib[i]); cat(t, d, 48); cat(t, " MiB", 48);

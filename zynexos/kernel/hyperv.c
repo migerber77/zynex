@@ -6,6 +6,7 @@
  */
 #include "hyperv.h"
 #include "usb.h"
+#include "block.h"
 #include <stdint.h>
 
 extern void kprint(const char* str);
@@ -43,7 +44,7 @@ static uint8_t siefp[4096] __attribute__((aligned(4096)));
 static uint8_t intpage[4096] __attribute__((aligned(4096)));
 static uint8_t monpage[2][4096] __attribute__((aligned(4096)));
 static uint8_t postbuf[256] __attribute__((aligned(16)));
-#define RING_PAGES 4                       /* je Richtung: 1 Kopfseite + 3 Datenseiten */
+#define RING_PAGES 12                      /* je Richtung: 1 Kopfseite + 11 Datenseiten (24 Seiten passen in eine GPADL-Kopfnachricht) */
 #define RING_DATA ((RING_PAGES - 1) * 4096u)
 
 struct kanal {
@@ -53,7 +54,7 @@ struct kanal {
     int bereit;                            /* Protokoll ausgehandelt */
     uint64_t trans;
 };
-static uint8_t ringmem[2][2 * RING_PAGES * 4096] __attribute__((aligned(4096)));
+static uint8_t ringmem[3][2 * RING_PAGES * 4096] __attribute__((aligned(4096)));
 static struct kanal kb, ms;
 
 static char status[240] = "";
@@ -64,12 +65,7 @@ static void st_anhaengen(const char* s) { int i = 0; while (status[i]) i++; whil
 int hv_aktiv(void) { return hv_da; }
 const char* hv_status(void) { return status; }
 void hv_status_aus(void) { hv_show = 0; }
-void hv_status_zeichnen(void) {
-    if (!status[0] || !gfx_available()) return;
-    hv_show = 1;
-    int w, h; gfx_size(&w, &h);
-    gfx_begin(); gfx_rect(0, h - 22, w, 22, 0x0A1020); gfx_text(10, h - 19, status, 0x7F8FB0, 1); gfx_end();
-}
+void hv_status_zeichnen(void) { }                    /* Statusleiste ist abgeschaltet; der Text steht im Log und auf der Plattenseite */
 
 /* ---------- Hypercalls und SynIC ---------- */
 static uint64_t hvcall(uint64_t ctl, uint64_t in, uint64_t out) {
@@ -143,11 +139,12 @@ static int ring_senden(struct kanal* c, const void* payload, uint32_t len, uint1
     return 0;
 }
 /* ein Paket lesen: liefert Nutzlast-Laenge oder -1 (nichts da) */
+static uint64_t last_tid;
 static int ring_lesen(struct kanal* c, uint8_t* out, uint32_t max, uint16_t* typ) {
     struct ring r = ring_empfang(c);
     uint32_t rd = r.hdr[1], w = r.hdr[0];
     if (rd == w) return -1;
-    uint8_t dsc[16]; ring_kopiere_aus(&r, rd, dsc, 16);
+    uint8_t dsc[16]; ring_kopiere_aus(&r, rd, dsc, 16); last_tid = *(uint64_t*)(dsc + 8);
     uint16_t t = *(uint16_t*)dsc, off8 = *(uint16_t*)(dsc + 2), len8 = *(uint16_t*)(dsc + 4);
     uint32_t total = (uint32_t)len8 * 8 + 8, pl = (uint32_t)(len8 - off8) * 8;
     if (len8 < off8 || total > RING_DATA) { r.hdr[1] = w; return -1; }                    /* defekt: alles verwerfen */
@@ -162,6 +159,8 @@ static int ring_lesen(struct kanal* c, uint8_t* out, uint32_t max, uint16_t* typ
 /* ---------- VMBus ---------- */
 static const uint8_t GUID_KBD[16] = { 0x6d, 0xad, 0x12, 0xf9, 0x17, 0x2b, 0xea, 0x48, 0xbd, 0x65, 0xf9, 0x27, 0xa6, 0x1c, 0x76, 0x84 };
 static const uint8_t GUID_MAUS[16] = { 0x9e, 0xb6, 0xa8, 0xcf, 0x4a, 0x5b, 0xc0, 0x4c, 0xb9, 0x8b, 0x8b, 0xa1, 0xa1, 0xf3, 0xf9, 0x5a };
+static const uint8_t GUID_SCSI[16] = { 0xd9, 0x63, 0x61, 0xba, 0xa1, 0x04, 0x29, 0x4d, 0xb6, 0x05, 0x72, 0xe2, 0xff, 0xb1, 0xdc, 0x7f };
+static struct kanal sc;
 static int geq(const uint8_t* a, const uint8_t* b) { for (int i = 0; i < 16; i++) if (a[i] != b[i]) return 0; return 1; }
 
 static uint32_t vp_index, verbunden_version, msg_conn = 1;
@@ -216,6 +215,7 @@ static int angebote(void) {
         uint32_t relid = *(uint32_t*)(ant + 184), conn = *(uint32_t*)(ant + 192);
         if (geq(ant + 8, GUID_KBD)) { kb.relid = relid; kb.connid = conn; kb.art = 1; }
         else if (geq(ant + 8, GUID_MAUS)) { ms.relid = relid; ms.connid = conn; ms.art = 2; }
+        else if (geq(ant + 8, GUID_SCSI)) { sc.relid = relid; sc.connid = conn; sc.art = 3; }
     }
     return n;
 }
@@ -282,27 +282,185 @@ static void kanal_bearbeiten(struct kanal* c) {
     }
 }
 
-static char zaehl[160]; static int zk, zm, zp;
-static void hexb(char* d, int* i, unsigned v, int n) { const char* h = "0123456789ABCDEF"; for (int q = n - 1; q >= 0; q--) d[(*i)++] = h[(v >> (4 * q)) & 15]; }
-static void zahl(char* d, int* i, int x) { char t[12]; int n = 0; if (!x) t[n++] = '0'; while (x) { t[n++] = (char)('0' + x % 10); x /= 10; } while (n) d[(*i)++] = t[--n]; }
-static void zaehler_zeigen(void) {
-    int i = 0; const char* a = " | T:"; while (*a) zaehl[i++] = *a++;
-    zahl(zaehl, &i, tasten_gesehen); zaehl[i++] = '/'; zahl(zaehl, &i, tasten_geliefert);
-    a = " make="; while (*a) zaehl[i++] = *a++; hexb(zaehl, &i, letzte_make, 2); zaehl[i++] = '.'; hexb(zaehl, &i, letzte_info, 2); zaehl[i++] = '>'; hexb(zaehl, &i, letzte_hid, 2);
-    a = " M:"; while (*a) zaehl[i++] = *a++; zahl(zaehl, &i, maus_gesehen); zaehl[i++] = '/'; zahl(zaehl, &i, maus_geliefert);
-    zaehl[i++] = ' '; for (int q = 0; q < 10; q++) hexb(zaehl, &i, letzter_bericht[q], 2);
-    a = " P:"; while (*a) zaehl[i++] = *a++; zahl(zaehl, &i, zp);
-    zaehl[i] = 0;
-    int j = 0; while (status[j]) j++; int base = j; for (int k = 0; k + 1 < j; k++) if (status[k] == ' ' && status[k + 1] == '|') { base = k; break; }
-    status[base] = 0; st_anhaengen(zaehl);
-}
+static int zp;
 void hv_poll(void) {
     if (!hv_da) return;
     zp++;
-    if ((zp & 0x1FF) == 0) zaehler_zeigen();
     if (msg_warten(0, 1) >= 0) nachrichten++;                                   /* verspaetete Kanalnachrichten verwerfen */
     if (kb.offen) kanal_bearbeiten(&kb);
     if (ms.offen) kanal_bearbeiten(&ms);
+}
+
+
+/* ---------- Hyper-V-Speicher (storvsc): virtuelle SCSI-Platte ueber VMBus ---------- */
+extern uint32_t timer_get_ticks(void);
+static uint8_t sbuf[65536] __attribute__((aligned(4096)));           /* Datenpuffer fuer jeden Befehl (physisch zusammenhaengend) */
+static uint8_t spk[512];
+static uint8_t s_port, s_pfad, s_ziel, s_lun;
+static uint32_t s_bs = 512, s_sektoren;
+static uint64_t s_tid = 0x1000;
+static int s_ok, s_zeitueberschreitungen;
+
+static int ring_senden_roh(struct kanal* c, const uint8_t* pkt, uint32_t len) {
+    struct ring r = ring_sendung(c);
+    uint32_t w = r.hdr[0], rd = r.hdr[1], total = len + 8;
+    uint32_t frei = rd > w ? rd - w : RING_DATA - (w - rd);
+    if (frei <= total) return -1;
+    ring_kopiere_ein(&r, w, pkt, len);
+    uint64_t prev = (uint64_t)w << 32; uint8_t t8[8]; mc(t8, &prev, 8);
+    ring_kopiere_ein(&r, (w + len) % RING_DATA, t8, 8);
+    mfence(); r.hdr[0] = (w + total) % RING_DATA; mfence();
+    signal_host(c);
+    return 0;
+}
+/* Paket: 16-Byte-Kopf [Typ][Versatz][Laenge][Flags][Kennung], dann "extra" (Seitenliste), dann 64 Byte vstor_packet */
+static int sc_senden(uint16_t typ, uint16_t flags, const uint8_t* extra, uint32_t el, const uint8_t* pl, uint64_t tid) {
+    uint32_t len = (16 + el + 64 + 7) & ~7u;
+    if (len > sizeof(spk)) return -2;
+    mz(spk, len);
+    uint16_t* d = (uint16_t*)spk; d[0] = typ; d[1] = (uint16_t)((16 + el) / 8); d[2] = (uint16_t)(len / 8); d[3] = flags;
+    mc(spk + 8, &tid, 8);
+    if (el) mc(spk + 16, extra, el);
+    mc(spk + 16 + el, pl, 64);
+    return ring_senden_roh(&sc, spk, len);
+}
+static int sc_warte(uint64_t tid, uint8_t* out) {
+    uint32_t t0 = timer_get_ticks(); uint8_t p[128]; uint16_t t;
+    for (long spin = 0; spin < 300000000L && timer_get_ticks() - t0 < 500; spin++) {
+        int n = ring_lesen(&sc, p, sizeof(p), &t);
+        if (n < 0) { __asm__ volatile ("pause"); continue; }
+        if (last_tid == tid && n >= 64) { mc(out, p, 64); return 0; }
+    }
+    s_zeitueberschreitungen++;
+    return -1;
+}
+static int sc_anfrage(uint32_t op, const uint8_t* arg4, uint8_t* ant) {
+    uint8_t pl[64]; mz(pl, 64); *(uint32_t*)pl = op; *(uint32_t*)(pl + 4) = 1;
+    if (arg4) mc(pl + 12, arg4, 4);
+    uint64_t tid = ++s_tid;
+    if (sc_senden(6, 1, 0, 0, pl, tid)) return -1;
+    if (sc_warte(tid, ant)) return -2;
+    return *(uint32_t*)(ant + 8) ? -3 : 0;
+}
+/* SCSI-Befehl; richtung 0 = keine Daten, 1 = lesen, 2 = schreiben; Daten liegen in sbuf */
+static int sc_cmd(const uint8_t* cdb, int cl, int richtung, uint32_t len) {
+    for (int versuch = 0; versuch < 3; versuch++) {
+        uint8_t pl[64]; mz(pl, 64);
+        *(uint32_t*)pl = 3; *(uint32_t*)(pl + 4) = 1;
+        *(uint16_t*)(pl + 12) = 52;
+        pl[16] = s_port; pl[17] = s_pfad; pl[18] = s_ziel; pl[19] = s_lun; pl[20] = (uint8_t)cl; pl[21] = 20; pl[22] = richtung == 1;
+        *(uint32_t*)(pl + 24) = richtung ? len : 0; mc(pl + 28, cdb, (uint32_t)cl);
+        *(uint32_t*)(pl + 52) = richtung == 1 ? 0x40 : richtung == 2 ? 0x80 : 0x10; *(uint32_t*)(pl + 56) = 60;
+        uint64_t tid = ++s_tid; int r;
+        if (richtung && len) {
+            uint32_t np = (len + 4095) / 4096; uint8_t ex[16 + 8 * 16]; mz(ex, sizeof(ex));
+            *(uint32_t*)(ex + 4) = 1; *(uint32_t*)(ex + 8) = len; *(uint32_t*)(ex + 12) = 0;
+            for (uint32_t i = 0; i < np; i++) { uint64_t pfn = ((uint64_t)(uintptr_t)sbuf >> 12) + i; mc(ex + 16 + 8 * i, &pfn, 8); }
+            r = sc_senden(9, 1, ex, 16 + 8 * np, pl, tid);
+        } else r = sc_senden(6, 1, 0, 0, pl, tid);
+        if (r) return -1;
+        uint8_t ant[64];
+        if (sc_warte(tid, ant)) return -2;
+        if ((ant[14] & 0x3F) == 1 && ant[15] == 0) return 0;
+        if (ant[15] == 2) continue;                                   /* Check Condition (z. B. Unit Attention): nochmal */
+        return -3 - (ant[14] & 0x3F) * 16;
+    }
+    return -4;
+}
+static int sc_blk(uint32_t blk, uint32_t n, int w) {
+    uint8_t c[10] = { (uint8_t)(w ? 0x2A : 0x28), 0, (uint8_t)(blk >> 24), (uint8_t)(blk >> 16), (uint8_t)(blk >> 8), (uint8_t)blk, 0, (uint8_t)(n >> 8), (uint8_t)n, 0 };
+    return sc_cmd(c, 10, w ? 2 : 1, n * s_bs);
+}
+static int s_rw(uint32_t lba, uint8_t* buf, uint32_t count, int w) {
+    if (!s_ok) return -1;
+    uint32_t r = s_bs / 512;
+    while (count) {
+        if (r == 1) {
+            uint32_t n = count > 128 ? 128 : count;
+            if (w) mc(sbuf, buf, n * 512);
+            if (sc_blk(lba, n, w)) return -1;
+            if (!w) mc(buf, sbuf, n * 512);
+            lba += n; buf += n * 512; count -= n;
+        } else {
+            uint32_t blk = lba / r, off = lba % r;
+            if (off == 0 && count >= r) {
+                uint32_t nb = count / r; if (nb > 16) nb = 16; uint32_t sec = nb * r;
+                if (w) mc(sbuf, buf, sec * 512);
+                if (sc_blk(blk, nb, w)) return -1;
+                if (!w) mc(buf, sbuf, sec * 512);
+                lba += sec; buf += sec * 512; count -= sec;
+            } else {
+                uint32_t n = r - off; if (n > count) n = count;
+                if (sc_blk(blk, 1, 0)) return -1;
+                if (w) { mc(sbuf + off * 512, buf, n * 512); if (sc_blk(blk, 1, 1)) return -1; }
+                else mc(buf, sbuf + off * 512, n * 512);
+                lba += n; buf += n * 512; count -= n;
+            }
+        }
+    }
+    return 0;
+}
+static int hv_blk_read(uint32_t lba, void* buf, uint32_t count) { return s_rw(lba, (uint8_t*)buf, count, 0); }
+static int hv_blk_write(uint32_t lba, const void* buf, uint32_t count) { return s_rw(lba, (uint8_t*)(uintptr_t)buf, count, 1); }
+
+static void st_zahl(int v) { char t[12], o[12]; int n = 0, k = 0; if (v < 0) { o[k++] = '-'; v = -v; } if (!v) t[n++] = '0'; while (v) { t[n++] = (char)('0' + v % 10); v /= 10; } while (n) o[k++] = t[--n]; o[k] = 0; st_anhaengen(o); }
+
+/* Platte suchen (INQUIRY auf Port/Pfad/Ziel/LUN) und Groesse lesen; liefert 0 bei Erfolg */
+static int sc_platte_suchen(uint8_t port_ant) {
+    uint8_t ports[2] = { 0, port_ant }; int np = port_ant ? 2 : 1;
+    for (int pi = 0; pi < np; pi++)
+        for (int z = 0; z < 4; z++)
+            for (int l = 0; l < 8; l++) {
+                s_port = ports[pi]; s_pfad = 0; s_ziel = (uint8_t)z; s_lun = (uint8_t)l;
+                uint8_t inq[6] = { 0x12, 0, 0, 0, 36, 0 };
+                int r = sc_cmd(inq, 6, 1, 36);
+                if (s_zeitueberschreitungen >= 2) return -10;
+                if (r == 0 && (sbuf[0] & 0xE0) == 0 && (sbuf[0] & 0x1F) == 0) return 0;
+            }
+    return -11;
+}
+static int sc_kapazitaet(void) {
+    uint8_t c10[10] = { 0x25, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    if (sc_cmd(c10, 10, 1, 8)) return -1;
+    uint32_t last = (uint32_t)sbuf[0] << 24 | (uint32_t)sbuf[1] << 16 | (uint32_t)sbuf[2] << 8 | sbuf[3];
+    uint32_t bs = (uint32_t)sbuf[4] << 24 | (uint32_t)sbuf[5] << 16 | (uint32_t)sbuf[6] << 8 | sbuf[7];
+    uint64_t blocks = (uint64_t)last + 1;
+    if (last == 0xFFFFFFFFu) {
+        uint8_t c16[16] = { 0x9E, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0 };
+        if (sc_cmd(c16, 16, 1, 32)) return -2;
+        uint64_t l = 0; for (int i = 0; i < 8; i++) l = l << 8 | sbuf[i];
+        blocks = l + 1; bs = (uint32_t)sbuf[8] << 24 | (uint32_t)sbuf[9] << 16 | (uint32_t)sbuf[10] << 8 | sbuf[11];
+    }
+    if (bs != 512 && bs != 4096) return -3;
+    s_bs = bs;
+    uint64_t sec = blocks * (bs / 512);
+    s_sektoren = sec > 0xFFFFFFFFull ? 0xFFFFFFFFu : (uint32_t)sec;
+    return 0;
+}
+static void sc_start(void) {
+    if (!sc.art) { st_anhaengen(" | keine SCSI-Platte (Controller fehlt)"); return; }
+    st_anhaengen(" | Platte:");
+    int e = kanal_oeffnen(&sc, 2);
+    if (e) { st_anhaengen(" Kanal Fehler "); st_zahl(e); return; }
+    uint8_t ant[64], ver[4];
+    if (sc_anfrage(7, 0, ant)) { st_anhaengen(" Start Fehler"); return; }
+    static const uint16_t vers[3] = { 0x0602, 0x0600, 0x0501 };
+    int vok = 0;
+    for (int i = 0; i < 3 && !vok; i++) { ver[0] = (uint8_t)vers[i]; ver[1] = (uint8_t)(vers[i] >> 8); ver[2] = 0; ver[3] = 0; if (sc_anfrage(9, ver, ant) == 0) vok = 1; }
+    if (!vok) { st_anhaengen(" Protokoll abgelehnt"); return; }
+    if (sc_anfrage(10, 0, ant)) { st_anhaengen(" Eigenschaften Fehler"); return; }
+    uint8_t port_ant = ant[16];
+    kprint("[HV] storvsc Eigenschaften:"); for (int i = 12; i < 32; i++) { kprint(" "); kprint_dec(ant[i]); } kprint("\n");
+    if (sc_anfrage(8, 0, ant)) { st_anhaengen(" Ende Fehler"); return; }
+    st_anhaengen(" verbunden");
+    int r = sc_platte_suchen(port_ant);
+    if (r) { st_anhaengen(" keine Platte gefunden "); st_zahl(r); return; }
+    r = sc_kapazitaet();
+    if (r) { st_anhaengen(" Groesse unbekannt "); st_zahl(r); return; }
+    s_ok = 1;
+    static struct block_dev bd; bd.name = "hv0"; bd.sectors = s_sektoren; bd.read = hv_blk_read; bd.write = hv_blk_write; bd.parent = 0; bd.offset = 0;
+    block_register(&bd);
+    st_anhaengen(" hv0 "); st_zahl((int)(s_sektoren / 2048)); st_anhaengen(" MiB");
 }
 
 int hv_init(void) {
@@ -346,6 +504,7 @@ int hv_init(void) {
         if (e) { st_anhaengen(" Maus-Kanal Fehler "); char z[3] = { (char)('0' + (-e) % 10), 0, 0 }; st_anhaengen(z); }
         else { uint32_t req[5] = { 1, 12, 0, 4, 0x00020000 }; if (ring_senden(&ms, req, 20, 1)) st_anhaengen(" Maus-Anfrage Fehler"); }
     }
+    sc_start();
     for (long i = 0; i < 40000000 && ((kb.offen && !kb.bereit) || (ms.offen && !ms.bereit)); i++) { hv_poll(); __asm__ volatile ("pause"); }
     if (kb.offen && !kb.bereit) { struct ring r = ring_empfang(&kb); struct ring q = ring_sendung(&kb); char z[40]; const char* h = "0123456789ABCDEF"; int k = 0; z[k++]=' '; z[k++]='['; z[k++]=h[(q.hdr[0]>>4)&15]; z[k++]=h[q.hdr[0]&15]; z[k++]='/'; z[k++]=h[(q.hdr[1]>>4)&15]; z[k++]=h[q.hdr[1]&15]; z[k++]='|'; z[k++]=h[(r.hdr[0]>>4)&15]; z[k++]=h[r.hdr[0]&15]; z[k++]='/'; z[k++]=h[(r.hdr[1]>>4)&15]; z[k++]=h[r.hdr[1]&15]; z[k++]=']'; z[k]=0; st_anhaengen(" Tastatur ohne Antwort"); st_anhaengen(z); }
     kprint("[HV] "); kprint(status); kprint("\n");
