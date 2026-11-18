@@ -5,6 +5,7 @@
  * Sprachen: Deutsch und Englisch (die gespeicherte Sprache de/en, alle anderen zeigen Englisch).
  */
 #include "desktop.h"
+#include "hyperv.h"
 #include "gehirn.h"
 #include "benutzer.h"
 #include "synfs.h"
@@ -234,6 +235,7 @@ static void zeichne_login(void) {
     if (fmsg) gtxt(cx, y + 160, TR("Anmeldung fehlgeschlagen", "Sign-in failed"), C_ERR, 1);
     gtxt(cx, y + 190, TR("Weiter mit Enter", "Continue with Enter"), C_MUTED, 1);
     gfx_end();
+    hv_status_zeichnen();
 }
 
 /* ---------- Desktop ---------- */
@@ -306,6 +308,7 @@ static void zeichne_leiste(void) {
 static void zeichne_desktop(void) {
     gfx_begin(); gfx_rect(0, 0, W, H, C_BG); gfx_end();
     lbw = 0; zeichne_leiste(); zeichne_robot(); zeichne_antwort(); zeichne_eingabe();
+    hv_status_zeichnen();
 }
 
 /* ---------- Textverarbeitung ---------- */
@@ -559,7 +562,7 @@ static void ausfuehren(void) {
     case I_NEUSTART: kprint("Neustart\n"); system_neustart(); return;
     case I_WARTUNG:
         if (benutzer_rolle() != ROLLE_ADMIN) { kprint("abgelehnt\n"); reply1(TR("Wartung ist nur fuer Administratoren.", "Maintenance is for administrators only.")); break; }
-        kprint("Wartungs-Konsole\n"); usb_set_rawgrab(0); shell_set_tick(0); gfx_console(1); shell_wartung(); return;
+        kprint("Wartungs-Konsole\n"); usb_set_rawgrab(0); shell_set_tick(0); hv_status_aus(); gfx_console(1); shell_wartung(); return;
     default:
         if (gehirn_vorhanden()) { kprint("Sprachmodell\n"); ki_antwort(roh); break; }
         kprint("nicht verstanden\n"); antwort_setze(TR("Das habe ich noch nicht verstanden.", "I did not understand that yet."), TR("Sag zum Beispiel: text erstellen, rechne 12*7, system oder hilfe.", "Try: write a text, calc 12*7, system or help."), 0, 0, 0, 0); break;

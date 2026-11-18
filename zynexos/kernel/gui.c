@@ -4,6 +4,7 @@
  * Alle Texte stehen in fuenf Sprachen (UTF-8 im Quelltext, bei der Ausgabe nach Latin-1 gewandelt).
  */
 #include "gui.h"
+#include "hyperv.h"
 #include "block.h"
 #include "installer.h"
 #include "shell.h"
@@ -357,6 +358,7 @@ static void zeichne(void) {
         break;
     }
     gfx_end();
+    hv_status_zeichnen();
 }
 
 static void balken(int p, const char* text) {

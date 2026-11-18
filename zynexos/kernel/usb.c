@@ -5,6 +5,7 @@
  * Nicht enthalten: Hubs, Hot-Plug, Massenspeicher, Interrupts/MSI.
  */
 #include "usb.h"
+#include "hyperv.h"
 #include "layouts.h"
 #include "pci.h"
 #include "pmm.h"
@@ -292,7 +293,13 @@ static void handle_event(const struct trb* e) {
     }
 }
 
+void usb_abs_pointer(int x, int y, uint8_t buttons) {                  /* absolute Zeigerposition (Hyper-V-Maus) */
+    ptr.x = x; ptr.y = y; ptr.buttons = buttons; ptr.down = buttons & 1; ptr.present = 1; ptr.events++;
+    fb_cursor_move(ptr.x, ptr.y);
+}
+
 void usb_poll(void) {
+    hv_poll();
     ps2_apply();
     if (!ready) return;
     for (int n = 0; n < 64; n++) {

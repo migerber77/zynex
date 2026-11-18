@@ -28,6 +28,7 @@
 #include "gpt.h"
 #include "block.h"
 #include "usb.h"
+#include "hyperv.h"
 #include "layouts.h"
 #include "synbin.h"
 #include "pci.h"
@@ -225,6 +226,7 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr){
     nvme_init();
     ahci_init();
     usb_init();
+    hv_init();
     net_init();
     if(usb_has_keyboard()){ pic_set_mask(1); kprint("[USB] USB-Tastatur aktiv, PS/2-Tastatur abgeschaltet\n"); }
     desktop_splash(1, 50, "Geraete: Speicher, USB, Netzwerk");
