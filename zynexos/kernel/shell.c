@@ -39,6 +39,7 @@
 #include "zyndb.h"
 #include "extki.h"
 #include "chats.h"
+#include "gedaechtnis.h"
 #include "krypto.h"
 
 extern void kprint(const char* str);
@@ -116,7 +117,7 @@ static void kr_entsperr_fertig(const char* l) {
     if (r == -1) { kprint("Falsches Passwort\n"); return; }
     if (r != 0) { kprint("Dieses Geraet ist nicht verschluesselt\n"); return; }
     if (block_select(dev) == 0 && synfs_mount() == 0) {
-        kprint("Entsperrt und eingebunden\n"); benutzer_laden(); zdb_init(); fw_laden();
+        kprint("Entsperrt und eingebunden\n"); benutzer_laden(); zdb_init(); ged_neu_laden(); fw_laden();
         if (benutzer_gesperrt()) login_start();
     } else kprint("Entsperrt, aber das Einbinden schlug fehl\n");
 }
@@ -289,9 +290,11 @@ static void ki_befehl(const char* frage) {
     if (!*frage) { kprint("Aufruf: ki <Frage>   (Status: "); kprint(gehirn_status()); kprint(")\n"); return; }
     static char antwort[1200];
     kprint("[KI] Zynie denkt nach ...\n");
+    static char gk[560]; ged_kontext(frage, gk, sizeof(gk), 1); gehirn_kontext(gk);        /* Erinnerungen aus dem Synapsen-Gedaechtnis */
     int n = gehirn_frage(frage, antwort, sizeof(antwort), 0);
     if (n < 0) { kprint("[KI] Nicht moeglich: "); kprint(gehirn_status()); kprint("\n"); return; }
     kprint("[KI] Antwort: "); kprint(antwort); kprint("\n");
+    ged_lerne(frage, antwort);
     (void)ki_teil;
 }
 
@@ -538,6 +541,7 @@ static void run_legacy(char* cmd) {
     else if (streq(cmd, "kimodell") || starts_with(cmd, "kimodell ")) kimodell_befehl(cmd + 8);
     else if (streq(cmd, "chat") || starts_with(cmd, "chat ")) chat_befehl(cmd + 4);
     else if (streq(cmd, "db") || starts_with(cmd, "db ")) zdb_befehl(cmd + 2);
+    else if (streq(cmd, "gedaechtnis") || starts_with(cmd, "gedaechtnis ")) ged_befehl(cmd + 11);
     else if (streq(cmd, "krypto") || starts_with(cmd, "krypto ")) krypto_befehl(cmd + 6);
     else if (streq(cmd, "sicherheit")) {
         kprint("Startkette: "); kprint((g_boot.flags & BOOT_SIGNIERT) ? "Kernel und Kommandozeile durch LMS-Signatur (SHA-256, quantensicher) geprueft\n" : "NICHT durch eine Signatur geprueft\n");

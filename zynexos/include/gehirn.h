@@ -11,3 +11,4 @@ int         gehirn_vorhanden(void);                   /* gibt es ein Modell (vom
 int         gehirn_modelle_zeigen(void);              /* alle Modelle auf den Platten auflisten (liefert die Anzahl) */
 int         gehirn_modell_waehlen(const char* dev);   /* beim naechsten Start laden; 0 ok */
 int         gehirn_modell_loeschen(const char* dev);  /* 0 ok, -3 = letztes Modell (bleibt) */
+void        gehirn_kontext(const char* text);         /* Text aus dem Gedaechtnis fuer die naechste Frage (wird einmal verwendet; leer = nichts) */

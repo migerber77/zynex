@@ -16,6 +16,8 @@ extern void kprint_dec(uint32_t val);
 static struct llm m;
 static int bereit, fehler;
 static uint8_t* arena; static uint64_t arena_pos;
+static char kontext[620];
+void gehirn_kontext(const char* t) { int i = 0; while (t && t[i] && i < 600) { kontext[i] = t[i]; i++; } kontext[i] = 0; }
 static int prefix_pos;                                  /* Anzahl Token der festen Einleitung (System-Text) */
 static const char* SYS = "system\nDu bist Zynie, der freundliche Assistent von Zynex OS. Antworte kurz.";
 
@@ -107,14 +109,16 @@ int gehirn_start(void) {
 }
 
 int gehirn_frage(const char* frage, char* antwort, int max, void (*cb)(const char*, int)) {
-    if (!bereit && gehirn_start() != 0) return -1;
-    int pos = m.pos;
-    if (pos > KONTEXT - 400) { pos = prefix_pos; }                              /* Verlauf voll: von vorn */
-    int ids[400], n = 0, fl = slen(frage); if (fl > 300) fl = 300;
-    ids[n++] = m.im_start; n += llm_encode(&m, "user\n", 5, ids + n, 8); n += llm_encode(&m, frage, fl, ids + n, 330); ids[n++] = m.im_end;
+    if (!bereit && gehirn_start() != 0) { kontext[0] = 0; return -1; }
+    int pos = m.pos, kl = slen(kontext);
+    if (kl || pos > KONTEXT - 400) { pos = prefix_pos; }                         /* mit Gedaechtnis-Kontext oder voll: ab dem festen Anfang (das Gedaechtnis ersetzt den Verlauf) */
+    int ids[620], n = 0, fl = slen(frage); if (fl > 300) fl = 300;
+    ids[n++] = m.im_start; n += llm_encode(&m, "user\n", 5, ids + n, 8);
+    if (kl) { n += llm_encode(&m, kontext, kl, ids + n, 230); n += llm_encode(&m, "Frage: ", 7, ids + n, 8); }
+    n += llm_encode(&m, frage, fl, ids + n, 330); ids[n++] = m.im_end;
     n += llm_encode(&m, "\n", 1, ids + n, 4); ids[n++] = m.im_start; n += llm_encode(&m, "assistant\n", 10, ids + n, 8);
     float* lg = 0;
-    for (int i = 0; i < n; i++) { lg = llm_forward(&m, ids[i], pos++); if (!lg) return -2; }
+    for (int i = 0; i < n; i++) { lg = llm_forward(&m, ids[i], pos++); if (!lg) { kontext[0] = 0; return -2; } }
     int o = 0, gen = 0;
     while (gen < 200 && pos < KONTEXT - 2) {
         int t = llm_sample(&m, lg, 0, 0);
@@ -127,6 +131,6 @@ int gehirn_frage(const char* frage, char* antwort, int max, void (*cb)(const cha
     }
     /* Zug im Verlauf abschliessen: <|im_end|> und Zeilenumbruch */
     { int nl[4]; int k = llm_encode(&m, "\n", 1, nl, 4); llm_forward(&m, m.im_end, pos++); for (int i = 0; i < k && pos < KONTEXT - 1; i++) llm_forward(&m, nl[i], pos++); }
-    antwort[o] = 0; m.pos = pos;
+    antwort[o] = 0; m.pos = kl ? prefix_pos : pos; kontext[0] = 0;
     return o;
 }

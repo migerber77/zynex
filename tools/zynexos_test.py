@@ -299,6 +299,9 @@ def installieren():
     vm.tippe("sprache deutsch", 2.0)
     vm.tippe("chats", 3.0)
     vm.mon("sendkey esc"); time.sleep(2.0)
+    vm.tippe("merk dir dass mein hund bello heisst", 2.0)
+    vm.tippe("gedaechtnis", 3.0)
+    vm.mon("sendkey esc"); time.sleep(2.0)
     vm.tippe("kauderwelsch", 2.0)
     hell_d = vm.hell()
     vm.tippe("wartung", 2.0)
@@ -332,6 +335,8 @@ def installieren():
     pruefe("Desktop: Widget wird hinzugefuegt", "[DESKTOP] Widget hinzugefuegt: 1" in out2)
     pruefe("Desktop: Einstellungsfenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Einstellungen" in out2)
     pruefe("Desktop: Chats-Fenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Chats" in out2)
+    pruefe("Desktop: 'merk dir' wird vom Gedaechtnis verstanden", "[DESKTOP] Gedaechtnis" in out2)
+    pruefe("Desktop: Gedaechtnis-Fenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Gedaechtnis" in out2)
     pruefe("Desktop: Sprachwechsel per Chat", out2.count("-> Fenster") >= 3)
     pruefe("Desktop: Rechner-Fenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Rechner" in out2)
     pruefe("Desktop: Unbekanntes wird nicht verstanden", "kauderwelsch' -> nicht verstanden" in out2)
@@ -793,6 +798,7 @@ def boot():
     print("\n===== Szenario boot (eigener Lader, Signatur) =====")
     vm = starten()
     vm.tippe("sicherheit", 1.5); vm.tippe("pqtest", 3.0); vm.tippe("mem", 1.5); vm.tippe("firewall status", 1.5); vm.tippe("krypto status", 1.5); vm.tippe("db setze netz.dns 1.1.1.1", 1.5); vm.tippe("db suche dns", 1.5); vm.tippe("db status", 1.5)
+    vm.tippe("gedaechtnis merke Mein Hund heisst Bello", 1.5); vm.tippe("gedaechtnis erinnere wie heisst mein Hund", 1.5); vm.tippe("gedaechtnis status", 1.5)
     out = vm.log()
     print(out)
     vm.ende()
@@ -806,6 +812,9 @@ def boot():
     pruefe("Kernel: Firewall aktiv", "Firewall: normal" in out)
     pruefe("Kernel: Verschluesselung meldet Zustand", "Verschluesselung: aus" in out)
     pruefe("Kernel: ZynDB speichert und findet", "netz.dns = 1.1.1.1" in out and "ZynDB: 1 Fakten" in out)
+    pruefe("Kernel: Gedaechtnis merkt sich etwas", "Gemerkt (wichtig, verblasst nicht)" in out)
+    pruefe("Kernel: Gedaechtnis ruft per Aktivierung ab", "Neuronen feuern" in out and "Mein Hund heisst Bello" in out)
+    pruefe("Kernel: Gedaechtnis zaehlt Neuronen und Synapsen", "Synapsen-Gedaechtnis:" in out and "Erinnerungen" in out)
 
 
 def ki():
