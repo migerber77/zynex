@@ -6,3 +6,4 @@ void        hv_poll(void);                 /* regelmaessig aufrufen (aus usb_pol
 const char* hv_status(void);               /* Statuszeile fuer den Bildschirm, "" ausserhalb von Hyper-V */
 void        hv_status_zeichnen(void);      /* Statuszeile unten links zeichnen (auf Grafikbildschirmen) */
 void        hv_status_aus(void);           /* nicht mehr zeichnen (Text-Konsole) */
+int         hv_aktiv(void);                /* 1 = Hyper-V erkannt: Hauptschleife darf nicht mit hlt schlafen (kein Zeitgeber-Interrupt garantiert) */

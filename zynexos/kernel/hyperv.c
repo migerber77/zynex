@@ -61,6 +61,7 @@ static int hv_da, hv_show, nachrichten;
 static void st_setze(const char* s) { int i = 0; while (s[i] && i < 118) { status[i] = s[i]; i++; } status[i] = 0; if (hv_show) hv_status_zeichnen(); }
 static void st_anhaengen(const char* s) { int i = 0; while (status[i]) i++; while (*s && i < 118) status[i++] = *s++; status[i] = 0; if (hv_show) hv_status_zeichnen(); }
 
+int hv_aktiv(void) { return hv_da; }
 const char* hv_status(void) { return status; }
 void hv_status_aus(void) { hv_show = 0; }
 void hv_status_zeichnen(void) {
@@ -276,8 +277,19 @@ static void kanal_bearbeiten(struct kanal* c) {
     }
 }
 
+static char zaehl[48]; static int zk, zm, zp;
+static void zaehler_zeigen(void) {
+    int i = 0; const char* a = " | Tasten:"; while (*a) zaehl[i++] = *a++;
+    int v[3] = { tasten_gesehen, maus_gesehen, zp }; const char* nm[3] = { "", " Maus:", " Poll:" };
+    for (int q = 0; q < 3; q++) { if (q) { const char* b = nm[q]; while (*b) zaehl[i++] = *b++; } char t[12]; int n = 0, x = v[q]; if (!x) t[n++] = '0'; while (x) { t[n++] = (char)('0' + x % 10); x /= 10; } while (n) zaehl[i++] = t[--n]; }
+    zaehl[i] = 0;
+    int j = 0; while (status[j]) j++; int base = j; for (int k = 0; k < j - 2; k++) if (status[k] == ' ' && status[k + 1] == '|' ) { base = k; break; }
+    status[base] = 0; st_anhaengen(zaehl);
+}
 void hv_poll(void) {
     if (!hv_da) return;
+    zp++;
+    if (tasten_gesehen != zk || maus_gesehen != zm || (zp & 0x3FF) == 0) { zk = tasten_gesehen; zm = maus_gesehen; zaehler_zeigen(); }
     if (msg_warten(0, 1) >= 0) nachrichten++;                                   /* verspaetete Kanalnachrichten verwerfen */
     if (kb.offen) kanal_bearbeiten(&kb);
     if (ms.offen) kanal_bearbeiten(&ms);

@@ -20,6 +20,7 @@
 #include "synbin.h"
 #include "pci.h"
 #include "usb.h"
+#include "hyperv.h"
 #include "layouts.h"
 #include "qubit.h"
 #include "lms.h"
@@ -617,5 +618,5 @@ void shell_init(void) {
 }
 
 void shell_run(void) {
-    for (;;) { __asm__ volatile("hlt"); usb_poll(); net_poll(); if (tick_fn) tick_fn(); usb_hotplug(); }
+    for (;;) { if (hv_aktiv()) __asm__ volatile("pause"); else __asm__ volatile("hlt"); usb_poll(); net_poll(); if (tick_fn) tick_fn(); usb_hotplug(); }
 }
