@@ -19,7 +19,7 @@ struct kopf { uint8_t magic[4]; uint8_t flags, pad[3]; uint32_t ctr, n, naechste
 
 static struct eintrag E[MAXE]; static uint32_t n, naechste = 1, ctr;
 static uint8_t dk[32];
-static int offen, defekt;
+static int offen, defekt, versucht, stapel, schmutzig;
 static uint8_t datei[sizeof(struct kopf) + sizeof(E) + 16];
 
 static uint32_t slen(const char* s) { uint32_t i = 0; while (s[i]) i++; return i; }
@@ -41,6 +41,7 @@ static void wrap(int flags, const uint8_t in[32], uint8_t out[32]) {
 }
 static int speichern(void) {
     if (!offen || defekt || !synfs_is_mounted()) return -1;
+    if (stapel) { schmutzig = 1; return 0; }
     struct kopf* h = (struct kopf*)datei;
     h->magic[0] = 'Z'; h->magic[1] = 'D'; h->magic[2] = 'B'; h->magic[3] = '1';
     h->flags = krypto_aktiv_fuer_aktuelles() ? 1 : 0; h->pad[0] = h->pad[1] = h->pad[2] = 0; h->ctr = ++ctr; h->n = n; h->naechste = naechste;
@@ -48,13 +49,16 @@ static int speichern(void) {
     krand(h->nonce, 12);
     uint32_t pl = n * (uint32_t)sizeof(struct eintrag);
     aead_seal(dk, h->nonce, (const uint8_t*)h, sizeof(struct kopf) - 12, (const uint8_t*)E, pl, datei + sizeof(struct kopf));
-    return synfs_write(DATEI, datei, (uint32_t)sizeof(struct kopf) + pl + 16) < 0 ? -1 : 0;
+    int r = synfs_write(DATEI, datei, (uint32_t)sizeof(struct kopf) + pl + 16) < 0 ? -1 : 0;
+    synfs_sync(); return r;
 }
+void zdb_stapel(int an) { if (an) { stapel = 1; return; } stapel = 0; if (schmutzig) { schmutzig = 0; speichern(); } }
 void zdb_neu_verpacken(void) { if (offen) speichern(); }
 
 int zdb_init(void) {
-    offen = 0; defekt = 0; n = 0; naechste = 1;
+    offen = 0; defekt = 0; n = 0; naechste = 1; stapel = 0; schmutzig = 0;
     if (!synfs_is_mounted()) return -1;
+    versucht = 1;
     int r = synfs_read(DATEI, datei, sizeof(datei));
     if (r <= 0) { krand(dk, 32); offen = 1; return 0; }                   /* neu */
     struct kopf* h = (struct kopf*)datei;
@@ -71,7 +75,7 @@ int zdb_init(void) {
     return 0;
 }
 int zdb_offen(void) { return offen && !defekt; }
-static int bereit(void) { if (!offen && !defekt && synfs_is_mounted()) zdb_init(); return offen && !defekt; }
+static int bereit(void) { if (!offen && !defekt && !versucht && synfs_is_mounted()) zdb_init(); return offen && !defekt; }
 
 /* ---------- Daten ---------- */
 static int finde(const char* key, int vor) { for (int i = vor - 1; i >= 0; i--) if (gleich(E[i].key, key)) return i; return -1; }
@@ -103,6 +107,30 @@ int zdb_geti(const char* key, int def) {
     return neg ? -r : r;
 }
 int zdb_del(const char* key) { if (!bereit()) return -1; int i = finde(key, (int)n); if (i < 0 || E[i].op != 1) return -3; return anhaengen(key, "", 2); }
+
+/* Laengere Texte in Stuecken zu je 150 Zeichen: name.0, name.1 ... und name.n */
+#define STUECK 150
+static void nr_key(char* k, const char* name, int i) { int l = 0; while (name[l] && l < 36) { k[l] = name[l]; l++; } k[l++] = '.'; if (i < 0) k[l++] = 'n'; else { char t[6]; int c = 0; do { t[c++] = (char)('0' + i % 10); i /= 10; } while (i); while (c) k[l++] = t[--c]; } k[l] = 0; }
+static int zdb_geti_n(const char* name);
+int zdb_put_text(const char* name, const char* text, int len) {
+    if (!bereit()) return -1;
+    char k[48], v[STUECK + 1]; int cnt = (len + STUECK - 1) / STUECK; int alt = zdb_geti_n(name);
+    zdb_stapel(1);
+    for (int c = 0; c < cnt; c++) { int a = c * STUECK, l = len - a < STUECK ? len - a : STUECK; for (int i = 0; i < l; i++) v[i] = text[a + i]; v[l] = 0; nr_key(k, name, c); zdb_put(k, v); }
+    for (int c = cnt; c < alt; c++) { nr_key(k, name, c); zdb_del(k); }
+    char z[8]; int zl = 0; { int t = cnt; char b[8]; int bc = 0; do { b[bc++] = (char)('0' + t % 10); t /= 10; } while (t); while (bc) z[zl++] = b[--bc]; z[zl] = 0; }
+    nr_key(k, name, -1); zdb_put(k, z);
+    zdb_stapel(0);
+    return 0;
+}
+static int zdb_geti_n(const char* name) { char k[48]; nr_key(k, name, -1); return zdb_geti(k, 0); }
+int zdb_get_text(const char* name, char* out, int max) {
+    char k[48]; nr_key(k, name, -1); const char* z = zdb_get(k); if (!z) return -1;
+    int cnt = 0; for (; *z >= '0' && *z <= '9'; z++) cnt = cnt * 10 + (*z - '0');
+    int o = 0;
+    for (int c = 0; c < cnt; c++) { nr_key(k, name, c); const char* v = zdb_get(k); if (!v) break; for (int i = 0; v[i] && o < max - 1; i++) out[o++] = v[i]; }
+    out[o] = 0; return o;
+}
 
 /* ---------- Aehnlichkeitssuche ---------- */
 static uint32_t fnv(const uint8_t* s, int len) { uint32_t h = 2166136261u; for (int i = 0; i < len; i++) { h ^= s[i]; h *= 16777619u; } return h; }

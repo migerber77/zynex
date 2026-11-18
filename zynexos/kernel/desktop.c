@@ -9,6 +9,7 @@
 #include "block.h"
 #include "benutzer.h"
 #include "zyndb.h"
+#include "layouts.h"
 #include "synfs.h"
 #include "desktop.h"
 #include "hyperv.h"
@@ -58,8 +59,55 @@ extern const uint32_t zynex_logo[], zynex_logo_gross[];
 #define C_FIELD  0x000E1525u
 #define C_OFF    0x00334155u
 
-static int W, H, lang;                                    /* lang: 0 Deutsch, 1 Englisch */
-static const char* TR(const char* de, const char* en) { return lang == 0 ? de : en; }
+static int W, H, lang;                                    /* lang: 0 Deutsch, 1 Englisch, 2 Franzoesisch, 3 Italienisch, 4 Spanisch */
+static const char* const LNAME[5] = { "Deutsch", "English", "Francais", "Italiano", "Espanol" };
+static const char* const LCODE[5] = { "de", "en", "fr", "it", "es" };
+static const char* const LENG[5] = { "German", "English", "French", "Italian", "Spanish" };
+/* Eingebaute Uebersetzungen (Schluessel: der englische Text). Alles andere holt ZynDB (vom KI-Modell erzeugt) oder bleibt englisch. */
+static const struct { const char* en, *fr, *it, *es; } UEB[] = {
+    { "User", "Utilisateur", "Utente", "Usuario" }, { "Password", "Mot de passe", "Password", "Contrasena" },
+    { "Sign-in failed", "Echec de la connexion", "Accesso non riuscito", "Error de inicio de sesion" },
+    { "Continue with Enter", "Continuer avec Entree", "Continua con Invio", "Continuar con Intro" },
+    { "Wrong password", "Mot de passe incorrect", "Password errata", "Contrasena incorrecta" },
+    { "Unlock disk (password)", "Deverrouiller le disque (mot de passe)", "Sblocca il disco (password)", "Desbloquear disco (contrasena)" },
+    { "Your data is encrypted. Continue with Enter", "Vos donnees sont chiffrees. Continuer avec Entree", "I tuoi dati sono cifrati. Continua con Invio", "Tus datos estan cifrados. Continuar con Intro" },
+    { "Hello! I am Zynie. What would you like to do?", "Bonjour ! Je suis Zynie. Que voulez-vous faire ?", "Ciao! Sono Zynie. Cosa vuoi fare?", "Hola! Soy Zynie. Que quieres hacer?" },
+    { "I did not understand that yet.", "Je n'ai pas encore compris.", "Non ho ancora capito.", "Aun no lo he entendido." },
+    { "One moment, thinking ...", "Un instant, je reflechis ...", "Un momento, sto pensando ...", "Un momento, estoy pensando ..." },
+    { "Document", "Document", "Documento", "Documento" }, { "Calculator", "Calculatrice", "Calcolatrice", "Calculadora" },
+    { "System info", "Infos systeme", "Info di sistema", "Info del sistema" }, { "Save", "Enregistrer", "Salva", "Guardar" },
+    { "New", "Nouveau", "Nuovo", "Nuevo" }, { "Close", "Fermer", "Chiudi", "Cerrar" }, { "New document", "Nouveau document", "Nuovo documento", "Nuevo documento" },
+    { "Tasks", "Taches", "Attivita", "Tareas" }, { "Agents", "Agents", "Agenti", "Agentes" }, { "Nothing open.", "Rien d'ouvert.", "Niente di aperto.", "Nada abierto." },
+    { "Run", "Lancer", "Avvia", "Ejecutar" }, { "Approve", "Approuver", "Approva", "Aprobar" }, { "Reject", "Refuser", "Rifiuta", "Rechazar" },
+    { "All done", "Tout termine", "Tutto fatto", "Todo hecho" }, { "Esc: close window", "Echap : fermer la fenetre", "Esc: chiudi la finestra", "Esc: cerrar la ventana" },
+    { "Free memory: ", "Memoire libre : ", "Memoria libera: ", "Memoria libre: " }, { "Uptime: ", "Duree de fonctionnement : ", "Tempo di attivita: ", "Tiempo activo: " },
+    { "Network: ", "Reseau : ", "Rete: ", "Red: " }, { "no card", "pas de carte", "nessuna scheda", "sin tarjeta" },
+    { "Language model ready (runs locally)", "Modele de langage pret (local)", "Modello linguistico pronto (locale)", "Modelo de lenguaje listo (local)" },
+    { "no language model loaded", "aucun modele de langage", "nessun modello linguistico", "ningun modelo de lenguaje" },
+    { "Next workspace", "Bureau suivant", "Spazio successivo", "Siguiente escritorio" }, { "Previous workspace", "Bureau precedent", "Spazio precedente", "Escritorio anterior" },
+    { "Close widget", "Fermer le widget", "Chiudi widget", "Cerrar widget" }, { "Settings", "Parametres", "Impostazioni", "Ajustes" },
+    { "Cut", "Couper", "Taglia", "Cortar" }, { "Copy", "Copier", "Copia", "Copiar" }, { "Paste", "Coller", "Incolla", "Pegar" }, { "Select all", "Tout selectionner", "Seleziona tutto", "Seleccionar todo" }, { "Clear", "Effacer", "Cancella", "Borrar" },
+};
+#define NUEB ((int)(sizeof(UEB) / sizeof(UEB[0])))
+static char pend_en[48][100]; static int npend;
+static int ueq(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
+static void ui_key(int l, const char* en, char* key) {
+    key[0] = 'u'; key[1] = 'i'; key[2] = '.'; key[3] = LCODE[l][0]; key[4] = LCODE[l][1]; key[5] = '.';
+    uint32_t h = 2166136261u; for (const char* p = en; *p; p++) { h ^= (uint8_t)*p; h *= 16777619u; }
+    for (int i = 0; i < 8; i++) key[6 + i] = "0123456789abcdef"[(h >> (28 - 4 * i)) & 15]; key[14] = 0;
+}
+static const char* uebers(const char* en) {
+    for (int i = 0; i < NUEB; i++) if (ueq(UEB[i].en, en)) return lang == 2 ? UEB[i].fr : lang == 3 ? UEB[i].it : UEB[i].es;
+    char key[16]; ui_key(lang, en, key);
+    const char* v = zdb_get(key); if (v && *v) return v;
+    if (npend < 48) { int da = 0; for (int i = 0; i < npend; i++) if (ueq(pend_en[i], en)) { da = 1; break; } if (!da) { int k = 0; while (en[k] && k < 99) { pend_en[npend][k] = en[k]; k++; } pend_en[npend][k] = 0; npend++; } }
+    return en;
+}
+static const char* TR(const char* de, const char* en) { return lang == 0 ? de : lang == 1 ? en : uebers(en); }
+static void lang_setze(int l) { if (l < 0 || l > 4) return; lang = l; zdb_put("system.sprache", LCODE[l]); }
+static int ki_nutzbar(void) { return gehirn_vorhanden() && zdb_geti("ki.aktiv", 1); }
+/* Text in allen fuenf Sprachen */
+static const char* T5(const char* de, const char* en, const char* fr, const char* it, const char* es) { return lang == 0 ? de : lang == 1 ? en : lang == 2 ? fr : lang == 3 ? it : es; }
 
 static int slen(const char* s) { int n = 0; while (s[n]) n++; return n; }
 static void scopy(char* d, const char* s, int max) { int i = 0; while (s[i] && i < max - 1) { d[i] = s[i]; i++; } d[i] = 0; }
@@ -92,10 +140,49 @@ static void rrect(int x, int y, int w, int h, int r, uint32_t c) {
     }
 }
 static void rrect_rand(int x, int y, int w, int h, int r, uint32_t fill, uint32_t rand) { rrect(x, y, w, h, r, rand); rrect(x + 1, y + 1, w - 2, h - 2, r - 1 > 0 ? r - 1 : 0, fill); }
+
 static uint32_t mix(uint32_t a, uint32_t b, int t /*0..256*/) {
     uint32_t r = 0;
     for (int s = 0; s <= 16; s += 8) { int x = (int)((a >> s) & 255), y = (int)((b >> s) & 255); r |= (uint32_t)(x + (y - x) * t / 256) << s; }
     return r;
+}
+
+/* ---------- Ladeanzeige "Quanten-Orbit": ein pulsierender Kern, drei Elektronen auf gekippten Bahnen mit Schweif ---------- */
+static const int sin90t[19] = { 0, 89, 178, 265, 350, 433, 512, 587, 658, 724, 784, 839, 887, 928, 962, 989, 1008, 1020, 1024 };
+static int isin(int deg) {
+    deg %= 360; if (deg < 0) deg += 360;
+    int sg = 1; if (deg >= 180) { deg -= 180; sg = -1; } if (deg > 90) deg = 180 - deg;
+    int lo = sin90t[deg / 5], hi = sin90t[deg / 5 + 1 > 18 ? 18 : deg / 5 + 1];
+    return sg * (lo + (hi - lo) * (deg % 5) / 5);
+}
+static int icos(int deg) { return isin(deg + 90); }
+static void lader(int cx, int cy, int R, uint32_t fr, uint32_t bg) {
+    static const uint32_t farbe[3] = { 0x0022D3EEu, 0x00A78BFAu, 0x006F90FBu };
+    gfx_begin();
+    gfx_rect(cx - R - 8, cy - R - 8, 2 * R + 16, 2 * R + 16, bg);
+    int puls = isin((int)fr * 9), kr = R / 5 + R / 14 * puls / 1024; if (kr < 3) kr = 3;
+    uint32_t kern = mix(0x0022D3EEu, 0x00A78BFAu, (isin((int)fr * 4) + 1024) * 255 / 2048);
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass == 1) {
+            rrect(cx - kr - 5, cy - kr - 5, 2 * kr + 10, 2 * kr + 10, kr + 5, mix(bg, kern, 50));
+            rrect(cx - kr - 2, cy - kr - 2, 2 * kr + 4, 2 * kr + 4, kr + 2, mix(bg, kern, 120));
+            rrect(cx - kr, cy - kr, 2 * kr, 2 * kr, kr, kern);
+            rrect(cx - kr / 2, cy - kr / 2 - 1, kr, kr, kr / 2, 0x00FFFFFFu);
+        }
+        for (int e = 0; e < 3; e++) {
+            int tilt = e * 60;
+            for (int k = 13; k >= 0; k--) {
+                int ang = (int)fr * (e == 1 ? -11 : 9) + e * 120 - k * 11 * (e == 1 ? -1 : 1);
+                int x0 = R * icos(ang) / 1024, y0 = R * 4 / 10 * isin(ang) / 1024;
+                int x = (x0 * icos(tilt) - y0 * isin(tilt)) / 1024, y = (x0 * isin(tilt) + y0 * icos(tilt)) / 1024;
+                if ((y >= 0) != (pass == 1)) continue;
+                int sz = R / 7 + 2 - k * (R / 7) / 16; if (sz < 2) sz = 2;
+                int tt = 255 - k * 255 / 15;
+                rrect(cx + x - sz / 2, cy + y - sz / 2, sz, sz, sz / 2, mix(bg, farbe[e], tt));
+            }
+        }
+    }
+    gfx_end();
 }
 
 /* ---------- Startbild ---------- */
@@ -123,6 +210,7 @@ static void splash_zeichne(void) {
     int bw = 360, bx = (W - bw) / 2, by = y + 66;
     rrect(bx, by, bw, 8, 4, C_FIELD);
     int fw = bw * splash_p / 100; if (fw > 0) rrect(bx, by, fw < 8 ? 8 : fw, 8, 4, mix(C_CYAN, C_VIOLET, splash_p * 256 / 100));
+    lader(W - 90, 90, 36, timer_get_ticks() / 4, C_BG);
     gfx_text(bx, by + 16, splash_t, C_CYAN, 1);
     char pc[8]; dec(pc, (uint32_t)splash_p); cat(pc, "%", 8);
     gfx_text(bx + bw - gfx_text_w(pc, 1), by + 16, pc, C_MUTED, 1);
@@ -150,7 +238,7 @@ void desktop_splash(int qubit, int prozent, const char* text) {
 void desktop_splash_ende(void) {
     if (!splash_an) return;
     uint32_t t0 = timer_get_ticks();
-    for (int i = 0; i < 2000000 && timer_get_ticks() - t0 < 90; i++) __asm__ volatile ("pause");
+    { uint32_t lf = 0; for (int i = 0; i < 2000000 && timer_get_ticks() - t0 < 90; i++) { __asm__ volatile ("pause"); if (timer_get_ticks() / 4 != lf) { lf = timer_get_ticks() / 4; lader(W - 90, 90, 36, lf, C_BG); } } }
     splash_an = 0;
 }
 
@@ -270,20 +358,28 @@ static const char* const chip_text[6] = { "text erstellen", "rechne 12*7", "syst
 static int bar_x, bar_y, bar_w;
 
 /* ---------- Fenster und Widgets (verschiebbar, schliessbar, mehrere gleichzeitig) ---------- */
-enum { FT_EDIT = 1, FT_WEB, FT_RECH, FT_INFO };
+enum { FT_EDIT = 1, FT_WEB, FT_RECH, FT_INFO, FT_EINST };
 enum { WG_UHR = 1, WG_SYS, WG_AUF, WG_AGENT };
 #define WT_H 30
 struct fenster { int typ, x, y, w, h; };
 static struct fenster fen[6]; static int nfen, fok;          /* Reihenfolge = Tiefe (das letzte liegt oben); fok: das oberste Fenster hat den Tastaturfokus */
 struct widget { int typ, x, y, w, h; };
 static struct widget wid[6]; static int nwid;
+static void layout_speichern(void) {
+    char b[100], a[12]; b[0] = 0;
+    for (int j = 0; j < nwid; j++) { dec(a, (uint32_t)wid[j].typ); cat(b, a, 100); cat(b, ",", 100); dec(a, (uint32_t)(wid[j].x + 2000)); cat(b, a, 100); cat(b, ",", 100); dec(a, (uint32_t)(wid[j].y + 2000)); cat(b, a, 100); cat(b, ";", 100); }
+    zdb_put("desktop.widgets", b);
+    b[0] = 0; dec(a, (uint32_t)zx); cat(b, a, 100); cat(b, " ", 100); dec(a, (uint32_t)zy); cat(b, a, 100); cat(b, " ", 100); dec(a, (uint32_t)zs); cat(b, a, 100);
+    zdb_put("desktop.zynie", b);
+}
+static int lies(const char** p) { while (**p && (**p < '0' || **p > '9')) (*p)++; int v = 0; while (**p >= '0' && **p <= '9') { v = v * 10 + (**p - '0'); (*p)++; } return v; }
 static int in_szene;
 static int nsug, sugsel = -1;
 static int flaeche;
 static char alog[10][100]; static int nalog, alauf = -1, pend;
 static void aufg_laden(void); static int aufg_zeile(int n, char* out, int max); static int aufg_zahl(void);
 static const char* const ag_name[4][2] = { { "Morgen-Briefing", "Morning briefing" }, { "Sicherheits-Agent", "Security agent" }, { "Wartungs-Agent", "Maintenance agent" }, { "Aufgaben-Agent", "Task agent" } };
-static void zeichne_desktop(void); static void zeichne_editor(int voll); static void zeichne_web(int voll); static void zeichne_rechner(void); static void zeichne_info(void);
+static void zeichne_einst(void); static void zeichne_desktop(void); static void zeichne_editor(int voll); static void zeichne_web(int voll); static void zeichne_rechner(void); static void zeichne_info(void);
 static int fenster_idx(int typ) { for (int i = 0; i < nfen; i++) if (fen[i].typ == typ) return i; return -1; }
 static int schneidet(int x, int y, int w, int h, int x2, int y2, int w2, int h2) { return !(x + w <= x2 || x2 + w2 <= x || y + h <= y2 || y2 + h2 <= y); }
 static int deckt(int x, int y, int w, int h) {                /* liegt ein Fenster oder Widget ueber diesem Bereich? */
@@ -299,7 +395,12 @@ static void xor_rahmen(int x, int y, int w, int h) {         /* Umriss beim Zieh
         for (int j = 3; j < h - 3; j++) { int py = y + j; if (py < 0 || py >= H) continue; if (x + t >= 0 && x + t < W) f[(uint64_t)py * pp + x + t] ^= 0x00FFFFFFu; if (x + w - 1 - t >= 0 && x + w - 1 - t < W) f[(uint64_t)py * pp + x + w - 1 - t] ^= 0x00FFFFFFu; }
     }
 }
-static const char* fenster_titel(int typ) { return typ == FT_EDIT ? TR("Dokument", "Document") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
+/* Ladeanzeige unten rechts, solange das System arbeitet (KI denkt, Sprachpaket wird erzeugt) */
+static uint32_t busy_f; static int busy_an;
+static void zeichne_desktop(void);
+static void busy_tick(void) { uint32_t f = timer_get_ticks() / 5; if (!busy_an || f != busy_f) { busy_an = 1; busy_f = f; lader(W - 70, H - 70, 28, f, C_BG); } }
+static void busy_ende(void) { if (!busy_an) return; busy_an = 0; gfx_begin(); gfx_rect(W - 70 - 40, H - 70 - 40, 80, 80, C_BG); gfx_end(); zeichne_desktop(); }
+static const char* fenster_titel(int typ) { if (typ == FT_EINST) return TR("Einstellungen", "Settings"); return typ == FT_EDIT ? TR("Dokument", "Document") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
 static void fenster_zeichnen(int i) {
     struct fenster* f = &fen[i]; int top = (i == nfen - 1 && fok);
     gfx_begin();
@@ -308,7 +409,7 @@ static void fenster_zeichnen(int i) {
     gtxt(f->x + 16, f->y + 8, fenster_titel(f->typ), top ? C_TEXT : C_MUTED, 1);
     rrect_rand(f->x + f->w - 32, f->y + 5, 22, 20, 6, C_FIELD, C_BORDER); gtxt(f->x + f->w - 25, f->y + 7, "x", C_MUTED, 1);
     kn_owner = i;
-    if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else zeichne_info();
+    if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else if (f->typ == FT_EINST) zeichne_einst(); else zeichne_info();
     kn_owner = -1;
     gfx_end();
 }
@@ -345,7 +446,7 @@ static void wid_zeichnen(int j) {
     gfx_end();
 }
 static void szene_oben(void) { for (int j = 0; j < nwid; j++) wid_zeichnen(j); for (int i = 0; i < nfen; i++) fenster_zeichnen(i); }
-static int zustand_fuer(int typ) { return typ == FT_EDIT ? Z_EDIT : typ == FT_WEB ? Z_WEB : typ == FT_RECH ? Z_RECH : Z_INFO; }
+static int zustand_fuer(int typ) { return typ == FT_EDIT ? Z_EDIT : typ == FT_WEB ? Z_WEB : typ == FT_RECH ? Z_RECH : Z_INFO; }   /* Info und Einstellungen teilen sich Z_INFO */
 static void fenster_hoch(int i) { struct fenster t = fen[i]; for (int j = i; j < nfen - 1; j++) fen[j] = fen[j + 1]; fen[nfen - 1] = t; }
 static void fokus_nach_schliessen(void) { if (nfen > 0) { fok = 1; zustand = zustand_fuer(fen[nfen - 1].typ); } else { fok = 0; zustand = Z_DESK; } }
 static void fenster_schliessen_typ(int typ) {
@@ -391,7 +492,7 @@ static void zeichne_antwort(void) {
 /* ---------- Autovorschlaege (ab dem ersten Buchstaben) ---------- */
 typedef struct { const char* de; const char* en; int typ; } sug_e;       /* typ 0 Befehl, 1 Frage an Zynie, 2 Verlauf */
 static const sug_e katalog[] = {
-    { "text erstellen", "write a text", 0 }, { "browser", "browser", 0 }, { "rechner", "calculator", 0 }, { "systeminfo", "system info", 0 }, { "widget uhr", "widget clock", 0 }, { "widget system", "widget system", 0 }, { "widget aufgaben", "widget tasks", 0 }, { "widget agenten", "widget agents", 0 }, { "alle fenster schliessen", "close all windows", 0 }, { "browser de.wikipedia.org", "browser en.wikipedia.org", 0 }, { "suche ", "search ", 0 }, { "rechne 12*7", "calc 12*7", 0 }, { "system", "system status", 0 }, { "dateien", "files", 0 },
+    { "text erstellen", "write a text", 0 }, { "browser", "browser", 0 }, { "rechner", "calculator", 0 }, { "systeminfo", "system info", 0 }, { "einstellungen", "settings", 0 }, { "sprache englisch", "language german", 0 }, { "widget uhr", "widget clock", 0 }, { "widget system", "widget system", 0 }, { "widget aufgaben", "widget tasks", 0 }, { "widget agenten", "widget agents", 0 }, { "alle fenster schliessen", "close all windows", 0 }, { "browser de.wikipedia.org", "browser en.wikipedia.org", 0 }, { "suche ", "search ", 0 }, { "rechne 12*7", "calc 12*7", 0 }, { "system", "system status", 0 }, { "dateien", "files", 0 },
     { "quanten", "quantum demo", 0 }, { "sicherheit", "security", 0 }, { "firewall", "firewall", 0 }, { "agenten", "agents", 0 }, { "briefing", "briefing", 0 },
     { "agent sicherheit", "agent security", 0 }, { "agent wartung", "agent maintenance", 0 }, { "agent aufgaben", "agent tasks", 0 },
     { "aufgabe ", "task ", 0 }, { "arbeitsflaeche system", "workspace system", 0 }, { "arbeitsflaeche agenten", "workspace agents", 0 },
@@ -436,7 +537,7 @@ static void hist_add(const char* s) {
 
 /* ---------- Aufgaben (Datei aufgaben.txt in SynFS) ---------- */
 static char aufg[1500]; static int auflen;
-static void aufg_laden(void) { int r = synfs_read("aufgaben.txt", aufg, sizeof(aufg) - 1); auflen = r > 0 ? r : 0; aufg[auflen] = 0; }
+static void aufg_laden(void) { int r = zdb_get_text("desktop.aufgaben", aufg, sizeof(aufg) - 1); if (r < 0) r = synfs_read("aufgaben.txt", aufg, sizeof(aufg) - 1); auflen = r > 0 ? r : 0; aufg[auflen] = 0; }
 static int aufg_zeile(int n, char* out, int max) {                     /* n-te nichtleere Zeile; 0 = keine */
     int z = 0, i = 0;
     while (i < auflen) {
@@ -448,7 +549,7 @@ static int aufg_zeile(int n, char* out, int max) {                     /* n-te n
     return 0;
 }
 static int aufg_zahl(void) { char t[4]; int n = 0; while (aufg_zeile(n, t, 4)) n++; return n; }
-static void aufg_speichern(void) { synfs_create("aufgaben.txt", SYNFS_FILE); synfs_write("aufgaben.txt", aufg, (uint32_t)(auflen ? auflen : 1)); synfs_sync(); }
+static void aufg_speichern(void) { zdb_put_text("desktop.aufgaben", aufg, auflen); }
 static int aufg_add(const char* t) {
     aufg_laden(); int n = slen(t);
     if (auflen + n + 2 >= (int)sizeof(aufg) - 8) return -1;
@@ -745,7 +846,7 @@ static void widget_neu(int typ) {
     struct widget* g = &wid[nwid]; g->typ = typ; wid_groesse(typ, &g->w, &g->h);
     g->x = W - g->w - 30; g->y = 56; for (int j = 0; j < nwid; j++) g->y += wid[j].h + 14;
     if (g->y + g->h > H - 10) { g->x -= 280; g->y = 56; }
-    nwid++; zeichne_desktop();
+    nwid++; layout_speichern(); zeichne_desktop();
     kprint("[DESKTOP] Widget hinzugefuegt: "); kprint_dec((uint32_t)typ); kprint("\n");
 }
 static void rech_zuruecksetzen(void);
@@ -754,8 +855,8 @@ static void fenster_oeffnen(int typ) {
     if (flaeche != 0) flaeche_wechsel(0);
     if (i < 0) {
         if (nfen >= 6) { reply1(TR("Es sind schon 6 Fenster offen.", "6 windows are already open.")); return; }
-        int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : 480;
-        int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : 250;
+        int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 580 : 480;
+        int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 430 : 250;
         if (typ == FT_WEB && w < 640) w = W - 40;
         int x = 60 + nfen * 36, y = 56 + nfen * 30;
         if (x + w > W - 8) x = W - w - 8; if (x < 4) x = 4; if (y + h > H - 8) y = H - h - 8; if (y < 44) y = 44;
@@ -927,7 +1028,7 @@ static char whist[16][200]; static int nwh, whp = -1;
 static char lesez[1500]; static int lzlen;
 static int wx0, wy0, ww, wh;                                         /* Seitenbereich */
 enum { K_WB = 60, K_WV, K_WR, K_WL, K_WX, K_WS, K_LZ0 = 70 };
-static void lz_laden(void) { int r = synfs_read("lesezeichen.txt", lesez, sizeof(lesez) - 1); lzlen = r > 0 ? r : 0; lesez[lzlen] = 0; }
+static void lz_laden(void) { int r = zdb_get_text("desktop.lesezeichen", lesez, sizeof(lesez) - 1); if (r < 0) r = synfs_read("lesezeichen.txt", lesez, sizeof(lesez) - 1); lzlen = r > 0 ? r : 0; lesez[lzlen] = 0; }
 static int lz_zeile(int n, char* out, int max) {
     int z = 0, i = 0;
     while (i < lzlen) { int e = i; while (e < lzlen && lesez[e] != '\n') e++; if (e > i) { if (z == n) { int k = 0; for (int j = i; j < e && k < max - 1; j++) out[k++] = lesez[j]; out[k] = 0; return 1; } z++; } i = e + 1; }
@@ -938,7 +1039,7 @@ static void lz_add(const char* u) {
     int n = slen(u); if (lzlen + n + 2 >= (int)sizeof(lesez) - 4) { scopy(meldung, TR("Lesezeichen voll.", "Bookmarks full."), 100); return; }
     for (int i = 0; i < n; i++) lesez[lzlen++] = u[i];
     lesez[lzlen++] = '\n'; lesez[lzlen] = 0;
-    synfs_create("lesezeichen.txt", SYNFS_FILE); synfs_write("lesezeichen.txt", lesez, (uint32_t)lzlen); synfs_sync();
+    zdb_put_text("desktop.lesezeichen", lesez, lzlen);
     scopy(meldung, TR("Lesezeichen gespeichert.", "Bookmark saved."), 100); kprint("[WEB] Lesezeichen: "); kprint(u); kprint("\n");
 }
 static const char* const web_vorgabe[] = { "de.wikipedia.org", "en.wikipedia.org", "example.com", "duckduckgo.com", "news.ycombinator.com", 0 };
@@ -1047,10 +1148,10 @@ static int web_link_bei(int x, int y) {                              /* Link unt
 }
 
 /* ---------- Rechtsklick-Menue ---------- */
-enum { M_NEUDOK = 30, M_BROWSER, M_RECHNER, M_INFO, M_WUHR, M_WSYS, M_WAUF, M_WAGENT, M_WSCHL, M_FSCHL, M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN };
-static struct { int offen, x, y, w, n, hover, ziel; struct { int id; const char* de; const char* en; } p[9]; } menu;
+enum { M_NEUDOK = 30, M_BROWSER, M_RECHNER, M_INFO, M_EINST, M_WUHR, M_WSYS, M_WAUF, M_WAGENT, M_WSCHL, M_FSCHL, M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN };
+static struct { int offen, x, y, w, n, hover, ziel; struct { int id; const char* de; const char* en; } p[10]; } menu;
 static int menu_link, menu_wid;
-static void menu_add(int id, const char* de, const char* en) { if (menu.n < 9) { menu.p[menu.n].id = id; menu.p[menu.n].de = de; menu.p[menu.n].en = en; menu.n++; } }
+static void menu_add(int id, const char* de, const char* en) { if (menu.n < 10) { menu.p[menu.n].id = id; menu.p[menu.n].de = de; menu.p[menu.n].en = en; menu.n++; } }
 static void zeichne_menu(void) {
     if (!menu.offen) return;
     gfx_begin();
@@ -1090,7 +1191,7 @@ static void menu_oeffnen(int x, int y) {
     } else if (flaeche == 0) {
         menu_add(M_NEUDOK, "Neues Dokument", "New document"); menu_add(M_BROWSER, "Browser", "Browser"); menu_add(M_RECHNER, "Rechner", "Calculator"); menu_add(M_INFO, "System-Info", "System info");
         menu_add(M_WUHR, "Widget: Uhr", "Widget: clock"); menu_add(M_WSYS, "Widget: System", "Widget: system"); menu_add(M_WAUF, "Widget: Aufgaben", "Widget: tasks"); menu_add(M_WAGENT, "Widget: Agenten", "Widget: agents");
-        menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace");
+        menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_EINST, "Einstellungen", "Settings");
     } else {
         menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_VORIGE, "Vorherige Arbeitsflaeche", "Previous workspace");
     }
@@ -1139,8 +1240,9 @@ static void menu_aktion(int id) {
     case M_BROWSER: web_oeffnen(0); return;
     case M_RECHNER: fenster_oeffnen(FT_RECH); return;
     case M_INFO: fenster_oeffnen(FT_INFO); return;
+    case M_EINST: fenster_oeffnen(FT_EINST); return;
     case M_WUHR: widget_neu(WG_UHR); return; case M_WSYS: widget_neu(WG_SYS); return; case M_WAUF: widget_neu(WG_AUF); return; case M_WAGENT: widget_neu(WG_AGENT); return;
-    case M_WSCHL: if (menu_wid >= 0 && menu_wid < nwid) { for (int j = menu_wid; j < nwid - 1; j++) wid[j] = wid[j + 1]; nwid--; } break;
+    case M_WSCHL: if (menu_wid >= 0 && menu_wid < nwid) { for (int j = menu_wid; j < nwid - 1; j++) wid[j] = wid[j + 1]; nwid--; layout_speichern(); } break;
     case M_FSCHL: if (nfen) { fenster_schliessen_typ(fen[nfen - 1].typ); return; } break;
     case M_NAECHSTE: flaeche_wechsel(flaeche + 1); return;
     case M_VORIGE: flaeche_wechsel(flaeche + 3); return;
@@ -1218,6 +1320,15 @@ static int erkenne(const char* s) {
     if (enthaelt(s, "widget")) {
         in_par = (enthaelt(s, "uhr") || enthaelt(s, "clock")) ? 10 : enthaelt(s, "sys") ? 11 : (enthaelt(s, "aufgab") || enthaelt(s, "task")) ? 12 : enthaelt(s, "agent") ? 13 : 14;
         return I_FENSTER;
+    }
+    if (enthaelt(s, "einstellung") || enthaelt(s, "settings") || enthaelt(s, "parametres") || enthaelt(s, "impostazioni") || enthaelt(s, "ajustes")) { in_par = 3; return I_FENSTER; }
+    if (enthaelt(s, "sprache") || enthaelt(s, "language") || enthaelt(s, "spreche") || enthaelt(s, "langue") || enthaelt(s, "lingua") || enthaelt(s, "idioma") || enthaelt(s, "speak")) {
+        if (enthaelt(s, "deutsch") || enthaelt(s, "german") || enthaelt(s, "allemand")) { in_par = 20; return I_FENSTER; }
+        if (enthaelt(s, "englisch") || enthaelt(s, "english") || enthaelt(s, "anglais")) { in_par = 21; return I_FENSTER; }
+        if (enthaelt(s, "franz") || enthaelt(s, "french") || enthaelt(s, "francais")) { in_par = 22; return I_FENSTER; }
+        if (enthaelt(s, "italien") || enthaelt(s, "italian")) { in_par = 23; return I_FENSTER; }
+        if (enthaelt(s, "spanisch") || enthaelt(s, "spanish") || enthaelt(s, "espanol") || enthaelt(s, "espagnol")) { in_par = 24; return I_FENSTER; }
+        in_par = 3; return I_FENSTER;
     }
     if (enthaelt(s, "rechner") || enthaelt(s, "calculator")) { in_par = 1; return I_FENSTER; }
     if (enthaelt(s, "systeminfo") || enthaelt(s, "system-info") || enthaelt(s, "system info") || enthaelt(s, "fenster info")) { in_par = 2; return I_FENSTER; }
@@ -1334,6 +1445,72 @@ static void zeichne_info(void) {
     gfx_end();
 }
 
+/* ---------- Einstellungen ---------- */
+enum { K_EIN0 = 300 };
+static void ki_busy_cb(const char* t, int n) { (void)t; (void)n; busy_tick(); }
+static void ascii_fold(char* t) {                                        /* UTF-8 -> reines ASCII (die Schrift kennt keine Akzente), erste Zeile */
+    int o = 0;
+    for (int i = 0; t[i]; i++) {
+        uint8_t c = (uint8_t)t[i];
+        if (c == '\n' || c == '\r') break;
+        if (c < 128) t[o++] = (char)c;
+        else if (c == 0xC3 && t[i + 1]) {
+            uint8_t d = (uint8_t)t[++i];
+            char r = (d >= 0xA0 && d <= 0xA5) || (d >= 0x80 && d <= 0x85) ? 'a' : (d == 0xA7 || d == 0x87) ? 'c' : (d >= 0xA8 && d <= 0xAB) || (d >= 0x88 && d <= 0x8B) ? 'e' : (d >= 0xAC && d <= 0xAF) || (d >= 0x8C && d <= 0x8F) ? 'i' : (d == 0xB1 || d == 0x91) ? 'n' : (d >= 0xB2 && d <= 0xB6) || (d >= 0x92 && d <= 0x96) ? 'o' : (d >= 0xB9 && d <= 0xBC) || (d >= 0x99 && d <= 0x9C) ? 'u' : 0;
+            if (r) t[o++] = r;
+        } else while (t[i + 1] && (((uint8_t)t[i + 1]) & 0xC0) == 0x80) i++;
+    }
+    while (o && (t[o - 1] == ' ' || t[o - 1] == '"')) o--;
+    t[o] = 0;
+}
+static void sprachpaket(void) {                                          /* alle bisher gesehenen Texte per KI uebersetzen und in ZynDB ablegen */
+    if (lang < 2 || !gehirn_vorhanden()) { reply1(TR("Dafuer brauche ich eine Sprache ausser Deutsch/Englisch und das Sprachmodell.", "That needs a language other than German/English and the language model.")); return; }
+    int total = npend, ok = 0; static char out[160]; char p[240], key[16];
+    zdb_stapel(1);
+    for (int i = 0; i < total; i++) {
+        busy_tick();
+        scopy(p, "Translate into ", 240); cat(p, LENG[lang], 240); cat(p, ". Answer only with the translation, nothing else: ", 240); cat(p, pend_en[i], 240);
+        gehirn_vergessen();
+        int n = gehirn_frage(p, out, sizeof(out), ki_busy_cb); if (n <= 0) continue;
+        ascii_fold(out); if (!out[0]) continue;
+        ui_key(lang, pend_en[i], key); zdb_put(key, out); ok++;
+    }
+    zdb_stapel(0); npend = 0; busy_ende();
+    kprint("[DESKTOP] Sprachpaket: "); kprint_dec((uint32_t)ok); kprint(" von "); kprint_dec((uint32_t)total); kprint(" Texten uebersetzt\n");
+}
+static void einst_klick(int id) {
+    int k = id - K_EIN0;
+    if (k >= 0 && k < 5) lang_setze(k);
+    else if (k == 5 || k == 6) { int n = usb_get_layout() + (k == 5 ? -1 : 1); if (n < 0) n = KBD_LAYOUTS - 1; if (n >= KBD_LAYOUTS) n = 0; usb_set_layout(n); zdb_put("system.tastatur", kbd_layouts[n].code); }
+    else if (k >= 7 && k <= 9) { fw_modus(k == 7 ? FW_AUS : k == 8 ? FW_NORMAL : FW_STRENG); fw_speichern(); }
+    else if (k == 10) zdb_put("ki.aktiv", zdb_geti("ki.aktiv", 1) ? "0" : "1");
+    else if (k == 11) { sprachpaket(); return; }
+    zeichne_desktop();
+}
+static void zeichne_einst(void) {
+    int wi = fenster_idx(FT_EINST); if (wi < 0) return;
+    struct fenster* f = &fen[wi]; int x = f->x + 20, y = f->y + WT_H + 14, ko = kn_owner; kn_owner = wi; kn_loesche_owner(wi);
+    gfx_begin(); gfx_rect(f->x + 2, f->y + WT_H, f->w - 4, f->h - WT_H - 2, C_BG);
+    gtxt(x, y, T5("Sprache", "Language", "Langue", "Lingua", "Idioma"), C_MUTED, 1);
+    for (int i = 0; i < 5; i++) knopf(K_EIN0 + i, LNAME[i], x + i * 106, y + 22, 100, i == lang);
+    y += 78;
+    { int c = usb_get_layout(); char t[60]; scopy(t, T5("Tastatur: ", "Keyboard: ", "Clavier : ", "Tastiera: ", "Teclado: "), 60); cat(t, kbd_layouts[c].code, 60); cat(t, " (", 60); cat(t, kbd_layouts[c].name, 60); cat(t, ")", 60); gtxt(x, y + 9, t, C_TEXT, 1); }
+    knopf(K_EIN0 + 5, "<", f->x + f->w - 100, y, 36, 0); knopf(K_EIN0 + 6, ">", f->x + f->w - 56, y, 36, 0);
+    y += 52; gtxt(x, y, "Firewall", C_MUTED, 1);
+    { int m = fw_modus_get(); knopf(K_EIN0 + 7, T5("Aus", "Off", "Desactive", "Spento", "Apagado"), x, y + 22, 110, m == 0); knopf(K_EIN0 + 8, "Normal", x + 118, y + 22, 110, m == 1); knopf(K_EIN0 + 9, T5("Streng", "Strict", "Strict", "Rigido", "Estricto"), x + 236, y + 22, 110, m == 2); }
+    y += 78; gtxt(x, y, T5("Sprachmodell (KI)", "Language model (AI)", "Modele de langage (IA)", "Modello linguistico (IA)", "Modelo de lenguaje (IA)"), C_MUTED, 1);
+    if (gehirn_vorhanden()) {
+        knopf(K_EIN0 + 10, zdb_geti("ki.aktiv", 1) ? T5("KI: an", "AI: on", "IA : oui", "IA: attiva", "IA: activa") : T5("KI: aus", "AI: off", "IA : non", "IA: spenta", "IA: apagada"), x, y + 22, 110, zdb_geti("ki.aktiv", 1));
+        if (lang >= 2) knopf(K_EIN0 + 11, T5("Sprachpaket", "Language pack", "Pack de langue", "Pacchetto lingua", "Paquete de idioma"), x + 118, y + 22, 200, 0);
+    } else gtxt(x, y + 30, TR("kein Sprachmodell geladen", "no language model loaded"), C_TEXT, 1);
+    y += 76;
+    gtxt(x, y, (synfs_is_mounted() && synfs_krypto_hdr()->magic == SYNFS_KRY_MAGIC) ? TR("Festplatte: verschluesselt (256-Bit)", "Disk: encrypted (256-bit)") : TR("Festplatte: nicht verschluesselt (Shell: krypto aktivieren)", "Disk: not encrypted (shell: krypto aktivieren)"), C_TEXT, 1);
+    gtxt(x, y + 24, zdb_offen() ? TR("Alles wird in ZynDB gespeichert (verschluesselt)", "Everything is stored in ZynDB (encrypted)") : TR("ZynDB nicht verfuegbar", "ZynDB unavailable"), C_MUTED, 1);
+    gfx_end();
+    lader(f->x + f->w - 60, f->y + f->h - 56, 34, timer_get_ticks() / 5, C_BG);
+    kn_owner = ko;
+}
+
 static void intent_rechnen(const char* roh) {
     char ex[96]; int k = 0;
     for (const char* s = roh; *s && k < 94; s++) if ((*s >= '0' && *s <= '9') || *s == '+' || *s == '-' || *s == '*' || *s == '/' || *s == '(' || *s == ')' || *s == 'x' || *s == ':' || *s == ' ') ex[k++] = *s;
@@ -1386,6 +1563,7 @@ static void ki_zeilen(void) {
     }
 }
 static void ki_teil(const char* t, int n) {
+    busy_tick();
     for (int i = 0; i < n && ki_len < (int)sizeof(ki_text) - 4; i++) {
         unsigned char c = (unsigned char)t[i];
         if (c == '\n') { if (ki_len && ki_text[ki_len - 1] != ' ') ki_text[ki_len++] = ' '; }
@@ -1403,8 +1581,11 @@ static void ki_teil(const char* t, int n) {
 static void ki_antwort(const char* frage) {
     ki_len = 0;
     reply1(TR("Moment, ich denke nach ...", "One moment, thinking ...")); zeichne_antwort(); zeichne_robot();
-    static char roh[600];
-    int n = gehirn_frage(frage, roh, sizeof(roh), ki_teil);
+    static char roh[600]; char fq[330];
+    if (lang != 0) { scopy(fq, "Answer in ", 330); cat(fq, LENG[lang], 330); cat(fq, ". ", 330); cat(fq, frage, 330); } else scopy(fq, frage, 330);
+    busy_tick();
+    int n = gehirn_frage(fq, roh, sizeof(roh), ki_teil);
+    busy_ende();
     if (n < 0) { reply1(TR("Mein Sprachmodell ist gerade nicht verfuegbar.", "My language model is not available right now.")); kprint("[DESKTOP] Zynie: Sprachmodell nicht verfuegbar: "); kprint(gehirn_status()); kprint("\n"); return; }
     ki_text[ki_len] = 0; ki_zeilen();
     sprech_bis = timer_get_ticks() + 100; kprint("[DESKTOP] Zynie antwortet: "); kprint(ki_text); kprint("\n");
@@ -1414,7 +1595,7 @@ static void ausfuehren(void) {
     char s[96]; int k = 0; for (int i = 0; eingabe[i] && k < 94; i++) { char c = eingabe[i]; s[k++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; } s[k] = 0;
     char roh[96]; scopy(roh, eingabe, 96);
     int in = erkenne(s);
-    if (gehirn_vorhanden() && in != I_WARTUNG && in != I_RECHNEN && in != I_AGENT && in != I_AUFGABE && in != I_FLAECHE && in != I_WEB && in != I_FENSTER) { int w = 1; for (int i = 0; s[i]; i++) if (s[i] == ' ' && s[i + 1] && s[i + 1] != ' ') w++; if (w > 3) in = I_NICHTS; }   /* ganze Saetze gehen an das Sprachmodell */
+    if (ki_nutzbar() && in != I_WARTUNG && in != I_RECHNEN && in != I_AGENT && in != I_AUFGABE && in != I_FLAECHE && in != I_WEB && in != I_FENSTER) { int w = 1; for (int i = 0; s[i]; i++) if (s[i] == ' ' && s[i + 1] && s[i + 1] != ' ') w++; if (w > 3) in = I_NICHTS; }   /* ganze Saetze gehen an das Sprachmodell */
     einlen = 0; eingabe[0] = 0; nsug = 0; sugsel = -1; sel1 = 0;
     if (!k) return;
     hist_add(roh);
@@ -1437,7 +1618,9 @@ static void ausfuehren(void) {
             TR("\"text erstellen\" - schreibt ein Dokument", "\"write a text\" - opens a document"), TR("\"rechne (12+3)*7\" - rechnet", "\"calc (12+3)*7\" - calculates"),
             TR("\"system\" - zeigt den Zustand, \"dateien\" - deine Dokumente", "\"system\" - shows the status, \"files\" - your documents"), TR("\"briefing\", \"agenten\", \"aufgabe ...\", \"quanten\", \"abmelden\" - oder frag mich einfach alles", "\"briefing\", \"agents\", \"task ...\", \"quantum\", \"sign out\" - or just ask me anything"), 0); break;
     case I_FENSTER: kprint("Fenster\n");
-        if (in_par == 1) fenster_oeffnen(FT_RECH);
+        if (in_par >= 20 && in_par <= 24) { lang_setze(in_par - 20); reply1(T5("Sprache: Deutsch", "Language: English", "Langue : francais", "Lingua: italiano", "Idioma: espanol")); zeichne_desktop(); return; }
+        if (in_par == 3) fenster_oeffnen(FT_EINST);
+        else if (in_par == 1) fenster_oeffnen(FT_RECH);
         else if (in_par == 2) fenster_oeffnen(FT_INFO);
         else if (in_par >= 10 && in_par <= 13) widget_neu(in_par - 9);
         else if (in_par == 14) { if (!nwid) { widget_neu(WG_UHR); widget_neu(WG_SYS); widget_neu(WG_AUF); } else widget_neu(WG_UHR); }
@@ -1459,7 +1642,7 @@ static void ausfuehren(void) {
         if (benutzer_rolle() != ROLLE_ADMIN) { kprint("abgelehnt\n"); reply1(TR("Wartung ist nur fuer Administratoren.", "Maintenance is for administrators only.")); break; }
         kprint("Wartungs-Konsole\n"); usb_set_rawgrab(0); shell_set_tick(0); hv_status_aus(); gfx_console(1); shell_wartung(); return;
     default:
-        if (gehirn_vorhanden()) { kprint("Sprachmodell\n"); ki_antwort(roh); break; }
+        if (ki_nutzbar()) { kprint("Sprachmodell\n"); ki_antwort(roh); break; }
         kprint("nicht verstanden\n"); antwort_setze(TR("Das habe ich noch nicht verstanden.", "I did not understand that yet."), TR("Sag zum Beispiel: text erstellen, rechne 12*7, system oder hilfe.", "Try: write a text, calc 12*7, system or help."), 0, 0, 0, 0); break;
     }
     zeichne_antwort(); zeichne_eingabe();
@@ -1492,7 +1675,7 @@ static void taste(uint8_t k, int shift, int altgr) {
     if (menu.offen) { if (k == 0x29) menu_schliessen(); return; }
     if (zustand != Z_LOGIN && k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }
     if (zustand == Z_RECH) { rech_taste(k, shift, altgr); return; }
-    if (zustand == Z_INFO) { if (k == 0x29) fenster_schliessen_typ(FT_INFO); return; }
+    if (zustand == Z_INFO) { if (k == 0x29 && nfen) fenster_schliessen_typ(fen[nfen - 1].typ); return; }
     if (zustand == Z_EDIT) { if (cur_ctrl && strg_taste(k)) return; editor_taste(k, shift, altgr); return; }
     if (zustand == Z_WEB) { web_taste(k, shift, altgr); return; }
     if (zustand == Z_LOGIN && entsperr) {
@@ -1562,6 +1745,7 @@ static void klick(int x, int y, int owner) {
         else if (zustand == Z_WEB && id >= K_SUG0 && id < K_SUG0 + 5 && id - K_SUG0 < nsug) { scopy(adr, sug[id - K_SUG0], 192); adrlen = slen(adr); web_gehe(adr, 1); }
         else if (zustand == Z_WEB && id >= K_LZ0 && id < K_LZ0 + 14) { char t[200]; int n = id - K_LZ0; if (n < 10) { if (lz_zeile(n, t, 200)) web_gehe(t, 1); } else if (web_vorgabe[n - 10]) web_gehe(web_vorgabe[n - 10], 1); }
         else if (zustand == Z_DESK && id == K_NEUDOK) editor_oeffnen();
+        else if (zustand == Z_INFO && id >= K_EIN0 && id < K_EIN0 + 12) einst_klick(id);
         else if (zustand == Z_RECH && id >= K_RB0 && id < K_RB0 + 20) { rech_druecke(rtasten[id - K_RB0]); zeichne_rechner(); }
         else if (zustand == Z_DESK && id == K_AUFLEER) { aufg_leeren(); kprint("[DESKTOP] Aufgaben geleert\n"); zeichne_desktop(); }
         else if (zustand == Z_EDIT && id == K_SPEICHERN) { dok_speichern(); zeichne_editor(0); }
@@ -1601,7 +1785,7 @@ static void maus_runter(int x, int y) {
     if (flaeche == 0) for (int j = nwid - 1; j >= 0; j--) {
         struct widget* g = &wid[j];
         if (x >= g->x && x < g->x + g->w && y >= g->y && y < g->y + g->h) {
-            if (x >= g->x + g->w - 30 && y < g->y + 26) { for (int q = j; q < nwid - 1; q++) wid[q] = wid[q + 1]; nwid--; zeichne_desktop(); return; }
+            if (x >= g->x + g->w - 30 && y < g->y + 26) { for (int q = j; q < nwid - 1; q++) wid[q] = wid[q + 1]; nwid--; layout_speichern(); zeichne_desktop(); return; }
             fdrag = 2; fobj = j; fdx = x - g->x; fdy = y - g->y; fox = g->x; foy = g->y; fdw = g->w; fdh = g->h; fdgezeichnet = 0; return;
         }
     }
@@ -1636,7 +1820,7 @@ static void tick(void) {
         }
         if (!down && fdrag) {
             if (fdgezeichnet) { gfx_begin(); xor_rahmen(fox, foy, fdw, fdh); gfx_end(); if (fdrag == 1 && fobj < nfen) { fen[fobj].x = fox; fen[fobj].y = foy; } else if (fdrag == 2 && fobj < nwid) { wid[fobj].x = fox; wid[fobj].y = foy; } }
-            int war = fdgezeichnet; fdrag = 0; fdgezeichnet = 0; if (war) zeichne_desktop();
+            int war = fdgezeichnet; if (war && fdrag == 2) layout_speichern(); fdrag = 0; fdgezeichnet = 0; if (war) zeichne_desktop();
         }
         if (down && zdrag && zustand == Z_DESK && flaeche == 0) {
             int bxl = zr_x(), byl = zr_y();
@@ -1644,7 +1828,7 @@ static void tick(void) {
             else { int ns = (p->x - bxl) * 100 / 180; if (ns < 50) ns = 50; if (ns > 220) ns = 220; if (byl + ns * 232 / 100 <= H) { zs = ns; zx = bxl + SC(90); zy = byl + SC(108); } }
             zeichne_desktop();
         }
-        if (!down && zdrag) { zdrag = 0; kprint("[DESKTOP] Zynie: Position "); kprint_dec((uint32_t)zx); kprint(","); kprint_dec((uint32_t)zy); kprint(" Groesse "); kprint_dec((uint32_t)zs); kprint("%\n"); }
+        if (!down && zdrag) { zdrag = 0; layout_speichern(); kprint("[DESKTOP] Zynie: Position "); kprint_dec((uint32_t)zx); kprint(","); kprint_dec((uint32_t)zy); kprint(" Groesse "); kprint_dec((uint32_t)zs); kprint("%\n"); }
         was_down = down;
     }
     static int war_ruhe;
@@ -1652,19 +1836,23 @@ static void tick(void) {
     uint32_t ph = t / (t < sprech_bis ? 6 : r ? 30 : 12);
     if (ph != robot_phase) { robot_phase = ph; if (zustand != Z_LOGIN && !zdrag && !fdrag && !menu.offen && flaeche == 0 && !deckt(zr_x() - 4, zr_y() - 4, zr_w() + 8, zr_h() + 8)) zeichne_robot(); }
     { static uint32_t lmin; static uint32_t lt; if (zustand != Z_LOGIN && flaeche == 0 && nwid && !fdrag && !menu.offen && t - lt > 300) { lt = t; uint32_t ymd, hm; rtc_get(&ymd, &hm); if (hm != lmin) { if (lmin) zeichne_desktop(); lmin = hm; } } }
+    { static uint32_t lf; int wi = fenster_idx(FT_EINST); if (wi >= 0 && wi == nfen - 1 && flaeche == 0 && zustand != Z_LOGIN && !fdrag && !menu.offen && t / 5 != lf) { lf = t / 5; lader(fen[wi].x + fen[wi].w - 60, fen[wi].y + fen[wi].h - 56, 34, lf, C_BG); } }
     { static uint32_t lsek; if (zustand == Z_DESK && flaeche == 1 && t / 100 != lsek) { lsek = t / 100; gfx_begin(); sys_k_zeit(); gfx_end(); } }
 }
 
 int desktop_start(void) {
     if (!gfx_available()) return -1;
     gfx_size(&W, &H);
-    lang = 0;
-    static char cfg[64]; int r = synfs_read("sys.config", cfg, sizeof(cfg) - 1);
+    lang = 0; npend = 0;
+    static char cfg[64]; int r = 0;
+    { const char* sp = zdb_get("system.sprache"); if (sp) { for (int i = 0; i < 5; i++) if (ueq(sp, LCODE[i])) lang = i; } else r = synfs_read("sys.config", cfg, sizeof(cfg) - 1); }
     if (r > 0) { cfg[r] = 0; for (int i = 0; cfg[i]; i++) if (cfg[i] == 'l' && cfg[i + 1] == 'a' && cfg[i + 2] == 'n' && cfg[i + 3] == 'g' && cfg[i + 4] == '=') { lang = (cfg[i + 5] == 'd' ? 0 : 1); break; } }
     bar_w = W - 80 < 760 ? W - 80 : 760; bar_x = (W - bar_w) / 2; bar_y = H - 230;
     fname[0] = fpw[0] = 0; ffocus = 0; fmsg = 0; einlen = 0; eingabe[0] = 0; nsug = 0; sugsel = -1; flaeche = 0; alauf = -1; nalog = 0; pend = 0; nfen = 0; nwid = 0; fok = 0; fdrag = 0; fdgezeichnet = 0; menu.offen = 0; nantwort = 0; qh = qt = 0; was_down = 0;
     zx = 24 + 90; zy = 56 + 108; zs = 100; lbw = 0; zdrag = 0; letzte_eingabe = timer_get_ticks();
     gfx_console(0);
+    { const char* ws = zdb_get("desktop.widgets"); while (ws && *ws && nwid < 6) { int t = lies(&ws), x = lies(&ws) - 2000, y = lies(&ws) - 2000; if (t >= 1 && t <= 4) { wid[nwid].typ = t; wid_groesse(t, &wid[nwid].w, &wid[nwid].h); if (x < 60 - wid[nwid].w) x = 60 - wid[nwid].w; if (x > W - 60) x = W - 60; if (y < 42) y = 42; if (y > H - 40) y = H - 40; wid[nwid].x = x; wid[nwid].y = y; nwid++; } } }
+    { const char* zz = zdb_get("desktop.zynie"); if (zz) { int x = lies(&zz), y = lies(&zz), g = lies(&zz); if (g >= 50 && g <= 220 && x > 0 && x < W && y > 44 && y < H) { zx = x; zy = y; zs = g; } } }
     usb_set_rawgrab(rohtaste);
     shell_set_tick(tick);
     kprint("[DESKTOP] Zynex OS Quantum Desktop, Bildschirm "); kprint_dec((uint32_t)W); kprint("x"); kprint_dec((uint32_t)H); kprint("\n");

@@ -17,3 +17,6 @@ int         zdb_geti(const char* key, int def);
 int         zdb_del(const char* key);
 void        zdb_neu_verpacken(void);            /* nach Einschalten der Plattenverschluesselung aufrufen */
 void        zdb_befehl(const char* arg);        /* Shell: Text hinter "db" */
+void        zdb_stapel(int an);                 /* mehrere Aenderungen sammeln, erst am Ende (an = 0) verschluesselt speichern */
+int         zdb_put_text(const char* name, const char* text, int len);   /* laengere Texte (in Stuecken) */
+int         zdb_get_text(const char* name, char* out, int max);          /* Laenge, -1 = nicht vorhanden */
