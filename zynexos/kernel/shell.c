@@ -35,6 +35,8 @@
 #include "wpa.h"
 #include "multiboot.h"
 #include "befehle.h"
+#include "fw.h"
+#include "krypto.h"
 
 extern void kprint(const char* str);
 extern void kprint_dec(uint32_t val);
@@ -44,6 +46,7 @@ extern void kputchar(char c);
 static char input_buf[SHELL_BUF_SIZE];
 static int  input_pos = 0;
 
+static int require_cap(enum cap_type type, const char* what);
 static int streq(const char* a, const char* b);
 static void shell_prompt(void) {
     if (benutzer_name()[0]) { kprint(benutzer_name()); kprint("@"); }
@@ -82,6 +85,61 @@ static void cb_login_pw(const char* l) {
 }
 static void cb_login_name(const char* l) { kopiere(tmp_name, l, 16); shell_frage("Passwort: ", 1, cb_login_pw); }
 static void login_start(void) { shell_frage("Benutzer: ", 0, cb_login_name); }
+
+
+/* ---- Verschluesselung: Passwort-Rueckfragen ---- */
+static char kr_alt[40];
+static void kr_meldung(int r) {
+    if (r == 0) kprint("Fertig.\n");
+    else if (r == -1) kprint("SynFS ist nicht eingebunden\n");
+    else if (r == -2) kprint("Schon verschluesselt (oder Passwort falsch)\n");
+    else if (r == -3) kprint("Passwort zu kurz (mindestens 8 Zeichen)\n");
+    else kprint("Fehlgeschlagen - Platte pruefen\n");
+}
+static void kr_aktiv_fertig(const char* l) {
+    if (!streq(l, tmp_pw)) { kprint("Die Passwoerter sind verschieden - abgebrochen\n"); wische(tmp_pw, sizeof(tmp_pw)); return; }
+    kprint("Verschluessele - NICHT ausschalten, das kann je nach Plattengroesse dauern ...\n");
+    int r = krypto_einrichten(tmp_pw);
+    wische(tmp_pw, sizeof(tmp_pw));
+    if (r == 0) kprint("Fertig. Alle Daten sind jetzt verschluesselt. Beim naechsten Start: krypto entsperren\n"); else kr_meldung(r);
+}
+static void kr_aktiv_pw1(const char* l) {
+    if (l[0] && l[1] && l[2] && l[3] && l[4] && l[5] && l[6] && l[7]) { kopiere(tmp_pw, l, sizeof(tmp_pw)); shell_frage("Passwort wiederholen: ", 1, kr_aktiv_fertig); }
+    else kprint("Passwort zu kurz (mindestens 8 Zeichen)\n");
+}
+static void kr_entsperr_fertig(const char* l) {
+    char dev[20]; kopiere(dev, krypto_gesperrt_dev(), sizeof(dev));
+    int r = krypto_entsperren(dev, l);
+    if (r == -1) { kprint("Falsches Passwort\n"); return; }
+    if (r != 0) { kprint("Dieses Geraet ist nicht verschluesselt\n"); return; }
+    if (block_select(dev) == 0 && synfs_mount() == 0) {
+        kprint("Entsperrt und eingebunden\n"); benutzer_laden(); fw_laden();
+        if (benutzer_gesperrt()) login_start();
+    } else kprint("Entsperrt, aber das Einbinden schlug fehl\n");
+}
+static void kr_pw_neu2(const char* l) {
+    if (!streq(l, tmp_pw)) { kprint("Die Passwoerter sind verschieden - abgebrochen\n"); }
+    else { int r = krypto_passwort(kr_alt, tmp_pw); if (r == -2) kprint("Altes Passwort falsch\n"); else if (r == 0) kprint("Passwort geaendert\n"); else kr_meldung(r); }
+    wische(tmp_pw, sizeof(tmp_pw)); wische(kr_alt, sizeof(kr_alt));
+}
+static void kr_pw_neu1(const char* l) { kopiere(tmp_pw, l, sizeof(tmp_pw)); shell_frage("Neues Passwort wiederholen: ", 1, kr_pw_neu2); }
+static void kr_pw_alt(const char* l) { kopiere(kr_alt, l, sizeof(kr_alt)); shell_frage("Neues Passwort: ", 1, kr_pw_neu1); }
+static void krypto_befehl(const char* a) {
+    while (*a == ' ') a++;
+    if (!*a || streq(a, "status")) krypto_status();
+    else if (streq(a, "aktivieren") || streq(a, "an")) {
+        if (!require_cap(CAP_ADMIN, "krypto")) return;
+        kprint("Verschluesselt alle Daten dieses SynFS (256-Bit, quantensicher gegen Grover). Ohne Passwort gibt es KEINEN Zugriff mehr.\n");
+        shell_frage("Neues Passwort (mind. 8 Zeichen): ", 1, kr_aktiv_pw1);
+    }
+    else if (streq(a, "entsperren")) {
+        if (!krypto_gesperrt_dev()[0]) { kprint("Nichts gesperrt\n"); return; }
+        shell_frage("Passwort: ", 1, kr_entsperr_fertig);
+    }
+    else if (streq(a, "fortsetzen")) { if (!require_cap(CAP_ADMIN, "krypto")) return; kprint("Weiter mit der Verschluesselung ...\n"); kr_meldung(krypto_fortsetzen()); }
+    else if (streq(a, "passwort")) { if (!require_cap(CAP_ADMIN, "krypto")) return; shell_frage("Altes Passwort: ", 1, kr_pw_alt); }
+    else kprint("krypto: status | aktivieren | entsperren | passwort | fortsetzen\n");
+}
 
 static void neu_fertig(const char* l) {
     if (!streq(l, tmp_pw)) kprint("Die Passwoerter sind verschieden - abgebrochen\n");
@@ -421,6 +479,8 @@ static void run_legacy(char* cmd) {
         kprint(", veraenderte Signatur abgelehnt "); kprint(sig_kaputt ? "OK" : "FEHLT"); kprint(", falsche Laenge abgelehnt "); kprint(kurz ? "OK" : "FEHLT");
         kprint(gut && msg_kaputt && sig_kaputt && kurz ? "\npq: Selbsttest bestanden\n" : "\npq: FEHLER\n");
     }
+    else if (streq(cmd, "firewall") || starts_with(cmd, "firewall ")) { if (cmd[8] && !streq(cmd + 9, "status") && !streq(cmd + 9, "log") && !streq(cmd + 9, "regeln") && !require_cap(CAP_ADMIN, "firewall")) return; fw_befehl(cmd + 8); }
+    else if (streq(cmd, "krypto") || starts_with(cmd, "krypto ")) krypto_befehl(cmd + 6);
     else if (streq(cmd, "sicherheit")) {
         kprint("Startkette: "); kprint((g_boot.flags & BOOT_SIGNIERT) ? "Kernel und Kommandozeile durch LMS-Signatur (SHA-256, quantensicher) geprueft\n" : "NICHT durch eine Signatur geprueft\n");
     }

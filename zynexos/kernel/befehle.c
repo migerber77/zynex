@@ -51,6 +51,23 @@ static const zeile_t tab[] = {
     { "nutzer|user|users", "loeschen|delete",      "benutzer loeschen %", "Konto loeschen" },
     { "nutzer|user|users", "passwort|password",    "benutzer passwort %", "Passwort aendern" },
     { "nutzer|user|users", "abmelden|logout",      "abmelden",         "abmelden" },
+    { "firewall|fw",       "",                     "firewall status",  "Zustand der Firewall" },
+    { "firewall|fw",       "status",               "firewall status",  "Zustand, Quarantaene, verworfene Pakete" },
+    { "firewall|fw",       "log",                  "firewall log",     "letzte Ereignisse (Portscans, Faelschungen ...)" },
+    { "firewall|fw",       "regeln|rules",         "firewall regeln",  "eigene Regeln anzeigen" },
+    { "firewall|fw",       "an|on",                "firewall an",      "einschalten (normal)" },
+    { "firewall|fw",       "aus|off",              "firewall aus",     "ausschalten" },
+    { "firewall|fw",       "streng|strict",        "firewall streng",  "ausgehend nur an erlaubte Ziele" },
+    { "firewall|fw",       "erlaube|allow",        "firewall erlaube %",   "Regel: firewall erlaube <ip> [ein|aus] [tcp|udp] [port]" },
+    { "firewall|fw",       "blockiere|block",      "firewall blockiere %", "Regel: firewall blockiere <ip> [ein|aus] [tcp|udp] [port]" },
+    { "firewall|fw",       "freigeben|release",    "firewall freigeben %", "Quarantaene aufheben" },
+    { "firewall|fw",       "loeschen|clear",       "firewall loeschen",    "alle Regeln loeschen" },
+    { "krypto|verschluesselung|encryption", "",    "krypto status",    "Zustand der Festplattenverschluesselung" },
+    { "krypto|verschluesselung|encryption", "status", "krypto status", "Zustand der Festplattenverschluesselung" },
+    { "krypto|verschluesselung|encryption", "aktivieren|enable", "krypto aktivieren", "alle Daten verschluesseln (fragt nach Passwort)" },
+    { "krypto|verschluesselung|encryption", "entsperren|unlock", "krypto entsperren", "verschluesselte Platte mit Passwort oeffnen" },
+    { "krypto|verschluesselung|encryption", "passwort|password", "krypto passwort", "Passwort aendern" },
+    { "krypto|verschluesselung|encryption", "fortsetzen|resume", "krypto fortsetzen", "unterbrochene Verschluesselung weiterfuehren" },
     { "ki|frag",        "*",                    "ki %",             "frag Zynie irgendetwas: ki was ist ein Qubit?" },
     { "quanten|quantum",   "*",                    "qubit %",          "Quantenkern: quanten h 0 | messen | zustand" },
     { "strom|power",       "neustart|restart",     "reboot",           "neu starten" },
@@ -123,9 +140,10 @@ void befehl_hilfe(const char* thema) {
         { "netz",         "Status, verbinden, ping, Namen, Web, WLAN" },                { "geraete",      "PCI, USB, Platten, Maus, Tastatur" },
         { "nutzer",       "wer bin ich, Konten, Passwort, abmelden" },                  { "ki <frage>",   "frag Zynie irgendetwas" },
         { "quanten",      "Quantenkern im Kernel ausprobieren" },                       { "strom",        "neustart oder aus" },
-        { "installieren", "Zynex auf eine Platte bringen" },
+        { "installieren", "Zynex auf eine Platte bringen" },                            { "firewall",     "Schutz vor Angriffen, Regeln, Quarantaene" },
+        { "krypto",       "Platte quantensicher verschluesseln, entsperren" },
     };
-    for (int i = 0; i < 9; i++) { kprint("  "); kprint(ber[i][0]); int l = 2 + slen(ber[i][0]); for (; l < 20; l++) kprint(" "); kprint(ber[i][1]); kprint("\n"); }
+    for (int i = 0; i < 11; i++) { kprint("  "); kprint(ber[i][0]); int l = 2 + slen(ber[i][0]); for (; l < 20; l++) kprint(" "); kprint(ber[i][1]); kprint("\n"); }
     kprint("\n  Mehr zu einem Bereich: hilfe datei   |   ohne Aktion zeigt jeder Bereich das Wichtigste\n");
     kprint("  Ganze Saetze gehen an Zynie, zum Beispiel: wie viel Speicher ist frei?\n");
     kprint("  Die alten Kurzbefehle (synls, whoami, ps ...) funktionieren weiter: hilfe alt\n\n");

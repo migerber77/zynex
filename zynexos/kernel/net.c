@@ -4,6 +4,7 @@
  * darueber ARP, IPv4 (ohne Fragmente), ICMP-Echo, UDP, DHCP-Client und DNS-Client.
  */
 #include "net.h"
+#include "fw.h"
 #include "hyperv.h"
 #include "pci.h"
 #include "pmm.h"
@@ -401,7 +402,7 @@ static int arp_next = 0;
 
 static void arp_learn(uint32_t ip, const uint8_t* mac) {
     if (!ip) return;
-    for (int i = 0; i < 8; i++) if (arpc[i].valid && arpc[i].ip == ip) { mcopy(arpc[i].mac, mac, 6); return; }
+    for (int i = 0; i < 8; i++) if (arpc[i].valid && arpc[i].ip == ip) { if (mcmp(arpc[i].mac, mac, 6) && !fw_arp(ip, arpc[i].mac, mac)) return; mcopy(arpc[i].mac, mac, 6); return; }
     arpc[arp_next].ip = ip; mcopy(arpc[arp_next].mac, mac, 6); arpc[arp_next].valid = 1;
     arp_next = (arp_next + 1) % 8;
 }
@@ -449,6 +450,7 @@ static uint16_t ip_id = 1;
 static int ip_send(uint32_t dst, uint8_t proto, const uint8_t* pl, int len) {
     uint8_t p[1500];
     if (len > 1480) return -1;
+    if (!fw_aus(dst, proto, pl, len)) return -4;
     p[0] = 0x45; p[1] = 0; put16(p + 2, (uint16_t)(20 + len)); put16(p + 4, ip_id++); put16(p + 6, 0);
     p[8] = 64; p[9] = proto; put16(p + 10, 0); put32(p + 12, my_ip); put32(p + 16, dst);
     put16(p + 10, csum(p, 20));
@@ -698,6 +700,7 @@ static void ip_rx(const uint8_t* f, int len) {
     if (get16(ip + 6) & 0x3FFF) return;                  /* Fragmente werden nicht unterstuetzt */
     uint32_t src = get32(ip + 12), dst = get32(ip + 16);
     if (my_ip && dst != my_ip && dst != 0xFFFFFFFFu) return;
+    if (!fw_ein(ip, (uint32_t)tl)) return;
     if (my_ip && ((src & my_mask) == (my_ip & my_mask) || src == my_gw)) arp_learn(src, f + 6);
     const uint8_t* pl = ip + ihl; int pn = tl - ihl;
     if (ip[9] == 1 && pn >= 8) {                         /* ICMP */

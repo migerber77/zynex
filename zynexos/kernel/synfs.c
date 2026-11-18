@@ -6,6 +6,7 @@
 #include "synfs.h"
 #include "block.h"
 #include "timer.h"
+#include "krypto.h"
 
 extern void kprint(const char* str);
 extern void kprint_dec(uint32_t val);
@@ -261,6 +262,7 @@ int synfs_format(const char* label) {
         return -1;
     }
 
+    krypto_vergessen(dev->name);
     mem_set(&sb, 0, sizeof(sb));
     sb.magic = SYNFS_MAGIC;
     sb.version = SYNFS_VERSION;
@@ -325,6 +327,10 @@ int synfs_format(const char* label) {
     return 0;
 }
 
+struct synfs_krypto* synfs_krypto_hdr(void) { return &sb.kr; }
+int synfs_krypto_sichern(void) { return write_super(); }
+uint32_t synfs_ende(void) { return sb.data_start + sb.data_sectors; }
+
 int synfs_mount(void) {
     if (block_read(0, sector_buf, 1) < 0) return -1;
     mem_cpy(&sb, sector_buf, sizeof(sb));
@@ -336,6 +342,13 @@ int synfs_mount(void) {
         kprint("[SynFS] Altes Format - bitte neu formatieren (synformat)\n");
         return -1;
     }
+    if (sb.kr.magic == SYNFS_KRY_MAGIC) {
+        if (!krypto_aktiv_fuer(block_get()->name)) {
+            krypto_merke_gesperrt(block_get()->name);
+            kprint("[SynFS] Verschluesselt und gesperrt - entsperren mit: krypto entsperren\n");
+            return -2;
+        }
+    } else krypto_vergessen(block_get()->name);
     if (load_inode_table() < 0) return -1;
     if (load_bitmap() < 0) return -1;
     load_hold();

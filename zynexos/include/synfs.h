@@ -60,6 +60,18 @@ struct synfs_inode {
 } __attribute__((packed));
 _Static_assert(sizeof(struct synfs_inode) <= 256, "Inode muss in 256 Byte passen (Snapshots)");
 
+/* Festplattenverschluesselung: Kopf im Superblock (Sektor 0 bleibt unverschluesselt, alles andere nicht) */
+#define SYNFS_KRY_MAGIC 0x5A4B5259u /* 'ZKRY' */
+struct synfs_krypto {
+    uint32_t magic;        /* SYNFS_KRY_MAGIC = verschluesselt */
+    uint32_t version;
+    uint32_t iter;         /* PBKDF2-Runden */
+    uint32_t fortschritt;  /* Sektoren [1, fortschritt) sind verschluesselt */
+    uint8_t  salt[16];
+    uint8_t  wrap[32];     /* Datenschluessel, mit dem Passwortschluessel verpackt */
+    uint8_t  pruef[32];    /* HMAC(Datenschluessel, Pruefwort) */
+} __attribute__((packed));
+
 struct synfs_super {
     uint32_t magic;
     uint32_t version;
@@ -80,8 +92,10 @@ struct synfs_super {
     char     label[16];
     uint32_t snap_start;       /* ab Version 2: Snapshot-Bereich */
     uint32_t snap_sects;       /* ab Version 4: Sektoren je Snapshot-Platz (1 Kopf + inode_count/2 + 1) */
-    uint8_t  reserved[392];
+    struct synfs_krypto kr;
+    uint8_t  reserved[296];
 } __attribute__((packed));
+_Static_assert(sizeof(struct synfs_super) == 480, "Superblock-Groesse");
 
 struct synfs_snap_head {
     uint32_t magic;
@@ -132,3 +146,8 @@ int  synfs_list_tags(const char* const* tags, int n);
 int  synfs_untag(const char* name, const char* tag);
 /* Zeitleiste: die zuletzt geaenderten Dateien, neueste zuerst */
 void synfs_timeline(int max);
+
+/* Verschluesselung (krypto.c) */
+struct synfs_krypto* synfs_krypto_hdr(void);
+int      synfs_krypto_sichern(void);
+uint32_t synfs_ende(void);          /* erster Sektor hinter dem von SynFS genutzten Bereich */

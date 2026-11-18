@@ -4,6 +4,7 @@
  */
 
 #include "block.h"
+#include "krypto.h"
 #include "kheap.h"
 
 extern void kprint(const char* str);
@@ -134,8 +135,22 @@ void block_init(void) {
 
 struct block_dev* block_get(void) { return &active; }
 
-int block_read(uint32_t lba, void* buf, uint32_t count) { return dev_rw(&active, 0, lba, buf, count); }
-int block_write(uint32_t lba, const void* buf, uint32_t count) { return dev_rw(&active, 1, lba, (void*)buf, count); }
+int block_read(uint32_t lba, void* buf, uint32_t count) {
+    int r = dev_rw(&active, 0, lba, buf, count);
+    if (r >= 0 && krypto_aktiv_fuer(active.name)) krypto_lesen(lba, (uint8_t*)buf, count);
+    return r;
+}
+int block_write(uint32_t lba, const void* buf, uint32_t count) {
+    if (!krypto_aktiv_fuer(active.name)) return dev_rw(&active, 1, lba, (void*)buf, count);
+    static uint8_t t[BLOCK_SECTOR_SIZE];
+    for (uint32_t i = 0; i < count; i++) {
+        const uint8_t* q = (const uint8_t*)buf + i * BLOCK_SECTOR_SIZE;
+        for (int k = 0; k < BLOCK_SECTOR_SIZE; k++) t[k] = q[k];
+        krypto_schreiben(lba + i, t);
+        if (dev_rw(&active, 1, lba + i, t, 1) < 0) return -1;
+    }
+    return (int)count;
+}
 
 void block_info(void) {
     kprint("Block devices (* = active, SynFS):\n");

@@ -4,6 +4,8 @@
  * (Intent) und oeffnet das Passende: "text erstellen" -> Textverarbeitung, "rechne 12*7" -> Ergebnis, "system" -> Zustand usw.
  * Sprachen: Deutsch und Englisch (die gespeicherte Sprache de/en, alle anderen zeigen Englisch).
  */
+#include "fw.h"
+#include "synfs.h"
 #include "desktop.h"
 #include "hyperv.h"
 #include "gehirn.h"
@@ -379,7 +381,7 @@ static void zeichne_antwort(void) {
 typedef struct { const char* de; const char* en; int typ; } sug_e;       /* typ 0 Befehl, 1 Frage an Zynie, 2 Verlauf */
 static const sug_e katalog[] = {
     { "text erstellen", "write a text", 0 }, { "browser", "browser", 0 }, { "rechner", "calculator", 0 }, { "systeminfo", "system info", 0 }, { "widget uhr", "widget clock", 0 }, { "widget system", "widget system", 0 }, { "widget aufgaben", "widget tasks", 0 }, { "widget agenten", "widget agents", 0 }, { "alle fenster schliessen", "close all windows", 0 }, { "browser de.wikipedia.org", "browser en.wikipedia.org", 0 }, { "suche ", "search ", 0 }, { "rechne 12*7", "calc 12*7", 0 }, { "system", "system status", 0 }, { "dateien", "files", 0 },
-    { "quanten", "quantum demo", 0 }, { "sicherheit", "security", 0 }, { "agenten", "agents", 0 }, { "briefing", "briefing", 0 },
+    { "quanten", "quantum demo", 0 }, { "sicherheit", "security", 0 }, { "firewall", "firewall", 0 }, { "agenten", "agents", 0 }, { "briefing", "briefing", 0 },
     { "agent sicherheit", "agent security", 0 }, { "agent wartung", "agent maintenance", 0 }, { "agent aufgaben", "agent tasks", 0 },
     { "aufgabe ", "task ", 0 }, { "arbeitsflaeche system", "workspace system", 0 }, { "arbeitsflaeche agenten", "workspace agents", 0 },
     { "arbeitsflaeche aufgaben", "workspace tasks", 0 }, { "wuerfel drehen", "rotate cube", 0 }, { "hilfe", "help", 0 },
@@ -1189,7 +1191,7 @@ static int erkenne(const char* s) {
     static const char* const w_sys[] = { "system", "status", "speicher", "memory", "ram", "info", "zustand", 0 };
     static const char* const w_dat[] = { "datei", "files", "ordner", "list", "meine dok", "my doc", 0 };
     static const char* const w_q[] = { "qubit", "quant", "verschr", "entangle", 0 };
-    static const char* const w_sec[] = { "sicher", "secur", "signatur", "signature", 0 };
+    static const char* const w_sec[] = { "sicher", "secur", "signatur", "signature", "firewall", "verschluessel", "encrypt", 0 };
     static const char* const w_out[] = { "abmeld", "logout", "log out", "sperr", "lock", "sign out", 0 };
     static const char* const w_nst[] = { "neustart", "restart", "reboot", "neu starten", 0 };
     static const char* const w_hlp[] = { "hilfe", "help", "was kannst", "what can", 0 };
@@ -1414,7 +1416,12 @@ static void ausfuehren(void) {
     case I_QUBIT: kprint("Quanten\n"); intent_qubit(); break;
     case I_SICHER: kprint("Sicherheit\n"); antwort_setze(TR("Sicherheit der Startkette:", "Boot chain security:"),
             (g_boot.flags & BOOT_SIGNIERT) ? TR("Kernel und Startzeile sind durch eine hash-basierte LMS-Signatur (quantensicher) geprueft.", "Kernel and boot line are verified by a hash-based LMS signature (quantum-safe).")
-                                         : TR("ACHTUNG: Der Kernel wurde nicht durch eine Signatur geprueft.", "WARNING: the kernel was not verified by a signature."), 0, 0, 0, 0); break;
+                                         : TR("ACHTUNG: Der Kernel wurde nicht durch eine Signatur geprueft.", "WARNING: the kernel was not verified by a signature."),
+            fw_modus_get() == 0 ? TR("Firewall: AUS - 'firewall an' in der Shell schaltet sie ein.", "Firewall: OFF - 'firewall an' in the shell turns it on.")
+                                : fw_modus_get() == 2 ? TR("Firewall: streng, ausgehend nur an erlaubte Ziele.", "Firewall: strict, outgoing only to allowed targets.")
+                                                      : TR("Firewall: an, erkennt Portscans, Fluten und ARP-Faelschung und sperrt Angreifer automatisch.", "Firewall: on, detects port scans, floods and ARP spoofing and quarantines attackers."),
+            (synfs_is_mounted() && synfs_krypto_hdr()->magic == SYNFS_KRY_MAGIC) ? TR("Festplatte: verschluesselt (256-Bit, quantensicher).", "Disk: encrypted (256-bit, quantum-safe).")
+                                                                                 : TR("Festplatte: NICHT verschluesselt - 'krypto aktivieren' in der Shell.", "Disk: NOT encrypted - 'krypto aktivieren' in the shell."), 0, 0); break;
     case I_HILFE: kprint("Hilfe\n"); antwort_setze(TR("Sag mir einfach, was du tun moechtest. Zum Beispiel:", "Just tell me what you want to do. For example:"),
             TR("\"text erstellen\" - schreibt ein Dokument", "\"write a text\" - opens a document"), TR("\"rechne (12+3)*7\" - rechnet", "\"calc (12+3)*7\" - calculates"),
             TR("\"system\" - zeigt den Zustand, \"dateien\" - deine Dokumente", "\"system\" - shows the status, \"files\" - your documents"), TR("\"briefing\", \"agenten\", \"aufgabe ...\", \"quanten\", \"abmelden\" - oder frag mich einfach alles", "\"briefing\", \"agents\", \"task ...\", \"quantum\", \"sign out\" - or just ask me anything"), 0); break;

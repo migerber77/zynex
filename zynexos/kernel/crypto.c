@@ -103,6 +103,8 @@ static void chacha_xor(const uint8_t key[32], uint32_t ctr, const uint8_t nonce[
     }
 }
 
+void chacha20_stream(const uint8_t key[32], const uint8_t nonce[12], uint8_t* buf, uint32_t n) { chacha_xor(key, 1, nonce, buf, n, buf); }
+
 struct poly { uint32_t r[5], h[5], pad[4]; };
 static void poly_blocks(struct poly* p, const uint8_t* m, uint32_t bytes, uint32_t hibit) {
     uint32_t r0 = p->r[0], r1 = p->r[1], r2 = p->r[2], r3 = p->r[3], r4 = p->r[4];

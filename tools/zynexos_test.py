@@ -286,7 +286,7 @@ def installieren():
     for b in ["text erstellen", "hallo welt"]:
         vm.tippe(b, 2.0)
     vm.mon("sendkey esc"); time.sleep(2.0)
-    for b in ["rechne 12*7", "system", "dateien", "quanten", "sicherheit", "hilfe", "briefing", "agent wartung", "aufgabe milch kaufen", "arbeitsflaeche system"]:
+    for b in ["rechne 12*7", "system", "dateien", "quanten", "sicherheit", "hilfe", "briefing", "agent wartung", "aufgabe milch kaufen", "arbeitsflaeche system", "firewall"]:
         vm.tippe(b, 2.0)
     vm.tippe("browser", 3.0)
     vm.mon("sendkey esc"); time.sleep(2.0)
@@ -783,7 +783,7 @@ def usbnet():
 def boot():
     print("\n===== Szenario boot (eigener Lader, Signatur) =====")
     vm = starten()
-    vm.tippe("sicherheit", 1.5); vm.tippe("pqtest", 3.0); vm.tippe("mem", 1.5)
+    vm.tippe("sicherheit", 1.5); vm.tippe("pqtest", 3.0); vm.tippe("mem", 1.5); vm.tippe("firewall status", 1.5); vm.tippe("krypto status", 1.5)
     out = vm.log()
     print(out)
     vm.ende()
@@ -794,6 +794,8 @@ def boot():
     pruefe("Kernel: [SECURE] Signatur beglaubigt", "[SECURE] Kernel durch hash-basierte Signatur" in out)
     pruefe("Kernel: Sicherheitsbefehl", "Kernel und Kommandozeile durch LMS-Signatur" in out)
     pruefe("Kernel: pqtest bestanden", "pq: Selbsttest bestanden" in out)
+    pruefe("Kernel: Firewall aktiv", "Firewall: normal" in out)
+    pruefe("Kernel: Verschluesselung meldet Zustand", "Verschluesselung: aus" in out)
 
 
 def ki():

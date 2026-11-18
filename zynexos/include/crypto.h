@@ -49,3 +49,5 @@ void krand(uint8_t* p, uint32_t n);
 /* AES-128 Einzelblock */
 void aes128_enc(const uint8_t key[16], const uint8_t in[16], uint8_t out[16]);
 void aes128_dec(const uint8_t key[16], const uint8_t in[16], uint8_t out[16]);
+/* ChaCha20: buf wird mit dem Schluesselstrom (Zaehler ab 1) verXORt */
+void chacha20_stream(const uint8_t key[32], const uint8_t nonce[12], uint8_t* buf, uint32_t n);
