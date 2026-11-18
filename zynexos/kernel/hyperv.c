@@ -270,7 +270,7 @@ static void kanal_bearbeiten(struct kanal* c) {
                 uint8_t ack[17]; mz(ack, sizeof(ack)); *(uint32_t*)ack = 1; *(uint32_t*)(ack + 4) = 9; *(uint32_t*)(ack + 8) = 3; *(uint32_t*)(ack + 12) = 1;
                 ring_senden(c, ack, sizeof(ack), 0);
             } else if (typ == 4 && n >= 24) {                                   /* Eingabebericht: [Kennung 1][Tasten][X lo hi][Y lo hi] */
-                const uint8_t* r = p + 16; int o = (r[0] == 1) ? 1 : 0;
+                const uint8_t* r = p + 16; int o = 0;                                   /* Hyper-V-Maus: kein Report-ID-Byte [Tasten][X lo hi][Y lo hi] */
                 int x = r[o + 1] | r[o + 2] << 8, y = r[o + 3] | r[o + 4] << 8;
                 for (int q = 0; q < 10; q++) letzter_bericht[q] = r[q];
                 maus_gesehen++;
