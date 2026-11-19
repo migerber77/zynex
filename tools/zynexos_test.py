@@ -132,7 +132,7 @@ def basis():
               "synstress 300 2 schreiben", "synstress 1 1024 schreiben", "syninfo", "snap neu gross", "synstress 300 2 loeschen", "synstress 300 2 pruefen",
               "snap zurueck gross", "synstress 300 2 pruefen", "synstress 1 1024 pruefen", "snap loeschen gross", "synstress 300 2 loeschen", "synstress 1 1024 loeschen", "syninfo", "wpatest", "wlantest",
               "qubit selbsttest", "qubit reset 2", "qubit h 0", "qubit cnot 0 1", "qubit zustand", "qubit messen 0", "qubit messen 1", "qubit reset 5"]:
-        vm.tippe(b, 4.0 if b.startswith("synstress") or b.startswith("snap") else 1.2)
+        vm.tippe(b, 12.0 if b == "wlantest" else 4.0 if b.startswith("synstress") or b.startswith("snap") else 1.2)
     time.sleep(1)
     hell = vm.hell()
     out = vm.log()
