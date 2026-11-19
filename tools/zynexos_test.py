@@ -14,7 +14,7 @@ TASTEN = {" ": "spc", "-": "minus", ".": "dot", "/": "slash", ":": "shift-semico
 
 
 class VM:
-    def __init__(self, extra=(), cd=True):
+    def __init__(self, extra=(), cd=True, bios=True):
         for f in (LOG, SOCK, QMP):
             if os.path.exists(f):
                 os.remove(f)
@@ -22,7 +22,7 @@ class VM:
              "-serial", "file:" + LOG,
              "-monitor", "unix:%s,server,nowait" % SOCK, "-qmp", "unix:%s,server,nowait" % QMP, "-no-reboot"]
         a += ["-cdrom", ISO, "-boot", "d"] if cd else ["-boot", "c"]
-        if MODUS == "uefi":
+        if MODUS == "uefi" and bios:
             ovmf = next(p for p in ("/usr/share/ovmf/OVMF.fd", "/usr/share/OVMF/OVMF_CODE_4M.fd",
                                     "/usr/share/OVMF/OVMF_CODE.fd") if os.path.exists(p))
             a += ["-bios", ovmf]
@@ -941,6 +941,37 @@ def usbaudio():
     pruefe("USB-Audio: Frequenz stimmt (1000 Hz +-5 %)", frei is not None and 950 <= frei <= 1050)
 
 
+def sicherboot():
+    """UEFI Secure Boot: mit eingespieltem Zynex-Zertifikat startet der signierte Lader, mit den Standard-Schluesseln (Microsoft) wird er von der Firmware abgelehnt."""
+    print("\n===== Szenario sicherboot (UEFI Secure Boot) =====")
+    cert = os.environ.get("ZYNEX_SB_CERT_DATEI", "zynex-sb.crt")
+    code = "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd"
+    vorl, ms = "/usr/share/OVMF/OVMF_VARS_4M.fd", "/usr/share/OVMF/OVMF_VARS_4M.ms.fd"
+    for f in (code, vorl, ms, cert):
+        pruefe("Secure Boot: Voraussetzung vorhanden (%s)" % f, os.path.exists(f))
+    if not all(os.path.exists(f) for f in (code, vorl, ms, cert)):
+        return
+    guid = "6dcbd5ed-e82d-4c44-bda1-71194699b4a6"
+    subprocess.run(["virt-fw-vars", "-i", vorl, "-o", "/tmp/vars-zynex.fd", "--set-pk", guid, cert, "--add-kek", guid, cert, "--add-db", guid, cert, "--secure-boot"], check=True)
+    subprocess.run(["cp", ms, "/tmp/vars-ms.fd"], check=True)
+    def lauf(vars_datei):
+        extra = ["-machine", "smm=on", "-global", "driver=cfi.pflash01,property=secure,value=on",
+                 "-drive", "if=pflash,format=raw,unit=0,file=%s,readonly=on" % code, "-drive", "if=pflash,format=raw,unit=1,file=%s" % vars_datei]
+        return VM(extra, True, bios=False)
+    vm = lauf("/tmp/vars-zynex.fd")
+    vm.warte("[SECURE] UEFI Secure Boot", 150)
+    out = vm.log()
+    print(out[-1500:])
+    vm.ende()
+    pruefe("Secure Boot: signierter Lader startet mit eingespieltem Zertifikat", "[LOADER] UEFI Secure Boot: aktiv" in out)
+    pruefe("Secure Boot: Kernel meldet aktiven Secure Boot", "[SECURE] UEFI Secure Boot aktiv" in out)
+    vm = lauf("/tmp/vars-ms.fd")
+    time.sleep(25)
+    out = vm.log()
+    vm.ende()
+    pruefe("Secure Boot: ohne Zertifikat verweigert die Firmware den Lader", "[LOADER] Zynex OS Lader" not in out)
+
+
 def manip():
     """Manipulierter Kernel (ein Byte geaendert, Signatur unveraendert): der Lader muss den Start verweigern."""
     print("\n===== Szenario manip (Manipulation wird erkannt) =====")
@@ -956,6 +987,6 @@ def manip():
 
 
 for s in SZEN:
-    {"kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
+    {"kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "sicherboot": sicherboot, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
 
 sys.exit(0 if all(ergebnis) else 1)

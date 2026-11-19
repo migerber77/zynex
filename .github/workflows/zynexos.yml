@@ -2,22 +2,27 @@ name: zynexos
 on:
   workflow_dispatch:
   push:
-    paths: ["zynexos/**", "tools/zynexos_test.py", "tools/zynexos_build.sh", "tools/mk-*.sh", "tools/mkpack.py", "tools/pqsign.py", ".github/workflows/zynexos.yml"]
+    paths: ["zynexos/**", "tools/sb-schluessel.sh", "tools/zynexos_test.py", "tools/zynexos_build.sh", "tools/mk-*.sh", "tools/mkpack.py", "tools/pqsign.py", ".github/workflows/zynexos.yml"]
 jobs:
   kernel:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Werkzeuge
-        run: sudo apt-get update -qq && sudo apt-get install -y nasm gcc clang lld xorriso mtools gdisk dosfstools qemu-system-x86 qemu-utils ovmf >/dev/null
+        run: sudo apt-get update -qq && sudo apt-get install -y nasm gcc clang lld xorriso mtools gdisk dosfstools qemu-system-x86 qemu-utils ovmf sbsigntool >/dev/null && sudo pip3 install --break-system-packages virt-firmware >/dev/null
       - name: Kleines Sprachmodell holen (Test)
         run: curl -L --retry 5 -f -o qwen-klein.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf
       - name: Bauen (Kernel, UEFI-Lader, Signaturen, Pakete, ISOs)
+        env:
+          ZYNEX_SB_KEY: ${{ secrets.ZYNEX_SB_KEY }}
+          ZYNEX_SB_CERT: ${{ secrets.ZYNEX_SB_CERT }}
         run: ZYNEX_MODELL=qwen-klein.gguf tools/zynexos_build.sh
       - name: Test Lader und Signatur (schnell)
         run: |
           python3 tools/zynexos_test.py zynexos-test.iso uefi boot
           python3 tools/zynexos_test.py zynexos-manip.iso uefi manip
+      - name: Test UEFI Secure Boot
+        run: python3 tools/zynexos_test.py zynexos-test.iso uefi sicherboot
       - name: Test Audio (Intel HD Audio)
         run: python3 tools/zynexos_test.py zynexos-test.iso uefi audio
       - name: Test USB-Audio
@@ -30,6 +35,13 @@ jobs:
         run: |
           python3 tools/zynexos_test.py zynexos-test.iso uefi basis platte sata usb layout netz installer usbnet ps2
           ZYNEX_GUI_ISO=zynexos-os.iso python3 tools/zynexos_test.py zynexos-test.iso uefi grafik
+      - uses: actions/upload-artifact@v4
+        if: always() && hashFiles('zynex-sb.cer') != ''
+        with:
+          name: zynex-secureboot-zertifikat
+          path: |
+            zynex-sb.cer
+            zynex-sb.crt
       - uses: actions/upload-artifact@v4
         if: always() && hashFiles('zynexos-os.iso') != ''
         with:

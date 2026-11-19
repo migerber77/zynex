@@ -11,6 +11,7 @@
 #define MB2_TAG_FRAMEBUFFER 8
 #define MB2_TAG_ZYNEX       0x7A58      /* eigene Marke des Zynex-Laders: u32 Flags */
 #define BOOT_SIGNIERT       1           /* Kernel und Kommandozeile waren durch eine gueltige LMS-Signatur gedeckt */
+#define BOOT_SECUREBOOT     4           /* UEFI Secure Boot war beim Start aktiv */
 #define BOOT_RGB            2           /* Bildschirm in RGB-Reihenfolge (Rot/Blau tauschen) */
 
 struct mb2_tag {

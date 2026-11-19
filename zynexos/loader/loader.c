@@ -27,6 +27,7 @@ static void stop(const char* msg) { say("[LOADER] FEHLER: "); say(msg); say("\n[
 
 static EFI_GUID G_LOADED = { 0x5B1B31A1, 0x9562, 0x11d2, { 0x8E, 0x3F, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } };
 static EFI_GUID G_SFS = { 0x964e5b22, 0x6459, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
+static EFI_GUID G_GLOBAL = { 0x8BE4DF61, 0x93CA, 0x11d2, { 0xAA, 0x0D, 0x00, 0xE0, 0x98, 0x03, 0x2B, 0x8C } };
 static EFI_GUID G_GOP = { 0x9042a9de, 0x23dc, 0x4a38, { 0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a } };
 
 static EFI_FILE_PROTOCOL* root;
@@ -76,6 +77,16 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
     st->ConOut->ClearScreen(st->ConOut);
     say("[LOADER] Zynex OS Lader (UEFI)\n");
 
+    /* UEFI Secure Boot: Variable "SecureBoot" (1 = aktiv). Die Firmware hat den Lader selbst dann schon gegen ihre Schluesseldatenbank geprueft. */
+    int sb = 0;
+    {
+        typedef EFI_STATUS (EFIAPI *GetVar)(CHAR16*, EFI_GUID*, UINT32*, UINTN*, void*);
+        GetVar gv = (GetVar)((void**)((char*)st->RuntimeServices + 24))[6];
+        static CHAR16 nm[] = { 'S','e','c','u','r','e','B','o','o','t',0 }; UINT8 v = 0; UINTN sz = 1;
+        if (gv && gv(nm, &G_GLOBAL, 0, &sz, &v) == 0 && v == 1) sb = 1;
+    }
+    say(sb ? "[LOADER] UEFI Secure Boot: aktiv (Lader von der Firmware geprueft)\n" : "[LOADER] UEFI Secure Boot: aus\n");
+
     /* Startmedium oeffnen */
     EFI_LOADED_IMAGE* li; EFI_SIMPLE_FILE_SYSTEM* sfs;
     if (BS->HandleProtocol(image, &G_LOADED, (void**)&li) != 0) stop("Loaded-Image-Protokoll fehlt");
@@ -96,7 +107,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
     cmd[cl] = 0;
 
     /* Signatur: gepruefte Nachricht = "ZXBOOT1" | u32 Kernel-Laenge | Kernel | Kommandozeile */
-    unsigned flags = 0;
+    unsigned flags = sb ? 4u : 0u;
     if (zynex_key_gesetzt) {
         if (!sig) stop("Signaturdatei kernel.sig fehlt");
         static unsigned char kopf[12]; memcpy(kopf, "ZXBOOT1\0", 8); put32(kopf + 8, (unsigned)kn);

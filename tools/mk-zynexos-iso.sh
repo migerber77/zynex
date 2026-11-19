@@ -18,6 +18,7 @@ printf '%s\n' "$CMD" > "$W/zynex.cfg"
 export MTOOLS_SKIP_CHECK=1
 mmd -i "$W/iso/boot/efi.img" ::/EFI ::/EFI/BOOT ::/boot
 mcopy -i "$W/iso/boot/efi.img" "$L" ::/EFI/BOOT/BOOTX64.EFI
+if [ -n "${ZYNEX_SB_CER:-}" ] && [ -f "$ZYNEX_SB_CER" ]; then mmd -i "$W/iso/boot/efi.img" ::/EFI/ZYNEX; mcopy -i "$W/iso/boot/efi.img" "$ZYNEX_SB_CER" ::/EFI/ZYNEX/zynex-sb.cer; fi   # Zertifikat zum Einspielen in die Firmware (Secure Boot)
 mcopy -i "$W/iso/boot/efi.img" "$K" ::/boot/kernel.bin
 mcopy -i "$W/iso/boot/efi.img" "$SIG" ::/boot/kernel.sig
 mcopy -i "$W/iso/boot/efi.img" "$W/zynex.cfg" ::/boot/zynex.cfg

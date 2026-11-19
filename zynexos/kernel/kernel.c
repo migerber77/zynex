@@ -211,6 +211,7 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr){
 
     if(magic!=MULTIBOOT2_MAGIC){kprint("[!] Not Multiboot2\n");for(;;) __asm__ volatile("hlt");}
     kprint("[+] Start ueber den Zynex-UEFI-Lader (64-bit)\n");
+    kprint((g_boot.flags&BOOT_SECUREBOOT) ? "[SECURE] UEFI Secure Boot aktiv: Firmware hat den Zynex-Lader gegen ihre Schluessel geprueft\n" : "[SECURE] UEFI Secure Boot aus (Firmware prueft den Lader nicht)\n");
     kprint((g_boot.flags&BOOT_SIGNIERT) ? "[SECURE] Kernel durch hash-basierte Signatur (LMS/SHA-256, quantensicher) beglaubigt\n" : "[SECURE] WARNUNG: Kernel wurde nicht durch eine Signatur beglaubigt\n");
     if(mode==1){kprint("[+] Framebuffer ");kprint_dec(fb_w);kprint("x");kprint_dec(fb_h);kprint("\n");}
     else if(mode==2) kprint("[+] VGA text mode\n");
