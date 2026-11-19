@@ -730,6 +730,7 @@ void usb_net_prefer(int rndis) { net_pref = rndis ? 1 : 0; net_reenum = 1; port_
 
 /* ---------- USB-Audio (Klasse 1, UAC1, PCM 16 Bit, isochron) ---------- */
 #define AUD_N 256                                  /* Ringgroesse (eine Seite): 255 Pakete = 255 ms Puffer */
+static volatile uint32_t a_erster_code, a_codes[32];
 static volatile int a_ein_n, a_aus_gepostet, a_aus_fertig, a_aus_ende, a_fehler;
 static int16_t* a_rec; static uint32_t a_rec_max, a_rec_n;
 static uint32_t (*a_fill)(int16_t*, uint32_t, void*); static void* a_ctx;
@@ -837,7 +838,8 @@ static uint32_t aud_fuell_paket(struct usbdev* d, struct audep* e) {            
 
 static void aud_event(struct usbdev* d, const struct trb* ev, uint32_t dci, uint32_t code) {
     int ok = (code == 1 || code == 13 || code == 14 || code == 15 || code == 23);          /* Erfolg, kurzes Paket, Unter-/Ueberlauf, verpasst: weiter */
-    if (!(code == 1 || code == 13)) a_fehler++;
+    a_codes[code & 31]++;
+    if (!(code == 1 || code == 13)) { a_fehler++; if (!a_erster_code) a_erster_code = code; }
     if (dci == d->ain.dci && d->ain.aktiv) {
         struct audep* e = &d->ain;
         uint64_t off = (uint64_t)ev->param - (uint64_t)(uintptr_t)e->r.t;
@@ -865,7 +867,7 @@ const char* usbaud_info(void) { return auddev && auddev->used ? aud_info : "kein
 int usbaud_spielen_strom(uint32_t (*fill)(int16_t* stereo, uint32_t frames, void* ctx), void* ctx) {
     struct usbdev* d = auddev; if (!d || !d->used || !d->aout.ok) return -1;
     struct audep* e = &d->aout;
-    a_fill = fill; a_ctx = ctx; a_aus_gepostet = 0; a_aus_fertig = 0; a_aus_ende = 0; a_fehler = 0;
+    a_fill = fill; a_ctx = ctx; a_aus_gepostet = 0; a_aus_fertig = 0; a_aus_ende = 0; a_fehler = 0; a_erster_code = 0;
     int r = aud_ep_an(d, e, 1); if (r) { ctrl(d, 0x01, 11, 0, e->iface, 0, 0); return -10 + r; }
     e->aktiv = 1;
     for (int i = 0; i < 100 && !a_aus_ende; i++) { uint32_t l = aud_fuell_paket(d, e); aud_push(d, e, l); a_aus_gepostet++; }
@@ -874,9 +876,10 @@ int usbaud_spielen_strom(uint32_t (*fill)(int16_t* stereo, uint32_t frames, void
     while (a_aus_fertig < a_aus_gepostet) {
         usb_poll();
         if (a_aus_fertig != last) { last = a_aus_fertig; letzt = timer_get_ticks(); }
-        if (timer_get_ticks() - letzt > 100) { aud_ep_aus(d, e); return -5; }                   /* 1 s ohne Fortschritt */
+        if (timer_get_ticks() - letzt > 100) { kprint("[USB-Audio] Zeitueberschreitung: "); kprint_dec((uint32_t)a_aus_fertig); kprint(" von "); kprint_dec((uint32_t)a_aus_gepostet); kprint(" Paketen fertig, erster Fehlercode "); kprint_dec(a_erster_code); kprint("\n"); aud_ep_aus(d, e); return -5; }                   /* 1 s ohne Fortschritt */
     }
     aud_ep_aus(d, e);
+    if (a_fehler) { kprint("[USB-Audio] "); kprint_dec((uint32_t)a_fehler); kprint(" von "); kprint_dec((uint32_t)a_aus_fertig); kprint(" Paketen mit Fehler/Unterlauf, erster Code "); kprint_dec(a_erster_code); kprint("\n"); }
     return 0;
 }
 

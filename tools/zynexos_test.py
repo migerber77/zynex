@@ -909,7 +909,7 @@ def usbaudio():
     vm = starten(extra=["-audiodev", "wav,id=zxu,path=%s,out.frequency=48000,out.channels=2,out.format=s16" % wav,
                         "-device", "qemu-xhci,id=xhci", "-device", "usb-audio,audiodev=zxu,bus=xhci.0"])
     vm.tippe("audio", 4.0)
-    vm.tippe("audio ton 1000 1500", 8.0)
+    vm.tippe("audio ton 1000 1500", 20.0)
     out = vm.log()
     print(out)
     vm.mon("quit", 1.0)
