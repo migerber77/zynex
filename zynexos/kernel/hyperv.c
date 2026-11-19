@@ -522,7 +522,9 @@ static void nv_paket(const uint8_t* p, int len) {
             uint32_t bc = *(uint32_t*)(p + 24 + 8 * i), bo = *(uint32_t*)(p + 28 + 8 * i);
             if (bc < 8 || bo > NRX_BYTES || bc > NRX_BYTES - bo) continue;
             const uint8_t* m = nrx + bo;
-            if (kanal == 1) { mc(nant, m, bc > sizeof(nant) ? (uint32_t)sizeof(nant) : bc); n_ctl_da = 1; }
+            if (kanal == 1) {                                                  /* Steuerkanal: nur Antworten (Typ mit Bit 31) uebernehmen; Statusmeldungen (Typ 7) duerfen sie nicht ueberschreiben */
+                if (*(uint32_t*)m & 0x80000000u) { mc(nant, m, bc > sizeof(nant) ? (uint32_t)sizeof(nant) : bc); n_ctl_da = 1; }
+            }
             else if (kanal == 0 && *(uint32_t*)m == 1 && bc >= 44) {
                 uint32_t doff = *(uint32_t*)(m + 8), dl = *(uint32_t*)(m + 12);
                 if (8 + doff + dl <= bc && n_rx) n_rx(m + 8 + doff, (int)dl);
