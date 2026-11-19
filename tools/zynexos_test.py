@@ -71,7 +71,7 @@ class VM:
 
     def tippe(self, zeile, warte=1.2):
         for c in zeile:
-            self.mon("sendkey " + TASTEN.get(c, c))
+            self.mon("sendkey " + (("shift-" + c.lower()) if c.isupper() else TASTEN.get(c, c)))
         self.mon("sendkey ret")
         time.sleep(warte)
 
@@ -800,8 +800,8 @@ def usbnet():
 def boot():
     print("\n===== Szenario boot (eigener Lader, Signatur) =====")
     vm = starten()
-    vm.tippe("sicherheit", 1.5); vm.tippe("pqtest", 3.0); vm.tippe("mem", 1.5); vm.tippe("firewall status", 1.5); vm.tippe("krypto status", 1.5); vm.tippe("db setze netz.dns 1.1.1.1", 1.5); vm.tippe("db suche dns", 1.5); vm.tippe("db status", 1.5)
-    vm.tippe("gedaechtnis merke Mein Hund heisst Bello", 1.5); vm.tippe("gedaechtnis erinnere wie heisst mein Hund", 1.5); vm.tippe("gedaechtnis status", 1.5)
+    vm.tippe("sicherheit", 1.5); vm.tippe("pqtest", 3.0); vm.tippe("mem", 1.5); vm.tippe("firewall status", 1.5); vm.tippe("krypto status", 1.5); vm.tippe("db setze netz.dns 1.1.1.1", 1.5); vm.tippe("db suche dns", 1.5); vm.tippe("db", 1.5)
+    vm.tippe("gedaechtnis merke Mein Hund heisst Bello", 1.5); vm.tippe("gedaechtnis erinnere wie heisst mein Hund", 1.5); vm.tippe("gedaechtnis", 1.5)
     out = vm.log()
     print(out)
     vm.ende()
