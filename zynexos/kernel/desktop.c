@@ -879,6 +879,13 @@ static void fenster_oeffnen(int typ) {
         if (typ == FT_WEB && w < 640) w = W - 40;
         int x = 60 + nfen * 36, y = 56 + nfen * 30;
         if (x + w > W - 8) x = W - w - 8; if (x < 4) x = 4; if (y + h > H - 8) y = H - h - 8; if (y < 44) y = 44;
+        {   /* nicht unter Zynie oeffnen: wenn das Fenster den Roboter verdeckt, rechts neben ihn schieben (sonst unter ihn) */
+            int rx0 = zr_x() - 8, ry0 = zr_y() - 8, rx1 = zr_x() + zr_w() + 8, ry1 = zr_y() + zr_h() + 8;
+            if (x < rx1 && x + w > rx0 && y < ry1 && y + h > ry0) {
+                if (rx1 + w <= W - 8) x = rx1;
+                else if (ry1 + h <= H - 8) y = ry1;
+            }
+        }
         fen[nfen].typ = typ; fen[nfen].x = x; fen[nfen].y = y; fen[nfen].w = w; fen[nfen].h = h; nfen++;
         if (typ == FT_RECH) rech_zuruecksetzen();
     } else if (i != nfen - 1) fenster_hoch(i);

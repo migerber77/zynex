@@ -143,7 +143,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
     if (!entry) stop("Kernel hat keinen UEFI-Einstieg (ZXEFIENT)");
     say("[LOADER] Kernel geladen, Einstieg 0x"); { const char* hx = "0123456789abcdef"; char b[17]; for (int i = 0; i < 16; i++) b[i] = hx[(entry >> (60 - 4 * i)) & 15]; b[16] = 0; say(b); } say("\n");
 
-    /* Grafik: groesster Modus bis 1920x1200 im Format RGB/BGR 8 Bit */
+    /* Grafik: groesster Modus bis 2560x1440 im Format RGB/BGR 8 Bit */
     EFI_GRAPHICS_OUTPUT_PROTOCOL* gop = 0; int have_fb = 0;
     UINT64 fb_addr = 0; unsigned fb_pitch = 0, fb_w = 0, fb_h = 0;
     if (BS->LocateProtocol(&G_GOP, 0, (void**)&gop) == 0 && gop) {
@@ -151,7 +151,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
         for (UINT32 m = 0; m < gop->Mode->MaxMode; m++) {
             UINTN sz; EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* mi;
             if (gop->QueryMode(gop, m, &sz, &mi) != 0) continue;
-            if ((mi->PixelFormat == 0 || mi->PixelFormat == 1) && mi->HorizontalResolution <= 1920 && mi->VerticalResolution <= 1200) {
+            if ((mi->PixelFormat == 0 || mi->PixelFormat == 1) && mi->HorizontalResolution <= 2560 && mi->VerticalResolution <= 1440) {
                 UINT64 a = (UINT64)mi->HorizontalResolution * mi->VerticalResolution;
                 if (a > bestarea) { bestarea = a; best = m; }
             }
