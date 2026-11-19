@@ -859,6 +859,8 @@ def ki():
         h = re.search(r"Antwort: (.*)", r.stdout)
         erwartet = h.group(1).strip() if h else "?"
         print("Kernel:", antwort, "| Referenz:", erwartet)
+        try: antwort = antwort.encode("latin-1").decode("utf-8")      # das Protokoll liest UTF-8-Bytes als Latin-1
+        except (UnicodeEncodeError, UnicodeDecodeError): pass
         pruefe("KI: Kernel-Antwort identisch mit der Referenz", antwort == erwartet)
 
 
