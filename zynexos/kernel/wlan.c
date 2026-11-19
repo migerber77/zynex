@@ -34,7 +34,7 @@ static uint8_t bssid[6]; static char c_ssid[33]; static uint8_t c_sec, c_grp;
 static uint8_t pmk[32], ptk[48], anonce[32], snonce[32], tk[16], gtk[16], rsn[24]; static int rsn_len;
 static int have_tk, have_gtk; static uint64_t replay_last, tx_pn, rx_pn;
 static uint16_t seqnr;
-static int net_koppeln = 1;
+static int net_koppeln = 1, dbg;
 static void (*eth_cb)(const uint8_t*, int);
 
 /* ---------- Rahmen bauen ---------- */
@@ -233,7 +233,7 @@ int wlan_verbunden(void) { return hw && st == S_OK; }
 
 static void warte(uint32_t ticks, int* flag) {
     uint32_t t0 = timer_get_ticks();
-    while (timer_get_ticks() - t0 < ticks) { pumpe(); if (flag && *flag) return; }
+    for (uint32_t it = 0; it < 20000000u && timer_get_ticks() - t0 < ticks; it++) { pumpe(); if (flag && *flag) return; }       /* it: Notbremse, falls die Uhr stehen bleibt */
 }
 static void sec_text(int s) { kprint(s == 0 ? "offen" : s == 1 ? "WPA2-PSK" : "nicht unterstuetzt"); }
 
@@ -241,6 +241,7 @@ static void suche_durchlauf(void) {
     nap = 0; st = S_AUS;
     for (int ch = 1; ch <= 13; ch++) {
         kanal_jetzt = ch; if (hw->set_channel(ch) != 0) continue;
+        if (dbg) { kprint("[WLAN] Kanal "); kprint_dec((uint32_t)ch); kprint(" t="); kprint_dec(timer_get_ticks()); kprint("\n"); }
         sende_probe(); warte(12, 0);
     }
 }
@@ -398,7 +399,8 @@ static void t_erg(const char* name, int ok) { kprint("wlan: "); kprint(name); kp
 
 int wlan_selbsttest(void) {
     const struct wlan_hw* alt = hw; int alt_st = st; int alt_koppeln = net_koppeln;
-    t_fehler = 0; net_koppeln = 0; tqn = tqr = 0; t_keys = 0; t_got_ping = 0; t_pn = 0; t_gpn = 0; t_pong = t_gruppe = 0;
+    kprint("wlan: Selbsttest startet\n");
+    t_fehler = 0; net_koppeln = 0; dbg = 1; tqn = tqr = 0; t_keys = 0; t_got_ping = 0; t_pn = 0; t_gpn = 0; t_pong = t_gruppe = 0;
     wlan_attach(&T_HW);
     int n = wlan_suchen();
     t_erg("Netzsuche findet das Testnetz (Kanal 6, WPA2)", n == 1 && nap == 1 && aps[0].ch == 6 && aps[0].sec == 1 && mcmp(aps[0].ssid, T_SSID, slen(T_SSID) + 1) == 0);
@@ -415,7 +417,7 @@ int wlan_selbsttest(void) {
     t_erg("verschluesselte Antwort (Einzelschluessel) entschluesselt", t_pong);
     t_erg("verschluesselter Rundruf (Gruppenschluessel) entschluesselt", t_gruppe);
     wlan_trennen();
-    hw = alt; st = alt_st; net_koppeln = alt_koppeln;
+    hw = alt; st = alt_st; net_koppeln = alt_koppeln; dbg = 0;
     kprint(t_fehler ? "wlan: Selbsttest FEHLGESCHLAGEN\n" : "wlan: Selbsttest bestanden\n");
     return t_fehler;
 }
