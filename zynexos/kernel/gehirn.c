@@ -19,7 +19,7 @@ static uint8_t* arena; static uint64_t arena_pos;
 static char kontext[620];
 void gehirn_kontext(const char* t) { int i = 0; while (t && t[i] && i < 600) { kontext[i] = t[i]; i++; } kontext[i] = 0; }
 static int prefix_pos;                                  /* Anzahl Token der festen Einleitung (System-Text) */
-static const char* SYS = "system\nDu bist Zynie, der freundliche Assistent von Zynex OS. Antworte kurz.";
+static const char* SYS = "system\nDu bist Zynie, der freundliche Assistent von Zynex OS. Antworte kurz, sachlich und in der Sprache der Frage. Wenn du etwas nicht sicher weisst, sag es ehrlich, statt zu raten.";
 
 static void* arena_al(size_t n) {
     arena_pos = (arena_pos + 63) & ~63ull;

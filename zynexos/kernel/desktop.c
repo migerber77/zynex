@@ -11,6 +11,7 @@
 #include "zyndb.h"
 #include "layouts.h"
 #include "extki.h"
+#include "fakten.h"
 #include "chats.h"
 #include "gedaechtnis.h"
 #include "synfs.h"
@@ -48,19 +49,39 @@ extern int  gfx_text_w(const char* s, int scale);
 extern const int zynex_logo_w, zynex_logo_h, zynex_logo_gross_w, zynex_logo_gross_h;
 extern const uint32_t zynex_logo[], zynex_logo_gross[];
 
-#define C_BG     0x000A111Fu
-#define C_CARD   0x00121A2Bu
-#define C_BORDER 0x002A3752u
-#define C_TEXT   0x00E9EDF5u
-#define C_MUTED  0x008995B0u
-#define C_ACC    0x004A72F5u
-#define C_ACC2   0x006F90FBu
+/* Farbschemas: die Farben sind Variablen (Einstellungen > Aussehen). Reihenfolge: bg, card, border, text, muted, acc, acc2, field, off, Hintergrund oben/unten, Leuchtflecken 1/2 */
+static const struct thema { const char* de; const char* en; uint32_t c[13]; } THEMEN[6] = {
+    { "Nacht", "Night",     { 0x000A111Fu, 0x00121A2Bu, 0x002A3752u, 0x00E9EDF5u, 0x008995B0u, 0x004A72F5u, 0x006F90FBu, 0x000E1525u, 0x00334155u, 0x00060B16u, 0x00122350u, 0x002A47B8u, 0x006A32B8u } },
+    { "Ozean", "Ocean",     { 0x00071A22u, 0x000E2631u, 0x001F4658u, 0x00E6F4F8u, 0x0088AEBDu, 0x000FA9B8u, 0x005CD8E2u, 0x00061820u, 0x00284A58u, 0x00041218u, 0x000B3A4Au, 0x00139AAAu, 0x002070B8u } },
+    { "Violett", "Violet",  { 0x000E0A1Fu, 0x001A1330u, 0x003A2D66u, 0x00EFE9FAu, 0x009E94C0u, 0x008B5CF6u, 0x00A78BFAu, 0x00120C26u, 0x003F3560u, 0x000A0618u, 0x002A1457u, 0x007C3AEDu, 0x00D02A80u } },
+    { "Wald", "Forest",     { 0x000A1410u, 0x00112019u, 0x00264636u, 0x00E8F3ECu, 0x0086A998u, 0x002FB67Cu, 0x005FD39Eu, 0x000A1812u, 0x002F4A3Cu, 0x00070F0Bu, 0x00123D2Au, 0x00208F5Fu, 0x0090A82Cu } },
+    { "Abend", "Sunset",    { 0x00180D12u, 0x0024141Bu, 0x004D2A36u, 0x00F8EDE8u, 0x00B99A98u, 0x00F0603Au, 0x00FF8F66u, 0x001B0E14u, 0x00573641u, 0x00120810u, 0x004A1B2Au, 0x00E5533Du, 0x00F59E0Bu } },
+    { "Hell", "Light",      { 0x00F5F7FCu, 0x00FFFFFFu, 0x00D3DAE8u, 0x001B2438u, 0x0066728Cu, 0x003B63F0u, 0x002F52D6u, 0x00EAEFFAu, 0x00B4BFD6u, 0x00DCE6FAu, 0x00F4EEFFu, 0x00B8CEFFu, 0x00E0C8FFu } },
+};
+static uint32_t th_bg, th_card, th_border, th_text, th_muted, th_acc, th_acc2, th_field, th_off, th_hg1, th_hg2, th_gl1, th_gl2;
+static int th_nr, hg_nr;                                  /* gewaehltes Farbschema und Hintergrund (0 Verlauf, 1 Aurora, 2 Raster, 3 Einfarbig) */
+static void thema_anwenden(int n);
+static void th_laden(void);
+static void thema_anwenden(int n) {
+    const uint32_t* c = THEMEN[n < 0 || n > 5 ? 0 : n].c;
+    th_bg = c[0]; th_card = c[1]; th_border = c[2]; th_text = c[3]; th_muted = c[4]; th_acc = c[5]; th_acc2 = c[6]; th_field = c[7]; th_off = c[8]; th_hg1 = c[9]; th_hg2 = c[10]; th_gl1 = c[11]; th_gl2 = c[12];
+}
+static void th_laden(void) { th_nr = zdb_geti("ui.schema", 0); if (th_nr < 0 || th_nr > 5) th_nr = 0; hg_nr = zdb_geti("ui.hintergrund", 0); if (hg_nr < 0 || hg_nr > 3) hg_nr = 0; thema_anwenden(th_nr); }
+#define C_BG     th_bg
+#define C_CARD   th_card
+#define C_BORDER th_border
+#define C_TEXT   th_text
+#define C_MUTED  th_muted
+#define C_ACC    th_acc
+#define C_ACC2   th_acc2
+#define C_SPL    0x000B1220u                              /* Start- und Anmeldebild: das Logo ist auf diese Farbe geglaettet */
+#define C_WALL   0xFFFFFFFFu                              /* "Farbe" fuer lader(): auf dem Hintergrundbild zeichnen */
 #define C_CYAN   0x0000F2FEu
 #define C_VIOLET 0x009D4EDDu
 #define C_OK     0x0034D399u
 #define C_ERR    0x00EF4444u
-#define C_FIELD  0x000E1525u
-#define C_OFF    0x00334155u
+#define C_FIELD  th_field
+#define C_OFF    th_off
 
 static int W, H, lang;                                    /* lang: 0 Deutsch, 1 Englisch, 2 Franzoesisch, 3 Italienisch, 4 Spanisch */
 static const char* const LNAME[5] = { "Deutsch", "English", "Francais", "Italiano", "Espanol" };
@@ -160,6 +181,42 @@ static uint32_t mix(uint32_t a, uint32_t b, int t /*0..256*/) {
     return r;
 }
 
+/* ---------- Hintergrundbild (Verlauf, Aurora, Raster, einfarbig): hg() malt einen Ausschnitt neu, so bleiben Flecken beim Neuzeichnen aus ---------- */
+static int isqf(uint32_t v) { uint32_t r = 0, b = 1u << 30; while (b > v) b >>= 2; while (b) { if (v >= r + b) { v -= r + b; r = (r >> 1) + b; } else r >>= 1; b >>= 2; } return (int)r; }
+static uint32_t hg_zeile(int y) { if (hg_nr == 3) return th_hg1; if (y < 0) y = 0; if (y >= H) y = H - 1; return mix(th_hg1, th_hg2, y * 256 / H); }
+static void hg_glow(int x, int y, int w, uint32_t base) {            /* zwei weiche Leuchtflecken aus verschachtelten Ellipsen */
+    for (int g = 0; g < 2; g++) {
+        int cx = g ? W * 80 / 100 : W * 22 / 100, cy = g ? H * 78 / 100 : H * 28 / 100, rx = g ? W * 36 / 100 : W * 34 / 100, ry = g ? H * 46 / 100 : H * 48 / 100;
+        int dy = y - cy; if (dy < 0) dy = -dy; if (dy >= ry) continue;
+        int fy = (int)((int64_t)dy * dy * 1024 / ((int64_t)ry * ry));
+        uint32_t gc = g ? th_gl2 : th_gl1;
+        for (int L = 1; L <= 9; L++) {
+            int m = 1024 - fy - L * 1024 / 10; if (m <= 0) break;
+            int half = (int)((int64_t)rx * isqf((uint32_t)m * 1024) / 1024);
+            int a = cx - half, b = cx + half; if (a < x) a = x; if (b > x + w) b = x + w; if (b <= a) continue;
+            gfx_rect(a, y, b - a, 1, mix(base, gc, L * 150 / 9));
+        }
+    }
+}
+static void hg(int x, int y, int w, int h) {
+    if (x < 0) { w += x; x = 0; } if (y < 0) { h += y; y = 0; } if (x + w > W) w = W - x; if (y + h > H) h = H - y;
+    if (w <= 0 || h <= 0) return;
+    gfx_begin();
+    if (hg_nr == 3) { gfx_rect(x, y, w, h, th_hg1); gfx_end(); return; }
+    for (int r = y; r < y + h; ) {
+        int t = r * 256 / H, e = r + 1; while (e < y + h && e * 256 / H == t) e++;
+        uint32_t c = mix(th_hg1, th_hg2, t);
+        gfx_rect(x, r, w, e - r, c);
+        if (hg_nr == 2) {
+            uint32_t lc = mix(c, th_border, 110);
+            for (int yy = r; yy < e; yy++) if (yy % 56 == 0) gfx_rect(x, yy, w, 1, lc);
+            for (int xx = (x + 55) / 56 * 56; xx < x + w; xx += 56) gfx_rect(xx, r, 1, e - r, lc);
+        } else if (hg_nr == 1) for (int yy = r; yy < e; yy++) hg_glow(x, yy, w, c);
+        r = e;
+    }
+    gfx_end();
+}
+
 /* ---------- Ladeanzeige "Quanten-Orbit": ein pulsierender Kern, drei Elektronen auf gekippten Bahnen mit Schweif ---------- */
 static const int sin90t[19] = { 0, 89, 178, 265, 350, 433, 512, 587, 658, 724, 784, 839, 887, 928, 962, 989, 1008, 1020, 1024 };
 static int isin(int deg) {
@@ -172,7 +229,8 @@ static int icos(int deg) { return isin(deg + 90); }
 static void lader(int cx, int cy, int R, uint32_t fr, uint32_t bg) {
     static const uint32_t farbe[3] = { 0x0022D3EEu, 0x00A78BFAu, 0x006F90FBu };
     gfx_begin();
-    gfx_rect(cx - R - 8, cy - R - 8, 2 * R + 16, 2 * R + 16, bg);
+    if (bg == C_WALL) { hg(cx - R - 8, cy - R - 8, 2 * R + 16, 2 * R + 16); bg = hg_zeile(cy); }
+    else gfx_rect(cx - R - 8, cy - R - 8, 2 * R + 16, 2 * R + 16, bg);
     int puls = isin((int)fr * 9), kr = R / 5 + R / 14 * puls / 1024; if (kr < 3) kr = 3;
     uint32_t kern = mix(0x0022D3EEu, 0x00A78BFAu, (isin((int)fr * 4) + 1024) * 255 / 2048);
     for (int pass = 0; pass < 2; pass++) {
@@ -208,8 +266,9 @@ static char splash_info[400];
 
 static void splash_zeichne(void) {
     if (!splash_an) return;
+    thema_anwenden(0);
     gfx_begin();
-    gfx_rect(0, 0, W, H, C_BG);
+    gfx_rect(0, 0, W, H, C_SPL);
     int lx = (W - zynex_logo_gross_w) / 2, ly = H / 2 - zynex_logo_gross_h / 2 - 70;
     gfx_bitmap(lx, ly, zynex_logo_gross_w, zynex_logo_gross_h, zynex_logo_gross);
     int y = ly + zynex_logo_gross_h + 28;
@@ -223,7 +282,7 @@ static void splash_zeichne(void) {
     int bw = 360, bx = (W - bw) / 2, by = y + 66;
     rrect(bx, by, bw, 8, 4, C_FIELD);
     int fw = bw * splash_p / 100; if (fw > 0) rrect(bx, by, fw < 8 ? 8 : fw, 8, 4, mix(C_CYAN, C_VIOLET, splash_p * 256 / 100));
-    lader(W - 90, 90, 36, timer_get_ticks() / 4, C_BG);
+    lader(W - 90, 90, 36, timer_get_ticks() / 4, C_SPL);
     gfx_text(bx, by + 16, splash_t, C_CYAN, 1);
     char pc[8]; dec(pc, (uint32_t)splash_p); cat(pc, "%", 8);
     gfx_text(bx + bw - gfx_text_w(pc, 1), by + 16, pc, C_MUTED, 1);
@@ -251,7 +310,7 @@ void desktop_splash(int qubit, int prozent, const char* text) {
 void desktop_splash_ende(void) {
     if (!splash_an) return;
     uint32_t t0 = timer_get_ticks();
-    { uint32_t lf = 0; for (int i = 0; i < 2000000 && timer_get_ticks() - t0 < 90; i++) { __asm__ volatile ("pause"); if (timer_get_ticks() / 4 != lf) { lf = timer_get_ticks() / 4; lader(W - 90, 90, 36, lf, C_BG); } } }
+    { uint32_t lf = 0; for (int i = 0; i < 2000000 && timer_get_ticks() - t0 < 90; i++) { __asm__ volatile ("pause"); if (timer_get_ticks() / 4 != lf) { lf = timer_get_ticks() / 4; lader(W - 90, 90, 36, lf, C_SPL); } } }
     splash_an = 0;
 }
 
@@ -276,7 +335,7 @@ static int kn_owner = -1;
 static void kn_reg(int id, int x, int y, int w, int h) { if (nkn < 120) { knoepfe[nkn].owner = kn_owner; knoepfe[nkn].x = x; knoepfe[nkn].y = y; knoepfe[nkn].w = w; knoepfe[nkn].h = h; knoepfe[nkn].id = id; nkn++; } }
 static void knopf(int id, const char* label, int x, int y, int w, int primaer) {
     rrect_rand(x, y, w, 34, 10, primaer ? C_ACC : C_CARD, primaer ? C_ACC : C_BORDER);
-    gtxt(x + (w - gtw(label, 1)) / 2, y + 9, label, C_TEXT, 1);
+    gtxt(x + (w - gtw(label, 1)) / 2, y + 9, label, primaer ? 0x00FFFFFFu : C_TEXT, 1);
     kn_reg(id, x, y, w, 34);
 }
 
@@ -311,7 +370,7 @@ static void zynie(int cx, int cy, uint32_t ph) {
     int k = (int)((t / 150) % 8), ex = ruhe ? 0 : spricht ? 4 : bx[k], ey = ruhe ? 2 : spricht ? 2 : by[k];
     static const int lipp[6] = { 3, 12, 18, 8, 14, 5 };
     int mh = spricht ? lipp[(t / 6) % 6] : (ruhe ? 3 : 4);
-    gfx_rect(zr_x(), zr_y(), zr_w(), zr_h(), C_BG);
+    hg(zr_x(), zr_y(), zr_w(), zr_h());
     rrect(cx - SC(2), cy - SC(92), SC(4), SC(24), SC(2), 0x003B82F6u);                              /* Antenne */
     rrect(cx - SC(8), cy - SC(104), SC(16), SC(16), SC(8), spricht ? C_VIOLET : glow);
     rrect(cx - SC(72), cy - SC(40), SC(12), SC(34), SC(6), 0x001E3A66u); rrect(cx + SC(60), cy - SC(40), SC(12), SC(34), SC(6), 0x001E3A66u);   /* Ohren */
@@ -347,8 +406,9 @@ static void feld(int idx, const char* label, const char* text, int maskiert, int
 }
 static int entsperr;     /* 1 = die Platte ist verschluesselt und gesperrt: statt der Anmeldung wird das Plattenpasswort abgefragt */
 static void zeichne_login(void) {
+    thema_anwenden(0);
     gfx_begin();
-    gfx_rect(0, 0, W, H, C_BG);
+    gfx_rect(0, 0, W, H, C_SPL);
     int cw = 360, cx = (W - cw) / 2, y = H / 2 - 250;
     gfx_bitmap((W - zynex_logo_w) / 2, y, zynex_logo_w, zynex_logo_h, zynex_logo);
     y += zynex_logo_h + 24;
@@ -414,16 +474,20 @@ static void zeichne_desktop(void);
 static int desk_gen;                                              /* zaehlt ganze Neuzeichnungen (macht den Schnappschuss des Befehlsrads ungueltig) */
 static int rad_modus(void);                                      /* 1 = Befehlsrad statt Vorschlagsliste (Maus vorhanden) */
 static void rad_weg(void);
-static void busy_tick(void) { uint32_t f = timer_get_ticks() / 5; if (!busy_an || f != busy_f) { busy_an = 1; busy_f = f; lader(W - 70, H - 70, 28, f, C_BG); } }
-static void busy_ende(void) { if (!busy_an) return; busy_an = 0; gfx_begin(); gfx_rect(W - 70 - 40, H - 70 - 40, 80, 80, C_BG); gfx_end(); zeichne_desktop(); }
+static void busy_tick(void) { uint32_t f = timer_get_ticks() / 5; if (!busy_an || f != busy_f) { busy_an = 1; busy_f = f; lader(W - 70, H - 70, 28, f, C_WALL); } }
+static void busy_ende(void) { if (!busy_an) return; busy_an = 0; gfx_begin(); hg(W - 70 - 40, H - 70 - 40, 80, 80); gfx_end(); zeichne_desktop(); }
 static const char* fenster_titel(int typ) { if (typ == FT_GED) return TR("Gedaechtnis", "Memory"); if (typ == FT_EINST) return TR("Einstellungen", "Settings"); if (typ == FT_CHATS) return "Chats"; return typ == FT_EDIT ? TR("Dokument", "Document") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
 static void fenster_zeichnen(int i) {
     struct fenster* f = &fen[i]; int top = (i == nfen - 1 && fok);
     gfx_begin();
-    rrect_rand(f->x, f->y, f->w, f->h, 12, C_BG, top ? C_ACC : C_BORDER);
-    rrect(f->x + 2, f->y + 2, f->w - 4, WT_H - 2, 10, top ? mix(C_CARD, C_ACC, 50) : C_CARD);
-    gtxt(f->x + 16, f->y + 8, fenster_titel(f->typ), top ? C_TEXT : C_MUTED, 1);
-    rrect_rand(f->x + f->w - 32, f->y + 5, 22, 20, 6, C_FIELD, C_BORDER); gtxt(f->x + f->w - 25, f->y + 7, "x", C_MUTED, 1);
+    { uint32_t w0 = hg_zeile(f->y + f->h / 2), sc = th_nr == 5 ? 0x00203050u : 0x00000000u; int st = th_nr == 5 ? 40 : 100;      /* weicher Schatten */
+      rrect(f->x - 3, f->y + 3, f->w + 6, f->h + 8, 18, mix(w0, sc, st / 2)); rrect(f->x - 1, f->y + 5, f->w + 2, f->h + 3, 15, mix(w0, sc, st)); }
+    rrect_rand(f->x, f->y, f->w, f->h, 14, C_BG, top ? C_ACC : C_BORDER);
+    rrect(f->x + 2, f->y + 2, f->w - 4, WT_H - 2, 12, top ? mix(C_CARD, C_ACC, 70) : C_CARD);
+    gfx_rect(f->x + 3, f->y + WT_H - 3, f->w - 6, 2, top ? C_ACC : C_BORDER);
+    rrect(f->x + 14, f->y + 10, 10, 10, 5, top ? C_ACC2 : C_OFF);
+    gtxt(f->x + 32, f->y + 8, fenster_titel(f->typ), top ? C_TEXT : C_MUTED, 1);
+    rrect(f->x + f->w - 32, f->y + 5, 22, 20, 10, top ? 0x00EF4444u : C_OFF); gtxt(f->x + f->w - 25, f->y + 7, "x", 0x00FFFFFFu, 1);
     kn_owner = i;
     if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else if (f->typ == FT_EINST) zeichne_einst(); else if (f->typ == FT_CHATS) zeichne_chats(); else if (f->typ == FT_GED) zeichne_ged(); else zeichne_info();
     kn_owner = -1;
@@ -475,7 +539,7 @@ static void fenster_oeffnen(int typ);
 static void zeichne_robot(void) {
     if (!in_szene && deckt(zr_x() - 4, zr_y() - 4, zr_w() + 8, zr_h() + 8)) { zeichne_desktop(); return; }
     gfx_begin();
-    if (lbw) gfx_rect(lbx, lby, lbw, lbh, C_BG);
+    if (lbw) hg(lbx, lby, lbw, lbh);
     zynie(zx, zy, robot_phase);
     lbx = zr_x(); lby = zr_y(); lbw = zr_w(); lbh = zr_h();
     gfx_end();
@@ -496,7 +560,7 @@ static void zeichne_antwort(void) {
     int cw = bar_w, cx = bar_x, ay = H / 5;
     if (!in_szene && deckt(cx - 10, ay - 6, cw + 20, bar_y - ay - 20)) { zeichne_desktop(); return; }
     gfx_begin();
-    gfx_rect(cx - 10, ay - 6, cw + 20, bar_y - ay - 20, C_BG);
+    hg(cx - 10, ay - 6, cw + 20, bar_y - ay - 20);
     if (nantwort > 0) {
         int hh = 24; for (int i = 0; i < nantwort; i++) hh += 22;
         rrect_rand(cx, ay, cw, hh + 8, 16, C_CARD, C_BORDER);
@@ -650,7 +714,7 @@ static void zeichne_eingabe(void) {
     if (!in_szene && deckt(bar_x - 10, bar_y - 6, bar_w + 20, 215)) { zeichne_desktop(); return; }
     gfx_begin();
     kn_loesche(K_CHIP0, K_SUG0 + 5);
-    gfx_rect(bar_x - 10, bar_y - 6, bar_w + 20, 215, C_BG);
+    hg(bar_x - 10, bar_y - 6, bar_w + 20, 215);
     rrect_rand(bar_x, bar_y, bar_w, 52, 18, C_FIELD, C_ACC);
     rrect(bar_x + 14, bar_y + 20, 12, 12, 6, C_OK);
     if (einlen == 0) gtxt(bar_x + 40, bar_y + 18, TR("Frag mich alles - schon der erste Buchstabe zeigt Vorschlaege ...", "Ask me anything - the first letter already shows suggestions ..."), 0x00647488u, 1);
@@ -687,8 +751,8 @@ static void zeichne_eingabe(void) {
 static void zeichne_leiste(void) {
     gfx_begin();
     kn_loesche(K_DOT0, K_NEXT);
-    gfx_rect(0, 0, W, 40, C_BG);
-    gfx_rect(0, 39, W, 1, C_BORDER);
+    gfx_rect(0, 0, W, 40, C_CARD);
+    gfx_rect(0, 38, W, 2, mix(C_BORDER, C_ACC, 110));
     gtxt(16, 12, "Zynex OS Quantum", C_ACC2, 1);
     char r[48]; scopy(r, benutzer_name(), 20); cat(r, " (", 48); cat(r, benutzer_rollentext(benutzer_rolle()), 48); cat(r, ")", 48);
     uint32_t ymd, hm; char zt[12] = "";
@@ -702,7 +766,7 @@ static void zeichne_leiste(void) {
     gtxt(sx, 12, "<", C_MUTED, 1); kn_reg(K_PREV, sx - 8, 4, 28, 32);
     for (int i = 0; i < 4; i++) {
         int cx = sx + 30 + i * 26;
-        if (i == flaeche) rrect(cx, 14, 12, 12, 6, C_ACC2); else rrect_rand(cx, 14, 12, 12, 6, C_BG, C_OFF);
+        if (i == flaeche) rrect(cx, 14, 12, 12, 6, C_ACC2); else rrect_rand(cx, 14, 12, 12, 6, C_CARD, C_OFF);
         kn_reg(K_DOT0 + i, cx - 6, 4, 24, 32);
     }
     gtxt(sx + 30 + 4 * 26 + 4, 12, ">", C_MUTED, 1); kn_reg(K_NEXT, sx + 30 + 4 * 26 - 4, 4, 28, 32);
@@ -790,7 +854,8 @@ static void zeichne_f_aufgaben(void) {
 
 static void zeichne_desktop(void) {
     desk_gen++;
-    gfx_begin(); gfx_rect(0, 0, W, H, C_BG); gfx_end();
+    thema_anwenden(th_nr);
+    gfx_begin(); hg(0, 0, W, H); gfx_end();
     nkn = 0; lbw = 0; in_szene = 1; zeichne_leiste();
     if (flaeche == 0) { zeichne_robot(); zeichne_antwort(); zeichne_eingabe(); szene_oben(); }
     else { gfx_begin(); if (flaeche == 1) zeichne_f_system(); else if (flaeche == 2) zeichne_f_agenten(); else zeichne_f_aufgaben(); gfx_end(); }
@@ -845,7 +910,7 @@ static void wuerfel_dreh(int nach) {
     uint32_t pp; uint32_t* f = gfx_fbptr(&pp);
     for (int deg = 5; deg < 90; deg += 5) {
         uint32_t t0 = timer_get_ticks();
-        for (int y = 0; y < H; y++) { uint32_t* r = f + (uint64_t)y * pp; for (int x = 0; x < W; x++) r[x] = C_BG; }
+        for (int y = 0; y < H; y++) { uint32_t* r = f + (uint64_t)y * pp; for (int x = 0; x < W; x++) r[x] = th_hg1; }
         wuerfel_flaeche(snapA, deg, dir, 0); wuerfel_flaeche(snapB, deg, dir, 1);
         for (uint32_t n = 0; n < 400000 && timer_get_ticks() - t0 < 2; n++) __asm__ volatile ("pause");   /* begrenzt: tickt der Timer nicht (z. B. Hyper-V ohne PIT), darf die Drehung nicht haengen */
     }
@@ -874,8 +939,8 @@ static void fenster_oeffnen(int typ) {
     if (flaeche != 0) flaeche_wechsel(0);
     if (i < 0) {
         if (nfen >= 6) { reply1(TR("Es sind schon 6 Fenster offen.", "6 windows are already open.")); return; }
-        int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 580 : typ == FT_CHATS ? 720 : typ == FT_GED ? 700 : 480;
-        int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 490 : typ == FT_CHATS ? 470 : typ == FT_GED ? 480 : 250;
+        int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 640 : typ == FT_CHATS ? 720 : typ == FT_GED ? 700 : 480;
+        int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 530 : typ == FT_CHATS ? 470 : typ == FT_GED ? 480 : 250;
         if (typ == FT_WEB && w < 640) w = W - 40;
         int x = 60 + nfen * 36, y = 56 + nfen * 30;
         if (x + w > W - 8) x = W - w - 8; if (x < 4) x = 4; if (y + h > H - 8) y = H - h - 8; if (y < 44) y = 44;
@@ -1324,7 +1389,9 @@ static int enthaelt(const char* s, const char* w) {
 static int hat(const char* s, const char* const* w) { for (int i = 0; w[i]; i++) if (enthaelt(s, w[i])) return 1; return 0; }
 static int hat_rechnung(const char* s) {
     int ziffer = 0, op = 0;
+    const char* s0 = s;
     for (; *s; s++) { if (*s >= '0' && *s <= '9') ziffer = 1; if (*s == '+' || *s == '*' || *s == '/' || *s == '-' || *s == 'x') op = 1; }
+    if (ziffer && !op) { static const char* const w[] = { " durch ", " mal ", " plus ", " minus ", " geteilt ", " times ", " divided by ", " fois ", " moins ", " diviso ", " meno ", " por ", " menos ", 0 }; for (int i = 0; w[i]; i++) if (enthaelt(s0, w[i])) { op = 1; break; } }
     return ziffer && op;
 }
 static int erkenne(const char* s) {
@@ -1396,15 +1463,22 @@ static int erkenne(const char* s) {
     return I_NICHTS;
 }
 
-/* kleiner Rechner: + - * / und Klammern, ganze Zahlen (Division mit Nachkommastellen) */
+/* kleiner Rechner: + - * / und Klammern, Dezimalzahlen (Festkomma mit 6 Nachkommastellen; Komma oder Punkt) */
+#define RS 1000000LL
 static const char* rp; static int rfehler;
 static int64_t r_ausdruck(void);
 static void r_leer(void) { while (*rp == ' ') rp++; }
+static int64_t r_pruefe(int64_t v) { if (v > 4000000000000000000LL / 1000 || v < -4000000000000000000LL / 1000) { rfehler = 1; return 0; } return v; }
 static int64_t r_faktor(void) {
     r_leer(); int neg = 0; while (*rp == '-' || *rp == '+') { if (*rp == '-') neg = !neg; rp++; r_leer(); }
     int64_t v = 0;
     if (*rp == '(') { rp++; v = r_ausdruck(); r_leer(); if (*rp == ')') rp++; else rfehler = 1; }
-    else if (*rp >= '0' && *rp <= '9') { while (*rp >= '0' && *rp <= '9') { v = v * 10 + (*rp - '0'); rp++; if (v > 1000000000000000LL) { rfehler = 1; break; } } }
+    else if ((*rp >= '0' && *rp <= '9') || ((*rp == '.' || *rp == ',') && rp[1] >= '0' && rp[1] <= '9')) {
+        int64_t ip = 0; while (*rp >= '0' && *rp <= '9') { ip = ip * 10 + (*rp - '0'); rp++; if (ip > 1000000000000LL) { rfehler = 1; break; } }
+        int64_t fp = 0, sk = RS / 10;
+        if ((*rp == '.' || *rp == ',') && rp[1] >= '0' && rp[1] <= '9') { rp++; while (*rp >= '0' && *rp <= '9') { if (sk) { fp += (*rp - '0') * sk; sk /= 10; } rp++; } }
+        v = ip * RS + fp;
+    }
     else rfehler = 1;
     return neg ? -v : v;
 }
@@ -1412,21 +1486,33 @@ static int64_t r_term(void) {
     int64_t v = r_faktor();
     for (;;) {
         r_leer();
-        if (*rp == '*' || *rp == 'x' || *rp == 'X') { rp++; v *= r_faktor(); }
-        else if (*rp == '/' || *rp == ':') { rp++; int64_t d = r_faktor(); if (d == 0) { rfehler = 2; return 0; } v /= d; }
-        else return v;
+        if (*rp == '*' || *rp == 'x' || *rp == 'X') { rp++; int64_t w = r_faktor(); int64_t p; if (__builtin_mul_overflow(v, w, &p)) { rfehler = 1; return 0; } v = p / RS; }
+        else if (*rp == '/' || *rp == ':') {
+            rp++; int64_t d = r_faktor(); if (d == 0) { rfehler = 2; return 0; }
+            int64_t z; if (__builtin_mul_overflow(v, RS, &z)) { rfehler = 1; return 0; }
+            int64_t h = d < 0 ? -d : d; v = (z + ((z < 0) == (d < 0) ? h : -h) / 2) / d;                 /* gerundet */
+        }
+        else return r_pruefe(v);
     }
 }
 static int64_t r_ausdruck(void) {
     int64_t v = r_term();
-    for (;;) { r_leer(); if (*rp == '+') { rp++; v += r_term(); } else if (*rp == '-') { rp++; v -= r_term(); } else return v; }
+    for (;;) { r_leer(); if (*rp == '+') { rp++; v += r_term(); } else if (*rp == '-') { rp++; v -= r_term(); } else return r_pruefe(v); }
 }
-static void i64dec(char* o, int64_t v) { if (v < 0) { *o++ = '-'; v = -v; } char t[24]; int n = 0; if (!v) t[n++] = '0'; while (v) { t[n++] = (char)('0' + v % 10); v /= 10; } while (n) *o++ = t[--n]; *o = 0; }
+/* Ausgabe: bis zu 4 Nachkommastellen, ohne ueberfluessige Nullen; Dezimalzeichen je nach Sprache */
+static void i64dec(char* o, int64_t v) {
+    if (v < 0) { *o++ = '-'; v = -v; }
+    v = (v + 50) / 100;                                                          /* auf 4 Stellen runden (Einheit 1e-4) */
+    int64_t ip = v / 10000, fp = v % 10000;
+    char t[24]; int n = 0; if (!ip) t[n++] = '0'; while (ip) { t[n++] = (char)('0' + ip % 10); ip /= 10; } while (n) *o++ = t[--n];
+    if (fp) { *o++ = lang == 0 ? ',' : '.'; char f[4] = { (char)('0' + fp / 1000), (char)('0' + fp / 100 % 10), (char)('0' + fp / 10 % 10), (char)('0' + fp % 10) }; int e = 4; while (e > 0 && f[e - 1] == '0') e--; for (int i = 0; i < e; i++) *o++ = f[i]; }
+    *o = 0;
+}
 
 /* Rechner-Fenster */
 enum { K_RB0 = 100 };
 static char rexpr[40]; static int rlen; static char rres[40];
-static const char* const rtasten[20] = { "C", "(", ")", "/", "7", "8", "9", "*", "4", "5", "6", "-", "1", "2", "3", "+", "0", "00", "<", "=" };
+static const char* const rtasten[20] = { "C", "(", ")", "/", "7", "8", "9", "*", "4", "5", "6", "-", "1", "2", "3", "+", "0", ",", "<", "=" };
 static void rech_zuruecksetzen(void) { rlen = 0; rexpr[0] = 0; rres[0] = 0; }
 static void rech_druecke(const char* t) {
     if (t[0] == 'C') { rech_zuruecksetzen(); }
@@ -1463,7 +1549,7 @@ static void rech_taste(uint8_t k, int shift, int altgr) {
     if (k == 0x29) { fenster_schliessen_typ(FT_RECH); return; }
     if (k == 0x28 || k == 0x58) rech_druecke("=");
     else if (k == 0x2A) rech_druecke("<");
-    else { char c = usb_key_char(k, shift, altgr); if ((c >= '0' && c <= '9') || c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' || c == 'x' || c == ':') { char t[2] = { c, 0 }; rech_druecke(t); } else return; }
+    else { char c = usb_key_char(k, shift, altgr); if ((c >= '0' && c <= '9') || c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' || c == 'x' || c == ':' || c == '.' || c == ',') { char t[2] = { c, 0 }; rech_druecke(t); } else return; }
     zeichne_rechner();
 }
 /* System-Info-Fenster */
@@ -1513,38 +1599,162 @@ static void sprachpaket(void) {                                          /* alle
     zdb_stapel(0); npend = 0; busy_ende();
     kprint("[DESKTOP] Sprachpaket: "); kprint_dec((uint32_t)ok); kprint(" von "); kprint_dec((uint32_t)total); kprint(" Texten uebersetzt\n");
 }
+static int einst_tab;                                    /* 0 Allgemein, 1 KI, 2 Aussehen */
+static int ek_feld;                                      /* Eingabe laeuft: 1 = API-Schluessel, 2 = Modellname, 0 = keine */
+static char ek_buf[200]; static int ek_len;
+static char ek_meldung[100]; static int ek_ok;
+enum { K_ETAB = 15, K_EKEY = 18, K_EKEYDEL, K_EMOD_V, K_EMOD_N, K_EMOD_EIGEN, K_ETEST, K_ETHEMA = 30, K_EHG = 40 };
+static const char* const ANBIETER_HOST[4] = { "", "api.openai.com", "api.anthropic.com", "generativelanguage.googleapis.com" };
+static const char* const MODELLE[4][5] = {
+    { 0, 0, 0, 0, 0 }, { "gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", 0 }, { "claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", 0, 0 }, { "gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro", 0, 0 },
+};
+static void th_speichern(void) {
+    char a[12]; dec(a, (uint32_t)th_nr); zdb_put("ui.schema", a); dec(a, (uint32_t)hg_nr); zdb_put("ui.hintergrund", a);
+    kprint("[DESKTOP] Aussehen: Farbschema "); kprint(THEMEN[th_nr].en); kprint(", Hintergrund "); kprint_dec((uint32_t)hg_nr); kprint("\n");
+}
+static void modell_wechsel(int vor) {                    /* naechstes/vorheriges Modell des gewaehlten Anbieters */
+    int q = ext_quelle(); if (!q) return;
+    int n = 0, cur = -1; const char* m = ext_modell(q);
+    while (n < 5 && MODELLE[q][n]) { if (ueq(MODELLE[q][n], m)) cur = n; n++; }
+    if (!n) return;
+    cur = cur < 0 ? (vor ? 0 : n - 1) : (cur + (vor ? 1 : n - 1)) % n;
+    ext_modell_setze(q, MODELLE[q][cur]);
+    kprint("[DESKTOP] KI-Modell: "); kprint(ext_modell(q)); kprint("\n");
+}
+static void ek_start(int feld) { ek_feld = feld; ek_len = 0; ek_buf[0] = 0; ek_meldung[0] = 0; }
+static void ext_pruefen(void) {                          /* Verbindung zum gewaehlten Anbieter testen */
+    int q = ext_quelle(); ek_ok = 0;
+    if (!q) return;
+    if (!ext_schluessel_da(q)) { scopy(ek_meldung, TR("Zuerst den Schluessel eingeben.", "Enter the key first."), 100); return; }
+    static char o[300];
+    busy_tick();
+    int n = ext_frage("Antworte nur mit dem Wort OK.", o, sizeof(o));
+    ascii_fold(o);
+    if (n > 0) { ek_ok = 1; scopy(ek_meldung, TR("Verbindung ok. Antwort: ", "Connection ok. Reply: "), 100); o[40] = 0; cat(ek_meldung, o, 100); }
+    else { scopy(ek_meldung, o[0] ? o : TR("Keine Verbindung.", "No connection."), 100); }
+    kprint("[DESKTOP] KI-Test: "); kprint(ek_meldung); kprint("\n");
+    busy_ende();
+}
 static void einst_klick(int id) {
     int k = id - K_EIN0;
-    if (k >= 0 && k < 5) lang_setze(k);
+    if (k >= K_ETAB && k < K_ETAB + 3) { einst_tab = k - K_ETAB; ek_feld = 0; ek_meldung[0] = 0; kprint("[DESKTOP] Einstellungen: Reiter "); kprint_dec((uint32_t)einst_tab); kprint("\n"); }
+    else if (k >= 0 && k < 5) lang_setze(k);
     else if (k == 5 || k == 6) { int n = usb_get_layout() + (k == 5 ? -1 : 1); if (n < 0) n = KBD_LAYOUTS - 1; if (n >= KBD_LAYOUTS) n = 0; usb_set_layout(n); zdb_put("system.tastatur", kbd_layouts[n].code); }
     else if (k >= 7 && k <= 9) { fw_modus(k == 7 ? FW_AUS : k == 8 ? FW_NORMAL : FW_STRENG); fw_speichern(); }
     else if (k >= 10 && k <= 13) {
-        int q = k - 10;
-        if (q && !ext_schluessel_da(q)) { char m[100]; scopy(m, TR("Zuerst den Schluessel eintragen: Wartung, kiextern einrichten ", "First enter the key: maintenance, kiextern einrichten "), 100); cat(m, ext_kennung(q), 100); reply1(m); }
-        else ext_setze_quelle(q);
+        int q = k - 10; ek_feld = 0; ek_meldung[0] = 0; ext_setze_quelle(q);
+        if (q && !ext_schluessel_da(q)) ek_start(1);                                       /* gleich nach dem Schluessel fragen */
     }
     else if (k == 14) { sprachpaket(); return; }
-    else if (k == 11) { sprachpaket(); return; }
+    else if (k == K_EKEY - 0 && ext_quelle()) ek_start(1);
+    else if (k == K_EKEYDEL && ext_quelle()) { ext_schluessel_setze(ext_quelle(), ""); ek_feld = 0; scopy(ek_meldung, TR("Schluessel geloescht.", "Key deleted."), 100); ek_ok = 0; }
+    else if ((k == K_EMOD_V || k == K_EMOD_N) && ext_quelle()) { modell_wechsel(k == K_EMOD_N); ek_feld = 0; ek_meldung[0] = 0; }
+    else if (k == K_EMOD_EIGEN && ext_quelle()) ek_start(2);
+    else if (k == K_ETEST) { ek_feld = 0; scopy(ek_meldung, TR("Pruefe ...", "Checking ..."), 100); zeichne_einst(); ext_pruefen(); }
+    else if (k >= K_ETHEMA && k < K_ETHEMA + 6) { th_nr = k - K_ETHEMA; th_speichern(); }
+    else if (k >= K_EHG && k < K_EHG + 4) { hg_nr = k - K_EHG; th_speichern(); }
     zeichne_desktop();
+}
+static void einst_taste(uint8_t k, int shift, int altgr) {                  /* Eingabe in das Schluessel- oder Modellfeld */
+    int q = ext_quelle();
+    if (k == 0x29) { ek_feld = 0; ek_len = 0; ek_buf[0] = 0; }
+    else if (k == 0x28 || k == 0x58) {
+        if (ek_len && q) {
+            if (ek_feld == 1) { ext_schluessel_setze(q, ek_buf); ek_ok = 0; kprint("[DESKTOP] KI-Schluessel gespeichert ("); kprint_dec((uint32_t)ek_len); kprint(" Zeichen)\n"); scopy(ek_meldung, TR("Schluessel gespeichert. Mit \"Verbindung testen\" pruefen.", "Key saved. Check it with \"Test connection\"."), 100); }
+            else { ext_modell_setze(q, ek_buf); scopy(ek_meldung, TR("Modell gespeichert.", "Model saved."), 100); }
+        }
+        ek_feld = 0; ek_len = 0; ek_buf[0] = 0;
+    }
+    else if (k == 0x2A) { if (ek_len) ek_buf[--ek_len] = 0; }
+    else if (cur_ctrl && k == 0x19) { for (int i = 0; i < cliplen && ek_len < 190; i++) if (clip[i] >= 33 && clip[i] < 127) ek_buf[ek_len++] = clip[i]; ek_buf[ek_len] = 0; }
+    else { char c = usb_key_char(k, shift, altgr); if (c >= 33 && c < 127 && ek_len < 190) { ek_buf[ek_len++] = c; ek_buf[ek_len] = 0; } else return; }
+    zeichne_einst();
+}
+static void einst_kurztaste(uint8_t k, int shift, int altgr) {            /* Tastatur: Tab = Reiter wechseln; Aussehen: 1-6 Farbschema, H Hintergrund; KI: 0-3 Anbieter, M Modell */
+    if (k == 0x2B) { einst_tab = (einst_tab + 1) % 3; ek_feld = 0; ek_meldung[0] = 0; kprint("[DESKTOP] Einstellungen: Reiter "); kprint_dec((uint32_t)einst_tab); kprint("\n"); zeichne_desktop(); return; }
+    char c = usb_key_char(k, shift, altgr);
+    if (einst_tab == 2) {
+        if (c >= '1' && c <= '6') { th_nr = c - '1'; th_speichern(); zeichne_desktop(); }
+        else if (c == 'h' || c == 'H') { hg_nr = (hg_nr + 1) & 3; th_speichern(); zeichne_desktop(); }
+    } else if (einst_tab == 1) {
+        if (c >= '0' && c <= '3') einst_klick(K_EIN0 + 10 + (c - '0'));
+        else if ((c == 'm' || c == 'M') && ext_quelle()) { modell_wechsel(1); zeichne_einst(); }
+    }
+}
+static void einst_feld(int x, int y, int w, int aktiv, const char* text, int maske) {
+    rrect_rand(x, y, w, 30, 8, C_FIELD, aktiv ? C_ACC : C_BORDER);
+    char t[64]; int n = slen(text), mc = (w - 24) / 8; if (mc > 62) mc = 62;
+    int von = n > mc ? n - mc : 0, o = 0;
+    for (int i = von; i < n && o < 62; i++) t[o++] = (maske && i < n - 4) ? '*' : text[i];
+    t[o] = 0; gtxt(x + 10, y + 7, t, C_TEXT, 1);
+    if (aktiv) gfx_rect(x + 10 + o * 8, y + 5, 2, 20, C_TEXT);
 }
 static void zeichne_einst(void) {
     int wi = fenster_idx(FT_EINST); if (wi < 0) return;
-    struct fenster* f = &fen[wi]; int x = f->x + 20, y = f->y + WT_H + 14, ko = kn_owner; kn_owner = wi; kn_loesche_owner(wi);
+    struct fenster* f = &fen[wi]; int x = f->x + 24, bw = f->w - 48, ko = kn_owner; kn_owner = wi; kn_loesche_owner(wi);
+    int y = f->y + WT_H + 12;
     gfx_begin(); gfx_rect(f->x + 2, f->y + WT_H, f->w - 4, f->h - WT_H - 2, C_BG);
-    gtxt(x, y, T5("Sprache", "Language", "Langue", "Lingua", "Idioma"), C_MUTED, 1);
-    for (int i = 0; i < 5; i++) knopf(K_EIN0 + i, LNAME[i], x + i * 106, y + 22, 100, i == lang);
-    y += 78;
-    { int c = usb_get_layout(); char t[60]; scopy(t, T5("Tastatur: ", "Keyboard: ", "Clavier : ", "Tastiera: ", "Teclado: "), 60); cat(t, kbd_layouts[c].code, 60); cat(t, " (", 60); cat(t, kbd_layouts[c].name, 60); cat(t, ")", 60); gtxt(x, y + 9, t, C_TEXT, 1); }
-    knopf(K_EIN0 + 5, "<", f->x + f->w - 100, y, 36, 0); knopf(K_EIN0 + 6, ">", f->x + f->w - 56, y, 36, 0);
-    y += 52; gtxt(x, y, "Firewall", C_MUTED, 1);
-    { int m = fw_modus_get(); knopf(K_EIN0 + 7, T5("Aus", "Off", "Desactive", "Spento", "Apagado"), x, y + 22, 110, m == 0); knopf(K_EIN0 + 8, "Normal", x + 118, y + 22, 110, m == 1); knopf(K_EIN0 + 9, T5("Streng", "Strict", "Strict", "Rigido", "Estricto"), x + 236, y + 22, 110, m == 2); }
-    y += 78; gtxt(x, y, T5("Sprachmodell (KI)", "Language model (AI)", "Modele de langage (IA)", "Modello linguistico (IA)", "Modelo de lenguaje (IA)"), C_MUTED, 1);
-    { int qa = ext_quelle(); for (int i = 0; i < 4; i++) knopf(K_EIN0 + 10 + i, ext_name(i), x + i * 106, y + 22, 100, i == qa);
-      gtxt(x, y + 62, qa ? TR("Achtung: Fragen gehen an den Anbieter. Zynie (intern) bleibt Rueckfall.", "Warning: questions go to the provider. Zynie (internal) stays as fallback.") : gehirn_vorhanden() ? TR("Alles bleibt auf diesem Geraet. Die interne KI laesst sich nicht abschalten.", "Everything stays on this device. The internal AI cannot be switched off.") : TR("kein internes Sprachmodell geladen", "no internal language model loaded"), qa ? 0x00F59E0Bu : C_TEXT, 1);
-      if (lang >= 2 && gehirn_vorhanden()) knopf(K_EIN0 + 14, T5("Sprachpaket", "Language pack", "Pack de langue", "Pacchetto lingua", "Paquete de idioma"), x, y + 84, 200, 0); }
-    y += 128;
-    gtxt(x, y, (synfs_is_mounted() && synfs_krypto_hdr()->magic == SYNFS_KRY_MAGIC) ? TR("Festplatte: verschluesselt (256-Bit)", "Disk: encrypted (256-bit)") : TR("Festplatte: nicht verschluesselt (Shell: krypto aktivieren)", "Disk: not encrypted (shell: krypto aktivieren)"), C_TEXT, 1);
-    gtxt(x, y + 24, zdb_offen() ? TR("Alles wird in ZynDB gespeichert (verschluesselt)", "Everything is stored in ZynDB (encrypted)") : TR("ZynDB nicht verfuegbar", "ZynDB unavailable"), C_MUTED, 1);
+    { int tw = (bw - 12) / 3; const char* tn[3] = { T5("Allgemein", "General", "General", "Generale", "General"), T5("KI-Modelle", "AI models", "Modeles IA", "Modelli IA", "Modelos IA"), T5("Aussehen", "Appearance", "Apparence", "Aspetto", "Aspecto") };
+      for (int i = 0; i < 3; i++) knopf(K_EIN0 + K_ETAB + i, tn[i], x + i * (tw + 6), y, tw, i == einst_tab); }
+    y += 50;
+    if (einst_tab == 0) {
+        gtxt(x, y, T5("Sprache", "Language", "Langue", "Lingua", "Idioma"), C_MUTED, 1);
+        { int w5 = (bw - 4 * 8) / 5; for (int i = 0; i < 5; i++) knopf(K_EIN0 + i, LNAME[i], x + i * (w5 + 8), y + 22, w5, i == lang); }
+        y += 78;
+        { int c = usb_get_layout(); char t[60]; scopy(t, T5("Tastatur: ", "Keyboard: ", "Clavier : ", "Tastiera: ", "Teclado: "), 60); cat(t, kbd_layouts[c].code, 60); cat(t, " (", 60); cat(t, kbd_layouts[c].name, 60); cat(t, ")", 60); gtxt(x, y + 9, t, C_TEXT, 1); }
+        knopf(K_EIN0 + 5, "<", f->x + f->w - 100, y, 36, 0); knopf(K_EIN0 + 6, ">", f->x + f->w - 56, y, 36, 0);
+        y += 56; gtxt(x, y, "Firewall", C_MUTED, 1);
+        { int m = fw_modus_get(); knopf(K_EIN0 + 7, T5("Aus", "Off", "Desactive", "Spento", "Apagado"), x, y + 22, 120, m == 0); knopf(K_EIN0 + 8, "Normal", x + 128, y + 22, 120, m == 1); knopf(K_EIN0 + 9, T5("Streng", "Strict", "Strict", "Rigido", "Estricto"), x + 256, y + 22, 120, m == 2); }
+        y += 82;
+        gtxt(x, y, (synfs_is_mounted() && synfs_krypto_hdr()->magic == SYNFS_KRY_MAGIC) ? TR("Festplatte: verschluesselt (256-Bit)", "Disk: encrypted (256-bit)") : TR("Festplatte: nicht verschluesselt (Shell: krypto aktivieren)", "Disk: not encrypted (shell: krypto aktivieren)"), C_TEXT, 1);
+        gtxt(x, y + 26, zdb_offen() ? TR("Alles wird in ZynDB gespeichert (verschluesselt)", "Everything is stored in ZynDB (encrypted)") : TR("ZynDB nicht verfuegbar", "ZynDB unavailable"), C_MUTED, 1);
+    } else if (einst_tab == 1) {
+        int qa = ext_quelle();
+        gtxt(x, y, T5("Sprachmodell (KI)", "Language model (AI)", "Modele de langage (IA)", "Modello linguistico (IA)", "Modelo de lenguaje (IA)"), C_MUTED, 1);
+        { int w4 = (bw - 3 * 8) / 4; for (int i = 0; i < 4; i++) knopf(K_EIN0 + 10 + i, ext_name(i), x + i * (w4 + 8), y + 22, w4, i == qa); }
+        y += 70;
+        if (!qa) {
+            gtxt(x, y, gehirn_vorhanden() ? TR("Zynie (intern) laeuft lokal. Nichts verlaesst dieses Geraet.", "Zynie (internal) runs locally. Nothing leaves this device.") : TR("Kein internes Sprachmodell geladen.", "No internal language model loaded."), C_TEXT, 1);
+            gtxt(x, y + 28, TR("Das kleine lokale Modell macht Fehler. Fuer bessere Antworten", "The small local model makes mistakes. For better answers"), C_MUTED, 1);
+            gtxt(x, y + 46, TR("ChatGPT, Claude oder Gemini oben waehlen und den Schluessel eintragen.", "choose ChatGPT, Claude or Gemini above and enter your key."), C_MUTED, 1);
+            if (lang >= 2 && gehirn_vorhanden()) knopf(K_EIN0 + 14, T5("Sprachpaket", "Language pack", "Pack de langue", "Pacchetto lingua", "Paquete de idioma"), x, y + 84, 220, 0);
+        } else {
+            int ch = 236; rrect_rand(x, y, bw, ch, 12, C_CARD, C_BORDER);
+            { char t[100]; scopy(t, ext_name(qa), 100); cat(t, "  -  ", 100); cat(t, ANBIETER_HOST[qa], 100); gtxt(x + 14, y + 12, t, C_ACC2, 1); }
+            gtxt(x + 14, y + 38, TR("API-Schluessel", "API key"), C_MUTED, 1);
+            if (ek_feld == 1) einst_feld(x + 14, y + 58, bw - 28, 1, ek_buf, 1);
+            else einst_feld(x + 14, y + 58, bw - 28, 0, ext_schluessel_da(qa) ? TR("gespeichert (verschluesselt)", "saved (encrypted)") : TR("noch kein Schluessel", "no key yet"), 0);
+            knopf(K_EIN0 + K_EKEY, ext_schluessel_da(qa) ? TR("Aendern", "Change") : TR("Eingeben", "Enter"), x + 14, y + 98, 150, ek_feld == 1);
+            if (ext_schluessel_da(qa)) knopf(K_EIN0 + K_EKEYDEL, TR("Loeschen", "Delete"), x + 172, y + 98, 130, 0);
+            if (ek_feld == 1) gtxt(x + 312, y + 107, TR("Enter = speichern, Esc = abbrechen, Strg+V = einfuegen", "Enter = save, Esc = cancel, Ctrl+V = paste"), C_MUTED, 1);
+            gtxt(x + 14, y + 144, TR("Modell", "Model"), C_MUTED, 1);
+            knopf(K_EIN0 + K_EMOD_V, "<", x + 14, y + 164, 36, 0);
+            if (ek_feld == 2) einst_feld(x + 56, y + 166, bw - 56 - 56 - 168, 1, ek_buf, 0); else einst_feld(x + 56, y + 166, bw - 56 - 56 - 168, 0, ext_modell(qa), 0);
+            knopf(K_EIN0 + K_EMOD_N, ">", x + bw - 14 - 36 - 160, y + 164, 36, 0);
+            knopf(K_EIN0 + K_EMOD_EIGEN, TR("Eigener Name", "Custom name"), x + bw - 14 - 150, y + 164, 150, ek_feld == 2);
+            knopf(K_EIN0 + K_ETEST, TR("Verbindung testen", "Test connection"), x + 14, y + 192, 210, 0);
+            gtxt(x + 236, y + 201, ek_meldung, ek_ok ? C_OK : (ek_meldung[0] ? 0x00F59E0Bu : C_MUTED), 1);
+            gtxt(x, y + ch + 10, TR("Fragen und Antworten gehen verschluesselt (TLS) direkt an den Anbieter.", "Questions and answers go to the provider over TLS."), C_MUTED, 1);
+            gtxt(x, y + ch + 30, TR("Faellt der Anbieter aus, antwortet Zynie (intern).", "If the provider fails, Zynie (internal) answers."), C_MUTED, 1);
+        }
+    } else {
+        gtxt(x, y, T5("Farbschema", "Colour scheme", "Couleurs", "Colori", "Colores"), C_MUTED, 1);
+        int sw = (bw - 20) / 3;
+        for (int i = 0; i < 6; i++) {
+            const uint32_t* c = THEMEN[i].c; int sx = x + (i % 3) * (sw + 10), sy = y + 24 + (i / 3) * 78;
+            if (i == th_nr) rrect(sx - 3, sy - 3, sw + 6, 72, 15, C_ACC2);
+            rrect_rand(sx, sy, sw, 66, 12, c[1], c[2]);
+            rrect(sx + 8, sy + 8, sw - 16, 26, 7, c[9]); rrect(sx + 8 + (sw - 16) / 2, sy + 8, (sw - 16) / 2, 26, 7, c[10]);
+            rrect(sx + 14, sy + 14, 14, 14, 7, c[5]); rrect(sx + 32, sy + 18, 40, 6, 3, c[3]);
+            gtxt(sx + 10, sy + 42, lang == 0 ? THEMEN[i].de : THEMEN[i].en, c[3], 1);
+            kn_reg(K_EIN0 + K_ETHEMA + i, sx, sy, sw, 66);
+        }
+        y += 24 + 2 * 78 + 6;
+        gtxt(x, y, T5("Hintergrund", "Background", "Arriere-plan", "Sfondo", "Fondo"), C_MUTED, 1);
+        { static const char* const hn[4][2] = { { "Verlauf", "Gradient" }, { "Aurora", "Aurora" }, { "Raster", "Grid" }, { "Einfarbig", "Solid" } };
+          int w4 = (bw - 3 * 8) / 4; for (int i = 0; i < 4; i++) knopf(K_EIN0 + K_EHG + i, hn[i][lang == 0 ? 0 : 1], x + i * (w4 + 8), y + 22, w4, i == hg_nr); }
+        gtxt(x, y + 70, TR("Die Aenderung ist sofort hinter dem Fenster zu sehen.", "The change is visible right away behind the window."), C_MUTED, 1);
+    }
     gfx_end();
     lader(f->x + f->w - 60, f->y + f->h - 56, 34, timer_get_ticks() / 5, C_BG);
     kn_owner = ko;
@@ -1670,14 +1880,29 @@ static void zeichne_chats(void) {
 }
 
 static void intent_rechnen(const char* roh) {
-    char ex[96]; int k = 0;
-    for (const char* s = roh; *s && k < 94; s++) if ((*s >= '0' && *s <= '9') || *s == '+' || *s == '-' || *s == '*' || *s == '/' || *s == '(' || *s == ')' || *s == 'x' || *s == ':' || *s == ' ') ex[k++] = *s;
+    static const struct { const char* w; char c; } OPW[] = {                          /* Rechenwoerter in den fuenf Sprachen */
+        { "geteilt durch", '/' }, { "dividiert durch", '/' }, { "divided by", '/' }, { "divise par", '/' }, { "diviso", '/' }, { "dividido por", '/' }, { "durch", '/' }, { "geteilt", '/' },
+        { "multipliziert mit", '*' }, { "multiplied by", '*' }, { "mal", '*' }, { "times", '*' }, { "fois", '*' }, { "per", '*' }, { "por", '*' },
+        { "plus", '+' }, { "und", '+' }, { "and", '+' }, { "mas", '+' }, { "piu", '+' }, { "minus", '-' }, { "weniger", '-' }, { "moins", '-' }, { "meno", '-' }, { "menos", '-' }, { 0, 0 } };
+    char ex[96]; int k = 0; int n = slen(roh);
+    for (int i = 0; i < n && k < 92; ) {
+        char c = roh[i];
+        if ((c >= '0' && c <= '9') || c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' || c == 'x' || c == 'X' || c == ':' || c == ' ' || c == '.' || c == ',') { ex[k++] = c; i++; continue; }
+        int hit = 0;
+        if (i == 0 || roh[i - 1] == ' ') for (int j = 0; OPW[j].w; j++) {
+            int l = slen(OPW[j].w), ok = 1; for (int q = 0; q < l; q++) { char a = roh[i + q]; if (a >= 'A' && a <= 'Z') a = (char)(a + 32); if (a != OPW[j].w[q]) { ok = 0; break; } }
+            if (ok && (roh[i + l] == ' ' || roh[i + l] == 0)) { ex[k++] = OPW[j].c; i += l; hit = 1; break; }
+        }
+        if (!hit) i++;                                                                  /* andere Woerter ("was ist") ueberspringen */
+    }
+    while (k > 0 && (ex[k - 1] == ' ' || ex[k - 1] == '.' || ex[k - 1] == ',' || ex[k - 1] == '?')) k--;     /* Satzzeichen am Ende */
     ex[k] = 0;
-    rp = ex; rfehler = 0; int64_t v = r_ausdruck(); r_leer();
+    char* es = ex; while (*es == ' ') es++;
+    rp = es; rfehler = 0; int64_t v = r_ausdruck(); r_leer();
     if (*rp) rfehler = 1;
     if (rfehler == 2) { reply1(TR("Durch null kann man nicht teilen.", "You cannot divide by zero.")); return; }
     if (rfehler) { reply1(TR("Das konnte ich nicht ausrechnen. Beispiel: rechne (12+3)*7", "I could not work that out. Example: calc (12+3)*7")); return; }
-    char o[110]; scopy(o, ex, 60); cat(o, " = ", 110); char z[28]; i64dec(z, v); cat(o, z, 110);
+    char o[110]; scopy(o, es, 60); cat(o, " = ", 110); char z[40]; i64dec(z, v); cat(o, z, 110);
     reply1(o);
     kprint("[DESKTOP] Rechnung: "); kprint(o); kprint("\n");
 }
@@ -1741,7 +1966,7 @@ static void ki_antwort(const char* frage) {
     ki_gefragt = 1; ki_len = 0;
     reply1(TR("Moment, ich denke nach ...", "One moment, thinking ...")); zeichne_antwort(); zeichne_robot();
     static char roh[600]; char fq[330];
-    if (lang != 0) { scopy(fq, "Answer in ", 330); cat(fq, LENG[lang], 330); cat(fq, ". ", 330); cat(fq, frage, 330); } else scopy(fq, frage, 330);
+    if (lang != 0) { scopy(fq, "Answer in ", 330); cat(fq, LENG[lang], 330); cat(fq, ". ", 330); cat(fq, frage, 330); } else { scopy(fq, "Antworte kurz auf Deutsch. ", 330); cat(fq, frage, 330); }
     busy_tick();
     static char gk[560], ef[800];
     int teilen = zdb_geti("ged.extern", 0) != 0;                              /* Erinnerungen gehen nur mit Erlaubnis an externe Anbieter */
@@ -1821,6 +2046,7 @@ static void ausfuehren_roh(void) {
     if (!k) return;
     hist_add(roh);
     if (ged_sprache(s, roh)) { kprint("[DESKTOP] Gedaechtnis\n"); zeichne_antwort(); zeichne_eingabe(); return; }
+    { static char fa[160]; if (in != I_FENSTER && fakt_antwort(roh, lang, fa, sizeof(fa))) { kprint("[DESKTOP] Fakt: "); kprint(fa); kprint("\n"); reply1(fa); zeichne_antwort(); zeichne_eingabe(); return; } }
     kprint("[DESKTOP] Intent '"); kprint(roh); kprint("' -> ");
     switch (in) {
     case I_TEXT: kprint("Textverarbeitung\n"); editor_oeffnen(); return;
@@ -1904,7 +2130,7 @@ static void entsperren_versuch(void) {
     if (krypto_entsperren(dev, fpw) != 0) { kprint("[DESKTOP] Entsperren fehlgeschlagen\n"); fpw[0] = 0; fmsg = 1; ffocus = 0; zeichne_login(); return; }
     if (block_select(dev) != 0 || synfs_mount() != 0) { fpw[0] = 0; fmsg = 1; zeichne_login(); return; }
     kprint("[DESKTOP] Festplatte entsperrt\n");
-    benutzer_laden(); fw_laden(); zdb_init(); ged_neu_laden();
+    benutzer_laden(); fw_laden(); zdb_init(); th_laden(); ged_neu_laden();
     entsperr = 0; fpw[0] = 0; fmsg = 0; ffocus = 0; fname[0] = 0;
     if (benutzer_gesperrt()) zeichne_login();
     else { zustand = Z_DESK; einlen = 0; eingabe[0] = 0; reply1(TR("Festplatte entsperrt. Was moechtest du tun?", "Disk unlocked. What would you like to do?")); zeichne_desktop(); }
@@ -1914,6 +2140,8 @@ static void taste_roh(uint8_t k, int shift, int altgr) {
     if (menu.offen) { if (k == 0x29) menu_schliessen(); return; }
     if (zustand != Z_LOGIN && k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }
     if (zustand == Z_RECH) { rech_taste(k, shift, altgr); return; }
+    if (zustand == Z_INFO && ek_feld && fenster_idx(FT_EINST) >= 0) { einst_taste(k, shift, altgr); return; }
+    if (zustand == Z_INFO && nfen && fen[nfen - 1].typ == FT_EINST && k != 0x29) { einst_kurztaste(k, shift, altgr); return; }
     if (zustand == Z_INFO) { if (k == 0x29 && nfen) fenster_schliessen_typ(fen[nfen - 1].typ); return; }
     if (zustand == Z_EDIT) { if (cur_ctrl && strg_taste(k)) return; editor_taste(k, shift, altgr); return; }
     if (zustand == Z_WEB) { web_taste(k, shift, altgr); return; }
@@ -2128,7 +2356,7 @@ static void klick(int x, int y, int owner) {
         else if (zustand == Z_WEB && id >= K_SUG0 && id < K_SUG0 + 5 && id - K_SUG0 < nsug) { scopy(adr, sug[id - K_SUG0], 192); adrlen = slen(adr); web_gehe(adr, 1); }
         else if (zustand == Z_WEB && id >= K_LZ0 && id < K_LZ0 + 14) { char t[200]; int n = id - K_LZ0; if (n < 10) { if (lz_zeile(n, t, 200)) web_gehe(t, 1); } else if (web_vorgabe[n - 10]) web_gehe(web_vorgabe[n - 10], 1); }
         else if (zustand == Z_DESK && id == K_NEUDOK) editor_oeffnen();
-        else if (zustand == Z_INFO && id >= K_EIN0 && id < K_EIN0 + 15) einst_klick(id);
+        else if (zustand == Z_INFO && id >= K_EIN0 && id < K_EIN0 + 60) einst_klick(id);
         else if (zustand == Z_INFO && id >= K_CH0 && id < K_CH_DEL + 1) chats_klick(id);
         else if (zustand == Z_INFO && id >= K_GED_SCHLAF && id <= K_GED_VERG) ged_klick(id);
         else if (zustand == Z_RECH && id >= K_RB0 && id < K_RB0 + 20) { rech_druecke(rtasten[id - K_RB0]); zeichne_rechner(); }
@@ -2235,6 +2463,7 @@ int desktop_start(void) {
     gfx_size(&W, &H);
     lang = 0; npend = 0;
     static char cfg[64]; int r = 0;
+    th_laden();
     { const char* sp = zdb_get("system.sprache"); if (sp) { for (int i = 0; i < 5; i++) if (ueq(sp, LCODE[i])) lang = i; } else r = synfs_read("sys.config", cfg, sizeof(cfg) - 1); }
     if (r > 0) { cfg[r] = 0; for (int i = 0; cfg[i]; i++) if (cfg[i] == 'l' && cfg[i + 1] == 'a' && cfg[i + 2] == 'n' && cfg[i + 3] == 'g' && cfg[i + 4] == '=') { lang = (cfg[i + 5] == 'd' ? 0 : 1); break; } }
     bar_w = W - 80 < 760 ? W - 80 : 760; bar_x = (W - bar_w) / 2; bar_y = H - 230;

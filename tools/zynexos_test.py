@@ -287,7 +287,7 @@ def installieren():
     for b in ["text erstellen", "hallo welt"]:
         vm.tippe(b, 2.0)
     vm.mon("sendkey esc"); time.sleep(2.0)
-    for b in ["rechne 12*7", "system", "dateien", "quanten", "sicherheit", "hilfe", "briefing", "agent wartung", "aufgabe milch kaufen", "arbeitsflaeche system", "firewall"]:
+    for b in ["rechne 12*7", "was ist 19/3", "19 geteilt durch 3", "Hauptstadt von Italien", "system", "dateien", "quanten", "sicherheit", "hilfe", "briefing", "agent wartung", "aufgabe milch kaufen", "arbeitsflaeche system", "firewall"]:
         vm.tippe(b, 2.0)
     vm.tippe("browser", 3.0)
     vm.mon("sendkey esc"); time.sleep(2.0)
@@ -295,6 +295,16 @@ def installieren():
     vm.tippe("rechner", 3.0)
     vm.mon("sendkey esc"); time.sleep(2.0)
     vm.tippe("einstellungen", 3.0)
+    vm.mon("sendkey tab"); time.sleep(1.0)
+    vm.mon("sendkey 2"); time.sleep(1.0)                  # Reiter KI-Modelle, Claude waehlen: fragt gleich nach dem Schluessel
+    vm.tippe("sk-ant-test-123", 2.0)
+    vm.mon("sendkey m"); time.sleep(1.0)
+    vm.mon("sendkey 0"); time.sleep(1.0)                  # zurueck auf Zynie (intern)
+    vm.mon("sendkey tab"); time.sleep(1.0)                # Reiter Aussehen
+    vm.mon("sendkey 6"); time.sleep(1.5)
+    vm.mon("sendkey h"); time.sleep(1.5)
+    vm.mon("sendkey 1"); time.sleep(1.0)
+    for _ in range(3): vm.mon("sendkey h"); time.sleep(1.0)       # Hintergrund wieder auf Verlauf
     vm.mon("sendkey esc"); time.sleep(2.0)
     vm.tippe("sprache franzoesisch", 2.0)
     vm.tippe("sprache deutsch", 2.0)
@@ -329,6 +339,8 @@ def installieren():
     pruefe("Desktop: 'text erstellen' oeffnet die Textverarbeitung", "-> Textverarbeitung" in out2)
     pruefe("Desktop: Dokument wird gespeichert", "[DESKTOP] Dokument gespeichert: dokument-1.txt (11 Bytes)" in out2)
     pruefe("Desktop: Rechnen", "12*7 = 84" in out2)
+    pruefe("Desktop: Rechnen mit Dezimalstellen (19/3)", "19/3 = 6,3333" in out2 and "19 / 3 = 6,3333" in out2)
+    pruefe("Desktop: Hauptstadt von Italien aus der Faktentabelle", "[DESKTOP] Fakt: Die Hauptstadt von Italien ist Rom." in out2)
     pruefe("Desktop: System, Dateien, Quanten, Sicherheit, Hilfe", all(x in out2 for x in ("-> System", "-> Dateien", "-> Quanten", "[DESKTOP] Quanten-Demo: Messung", "-> Sicherheit", "-> Hilfe")))
     pruefe("Desktop: Agent Briefing laeuft", "[AGENT] Start: Morning briefing" in out2 and "[AGENT] Schritt: " in out2)
     pruefe("Desktop: Agent fragt Freigabe an", "[AGENT] Freigabe angefragt: Dateisystem sichern" in out2)
@@ -337,6 +349,9 @@ def installieren():
     pruefe("Desktop: Browser oeffnet sich", "[DESKTOP] Browser geoeffnet" in out2)
     pruefe("Desktop: Widget wird hinzugefuegt", "[DESKTOP] Widget hinzugefuegt: 1" in out2)
     pruefe("Desktop: Einstellungsfenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Einstellungen" in out2)
+    pruefe("Desktop: Einstellungen, Reiter KI-Modelle: Schluessel eingegeben und gespeichert", "[DESKTOP] Einstellungen: Reiter 1" in out2 and "[DESKTOP] KI-Schluessel gespeichert (15 Zeichen)" in out2)
+    pruefe("Desktop: Einstellungen: Modell wechseln", "[DESKTOP] KI-Modell: claude-sonnet-5-5" in out2)
+    pruefe("Desktop: Einstellungen, Reiter Aussehen: Farbschema und Hintergrund", "[DESKTOP] Einstellungen: Reiter 2" in out2 and "Farbschema Light, Hintergrund 0" in out2 and "Farbschema Light, Hintergrund 1" in out2 and "Farbschema Night, Hintergrund 1" in out2)
     pruefe("Desktop: Chats-Fenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Chats" in out2)
     pruefe("Desktop: 'merk dir' wird vom Gedaechtnis verstanden", "[DESKTOP] Gedaechtnis" in out2)
     pruefe("Desktop: Gedaechtnis-Befehle auch auf Italienisch/Spanisch", out2.count("[DESKTOP] Gedaechtnis\n") >= 3)

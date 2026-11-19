@@ -1,6 +1,12 @@
 name: zynexos
 on:
   workflow_dispatch:
+    inputs:
+      modell:
+        description: "Lokales Sprachmodell in den ISOs (1.5b = klueger, aber ca. 1,7 GB gross, 3x langsamer, braucht mind. 4 GB RAM; die KI-Tests laufen dann nicht)"
+        type: choice
+        options: ["0.5b", "1.5b"]
+        default: "0.5b"
   push:
     paths: ["zynexos/**", "tools/sb-schluessel.sh", "tools/zynexos_test.py", "tools/zynexos_build.sh", "tools/mk-*.sh", "tools/mkpack.py", "tools/pqsign.py", ".github/workflows/zynexos.yml"]
 jobs:
@@ -11,7 +17,12 @@ jobs:
       - name: Werkzeuge
         run: sudo apt-get update -qq && sudo apt-get install -y nasm gcc clang lld xorriso mtools gdisk dosfstools qemu-system-x86 qemu-utils ovmf sbsigntool >/dev/null && sudo pip3 install --break-system-packages virt-firmware >/dev/null
       - name: Kleines Sprachmodell holen (Test)
-        run: curl -L --retry 5 -f -o qwen-klein.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf
+        run: |
+          if [ "${{ github.event.inputs.modell }}" = "1.5b" ]; then
+            curl -L --retry 5 -f -o qwen-klein.gguf https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q8_0.gguf
+          else
+            curl -L --retry 5 -f -o qwen-klein.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf
+          fi
       - name: Bauen (Kernel, UEFI-Lader, Signaturen, Pakete, ISOs)
         env:
           ZYNEX_SB_KEY: ${{ secrets.ZYNEX_SB_KEY }}
@@ -28,6 +39,7 @@ jobs:
       - name: Test USB-Audio
         run: python3 tools/zynexos_test.py zynexos-test.iso uefi usbaudio
       - name: Test Sprachmodell im Kernel
+        if: ${{ github.event.inputs.modell != '1.5b' }}
         run: |
           gcc -O2 -fno-math-errno -Izynexos/include -o llm_host tools/llm_host.c zynexos/kernel/llm.c -lm
           ZYNEX_LLM_HOST=$PWD/llm_host ZYNEX_MODELL=qwen-klein.gguf ZYNEX_MEM=2048M python3 tools/zynexos_test.py zynexos-ki.iso uefi ki kiinstall

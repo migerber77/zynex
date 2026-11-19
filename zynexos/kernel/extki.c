@@ -18,8 +18,9 @@ const char* ext_name(int q) { return ANZ[q >= 0 && q < 4 ? q : 0]; }
 const char* ext_kennung(int q) { return KENN[q >= 0 && q < 4 ? q : 0]; }
 int ext_quelle(void) { const char* v = zdb_get("extern.quelle"); if (!v) return 0; for (int i = 1; i < 4; i++) if (gl(v, KENN[i])) return i; return 0; }
 void ext_setze_quelle(int q) { zdb_put("extern.quelle", KENN[q >= 0 && q < 4 ? q : 0]); }
-int ext_schluessel_da(int q) { char k[48]; schl(k, q, "key"); const char* v = zdb_get(k); return v && v[0]; }
-void ext_schluessel_setze(int q, const char* key) { char k[48]; schl(k, q, "key"); zdb_put(k, key); }
+/* Schluessel koennen laenger sein als ein ZynDB-Wert (160 Zeichen, z. B. OpenAI-Projektschluessel): sie liegen in Stuecken (zdb_put_text) */
+int ext_schluessel_da(int q) { char k[48]; static char b[4]; schl(k, q, "key"); if (zdb_get_text(k, b, 2) > 0) return 1; const char* v = zdb_get(k); return v && v[0]; }
+void ext_schluessel_setze(int q, const char* key) { char k[48]; schl(k, q, "key"); zdb_put_text(k, key, slen(key)); zdb_put(k, ""); }
 void ext_modell_setze(int q, const char* name) { char k[48]; schl(k, q, "modell"); zdb_put(k, name); }
 const char* ext_modell(int q) { char k[48]; schl(k, q, "modell"); const char* v = zdb_get(k); return v && v[0] ? v : STD[q]; }
 
@@ -62,7 +63,7 @@ static int escape(const char* s, char* o, int max) {
 int ext_frage(const char* frage, char* out, int max) {
     int q = ext_quelle(); out[0] = 0;
     if (!q) return -1;
-    char k[48]; schl(k, q, "key"); const char* key = zdb_get(k);
+    char k[48]; schl(k, q, "key"); static char kbuf[360]; const char* key = zdb_get_text(k, kbuf, sizeof(kbuf)) > 0 ? kbuf : zdb_get(k);
     if (!key || !key[0]) { kat(out, "Kein Schluessel fuer ", max); kat(out, ANZ[q], max); kat(out, " (Shell: kiextern einrichten ", max); kat(out, KENN[q], max); kat(out, ")", max); return -2; }
     static char esc[900], body[1300], path[200], hdr[400];
     escape(frage, esc, sizeof(esc));
