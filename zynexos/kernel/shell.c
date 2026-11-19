@@ -27,6 +27,7 @@
 #include "lms_testvec.h"
 #include "net.h"
 #include "wifi.h"
+#include "wlan.h"
 #include "x509.h"
 #include "benutzer.h"
 #include "installer.h"
@@ -523,6 +524,8 @@ static void run_legacy(char* cmd) {
         else kprint("Usage: usbnet ecm|rndis\n");
     }
     else if (streq(cmd, "wpatest")) { wpa_selbsttest(); }
+    else if (streq(cmd, "wlantest")) { wlan_selbsttest(); }
+    else if (streq(cmd, "wlan") || starts_with(cmd, "wlan ")) wlan_befehl(cmd + 4);
     else if (starts_with(cmd, "qubit")) { cmd_qubit(cmd + 5); }
     else if (streq(cmd, "pqtest")) {
         /* Selbsttest der quantensicheren Signaturpruefung (LMS/SHA-256) mit einem von tools/pqsign.py erzeugten Vektor */

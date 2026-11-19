@@ -64,6 +64,8 @@ static struct rtd* rtx;
 static uint8_t mymac[6];
 /* USB-Netzwerk (CDC-ECM / RNDIS, z. B. USB-Tethering am Handy): nic_typ 4 */
 extern int  usbnet_send(const uint8_t* f, int len);
+extern int  wlan_senden(const uint8_t* eth, int len);
+extern void wlan_poll(void (*cb)(const uint8_t* eth, int len));
 extern void usbnet_poll(void (*cb)(const uint8_t*, int));
 static uint8_t pci_mac[6]; static int pci_typ_prev = 0, pci_ok_prev = 0, usb_aktiv = 0, net_fertig = 0, dhcp_wunsch = 0;
 
@@ -352,10 +354,11 @@ static void vio_poll(void) {
     }
 }
 
-static int link_up(void) { if (nic_typ == 5 || nic_typ == 4 || nic_typ == 3) return 1; if (nic_typ == 2) return (rd8(0x6C) & 2) != 0; return (rd(0x08) & 2) != 0; }
+static int link_up(void) { if (nic_typ == 6 || nic_typ == 5 || nic_typ == 4 || nic_typ == 3) return 1; if (nic_typ == 2) return (rd8(0x6C) & 2) != 0; return (rd(0x08) & 2) != 0; }
 
 static int nic_send(const uint8_t* f, int len) {
     if (!nic_ok || len > 1514) return -1;
+    if (nic_typ == 6) return wlan_senden(f, len);
     if (nic_typ == 5) return hv_net_senden(f, len < 60 ? 60 : len);
     if (nic_typ == 4) return usbnet_send(f, len < 60 ? 60 : len);
     if (nic_typ == 3) return vio_send(f, len < 60 ? 60 : len);
@@ -756,8 +759,8 @@ static void rx_frame(const uint8_t* f, int len) {
 
 void net_poll(void) {
     if (!nic_ok) return;
-    if (nic_typ == 4) {
-        usbnet_poll(rx_frame);
+    if (nic_typ == 4 || nic_typ == 6) {
+        if (nic_typ == 4) usbnet_poll(rx_frame); else wlan_poll(rx_frame);
         if (dhcp_wunsch) {                       /* nach dem Einstecken: Adresse holen (laeuft in der Hauptschleife) */
             dhcp_wunsch = 0;
             if (net_dhcp() == 0) { kprint("[NET] DHCP: IP "); kprint_ip(my_ip); kprint(" Router "); kprint_ip(my_gw); kprint("\n"); }
@@ -911,6 +914,9 @@ void net_usb_attach(const uint8_t* mac) {
     my_ip = 0; my_mask = 0; my_gw = 0; my_dns = 0;
     if (net_fertig) { kprint("[NET] USB-Netzwerk bereit, MAC "); kprint_mac(mymac); kprint("\n"); dhcp_wunsch = 1; }
 }
+/* Aufruf durch die WLAN-Station nach erfolgreicher Anmeldung bzw. beim Trennen: wie ein USB-Netzwerkgeraet, aber ueber wlan_senden/wlan_poll */
+void net_wlan_attach(const uint8_t* mac) { net_usb_attach(mac); nic_typ = 6; }
+void net_wlan_detach(void) { net_usb_detach(); }
 void net_usb_detach(void) {
     if (!usb_aktiv) return;
     usb_aktiv = 0; nic_typ = pci_typ_prev; nic_ok = pci_ok_prev; mcopy(mymac, pci_mac, 6);
