@@ -846,6 +846,59 @@ def ki():
         pruefe("KI: Kernel-Antwort identisch mit der Referenz", antwort == erwartet)
 
 
+def audio():
+    """Intel HD Audio: Ausgabe (QEMU hda-output schreibt eine WAV-Datei, die wir auf Pegel und Frequenz pruefen) und Aufnahme (hda-micro)."""
+    import wave
+    print("\n===== Szenario audio (Intel HD Audio) =====")
+    wav = "/tmp/zx-audio.wav"
+    if os.path.exists(wav):
+        os.remove(wav)
+    vm = starten(extra=["-audiodev", "wav,id=zxa,path=%s,out.frequency=48000,out.channels=2,out.format=s16" % wav,
+                        "-device", "intel-hda", "-device", "hda-output,audiodev=zxa"])
+    vm.tippe("audio", 4.0)
+    vm.tippe("audio ton 440 1500", 8.0)
+    out = vm.log()
+    print(out)
+    vm.mon("quit", 1.0)
+    try:
+        vm.q.wait(timeout=20)
+    except Exception:
+        vm.ende()
+    pruefe("Audio: Controller gefunden", "[HDA] Controller" in out)
+    pruefe("Audio: Codec erkannt", "[HDA] Codec" in out)
+    pruefe("Audio: Ausgabepfad gefunden", "[HDA] Ausgabe: Pin" in out)
+    pruefe("Audio: Ton gespielt", "Ton gespielt: 440 Hz" in out)
+    frei = None
+    try:
+        w = wave.open(wav, "rb")
+        n = w.getnframes(); ch = w.getnchannels(); rate = w.getframerate()
+        d = w.readframes(n); w.close()
+        import struct
+        v = struct.unpack("<%dh" % (len(d) // 2), d)[0::ch]
+        idx = [i for i, x in enumerate(v) if abs(x) > 1000]
+        if idx:
+            a, b = idx[0], idx[-1]
+            kreuz = sum(1 for i in range(a + 1, b + 1) if (v[i - 1] < 0) != (v[i] < 0))
+            dauer = (b - a) / float(rate)
+            frei = kreuz / 2.0 / dauer if dauer > 0.2 else None
+            print("WAV: %d Werte, %d Hz, Ton von %.2f bis %.2f s, Frequenz etwa %s Hz, Spitze %d" % (len(v), rate, a / float(rate), b / float(rate), frei, max(abs(x) for x in v)))
+        else:
+            print("WAV: nur Stille (%d Werte)" % len(v))
+    except Exception as e:
+        print("WAV nicht lesbar:", e)
+    pruefe("Audio: WAV enthaelt Ton (Pegel)", frei is not None)
+    pruefe("Audio: Frequenz stimmt (440 Hz +-5 %)", frei is not None and 418 <= frei <= 462)
+    # Aufnahme
+    vm = starten(extra=["-audiodev", "none,id=zxb", "-device", "intel-hda", "-device", "hda-micro,audiodev=zxb"])
+    vm.tippe("audio", 4.0)
+    vm.tippe("audio aufnahme 600", 6.0)
+    out = vm.log()
+    print(out)
+    vm.ende()
+    pruefe("Audio: Eingabepfad gefunden", "[HDA] Eingabe: Wandler" in out)
+    pruefe("Audio: Aufnahme liefert Daten", "Aufnahme: " in out and " Werte (" in out)
+
+
 def manip():
     """Manipulierter Kernel (ein Byte geaendert, Signatur unveraendert): der Lader muss den Start verweigern."""
     print("\n===== Szenario manip (Manipulation wird erkannt) =====")
@@ -861,6 +914,6 @@ def manip():
 
 
 for s in SZEN:
-    {"kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
+    {"kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
 
 sys.exit(0 if all(ergebnis) else 1)

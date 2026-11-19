@@ -41,6 +41,7 @@
 #include "chats.h"
 #include "gedaechtnis.h"
 #include "krypto.h"
+#include "hda.h"
 
 extern void kprint(const char* str);
 extern void kprint_dec(uint32_t val);
@@ -543,6 +544,7 @@ static void run_legacy(char* cmd) {
     else if (streq(cmd, "db") || starts_with(cmd, "db ")) zdb_befehl(cmd + 2);
     else if (streq(cmd, "gedaechtnis") || starts_with(cmd, "gedaechtnis ")) ged_befehl(cmd + 11);
     else if (streq(cmd, "krypto") || starts_with(cmd, "krypto ")) krypto_befehl(cmd + 6);
+    else if (streq(cmd, "audio") || starts_with(cmd, "audio ")) audio_befehl(cmd + 5);
     else if (streq(cmd, "sicherheit")) {
         kprint("Startkette: "); kprint((g_boot.flags & BOOT_SIGNIERT) ? "Kernel und Kommandozeile durch LMS-Signatur (SHA-256, quantensicher) geprueft\n" : "NICHT durch eine Signatur geprueft\n");
     }

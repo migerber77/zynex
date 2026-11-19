@@ -18,6 +18,8 @@ jobs:
         run: |
           python3 tools/zynexos_test.py zynexos-test.iso uefi boot
           python3 tools/zynexos_test.py zynexos-manip.iso uefi manip
+      - name: Test Audio (Intel HD Audio)
+        run: python3 tools/zynexos_test.py zynexos-test.iso uefi audio
       - name: Test Sprachmodell im Kernel
         run: |
           gcc -O2 -fno-math-errno -Izynexos/include -o llm_host tools/llm_host.c zynexos/kernel/llm.c -lm

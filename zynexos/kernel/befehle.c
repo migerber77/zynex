@@ -83,6 +83,10 @@ static const zeile_t tab[] = {
     { "db|daten", "zurueck|undo",      "db zurueck %",     "auf die vorige Version zurueck" },
     { "db|daten", "loesche|del",       "db loesche %",     "Fakt loeschen (im Verlauf wiederholbar)" },
     { "db|daten", "pruefen|check",     "db pruefen",       "Manipulation pruefen" },
+    { "audio|ton|sound",   "",                     "audio status",     "Audio-Hardware (Intel HD Audio): Zustand" },
+    { "audio|ton|sound",   "status",               "audio status",     "Audio-Hardware: Zustand" },
+    { "audio|ton|sound",   "ton|beep",             "audio ton %",      "Testton: audio ton <Hz> <ms>" },
+    { "audio|ton|sound",   "aufnahme|record",      "audio aufnahme %", "Mikrofon aufnehmen und Pegel zeigen: audio aufnahme <ms>" },
     { "gedaechtnis|synapsen|erinnerung|memory|brain", "",   "gedaechtnis status",   "Zynies Synapsen-Gedaechtnis: Zustand" },
     { "gedaechtnis|synapsen|erinnerung|memory|brain", "liste|list",       "gedaechtnis liste",    "alle Erinnerungen mit Staerke" },
     { "gedaechtnis|synapsen|erinnerung|memory|brain", "merke|merk|remember", "gedaechtnis merke %", "etwas Wichtiges merken (verblasst nie)" },
@@ -170,6 +174,7 @@ void befehl_hilfe(const char* thema) {
         { "krypto",       "Platte quantensicher verschluesseln, entsperren" },
         { "db",           "Datenbank ZynDB: Konfiguration, Suche, Zeitreise" },
         { "gedaechtnis",  "Synapsen-Gedaechtnis: merken, erinnern, vergessen" },
+        { "audio",        "Lautsprecher und Mikrofon (Intel HD Audio): status, ton, aufnahme" },
     };
     for (int i = 0; i < 13; i++) { kprint("  "); kprint(ber[i][0]); int l = 2 + slen(ber[i][0]); for (; l < 20; l++) kprint(" "); kprint(ber[i][1]); kprint("\n"); }
     kprint("\n  Mehr zu einem Bereich: hilfe datei   |   ohne Aktion zeigt jeder Bereich das Wichtigste\n");
