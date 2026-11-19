@@ -232,6 +232,7 @@ int wlan_vorhanden(void) { return hw != 0; }
 int wlan_verbunden(void) { return hw && st == S_OK; }
 
 static void warte(uint32_t ticks, int* flag) {
+    __asm__ volatile ("sti");                                                          /* die Shell laeuft mit gesperrten Unterbrechungen; ohne sie steht die Uhr */
     uint32_t t0 = timer_get_ticks();
     for (uint32_t it = 0; it < 20000000u && timer_get_ticks() - t0 < ticks; it++) { pumpe(); if (flag && *flag) return; }       /* it: Notbremse, falls die Uhr stehen bleibt */
 }
@@ -241,7 +242,6 @@ static void suche_durchlauf(void) {
     nap = 0; st = S_AUS;
     for (int ch = 1; ch <= 13; ch++) {
         kanal_jetzt = ch; if (hw->set_channel(ch) != 0) continue;
-        if (dbg) { kprint("[WLAN] Kanal "); kprint_dec((uint32_t)ch); kprint(" t="); kprint_dec(timer_get_ticks()); kprint("\n"); }
         sende_probe(); warte(12, 0);
     }
 }
@@ -279,7 +279,7 @@ int wlan_verbinden(const char* ssid, const char* pass) {
     st = S_ASSOC;
     for (int t = 0; t < 4 && !assoc_ok; t++) { sende_assoc(); warte(30, &assoc_ok); }
     if (assoc_ok <= 0) { st = S_AUS; return assoc_ok < 0 ? -7 : -8; }
-    if (c_sec == 1) { uint32_t t0 = timer_get_ticks(); while (timer_get_ticks() - t0 < 400 && st != S_OK) pumpe(); }
+    if (c_sec == 1) { __asm__ volatile ("sti"); uint32_t t0 = timer_get_ticks(); for (uint32_t it = 0; it < 20000000u && timer_get_ticks() - t0 < 400 && st != S_OK; it++) pumpe(); }
     if (st != S_OK) { st = S_AUS; return -9; }
     if (net_koppeln) net_wlan_attach(hw->mac);
     return 0;
