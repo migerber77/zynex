@@ -90,6 +90,16 @@ static const struct { const char* en, *fr, *it, *es; } UEB[] = {
     { "Next workspace", "Bureau suivant", "Spazio successivo", "Siguiente escritorio" }, { "Previous workspace", "Bureau precedent", "Spazio precedente", "Escritorio anterior" },
     { "Close widget", "Fermer le widget", "Chiudi widget", "Cerrar widget" }, { "Settings", "Parametres", "Impostazioni", "Ajustes" },
     { "Cut", "Couper", "Taglia", "Cortar" }, { "Copy", "Copier", "Copia", "Copiar" }, { "Paste", "Coller", "Incolla", "Pegar" }, { "Select all", "Tout selectionner", "Seleziona tutto", "Seleccionar todo" }, { "Clear", "Effacer", "Cancella", "Borrar" },
+    { "What should I remember?", "Que dois-je retenir ?", "Cosa devo ricordare?", "Que debo recordar?" },
+    { "Noted. I will not forget that.", "C'est note. Je ne l'oublierai pas.", "Preso nota. Non lo dimentichero.", "Anotado. No lo olvidare." },
+    { "I never remember passwords, keys or account numbers.", "Je ne retiens jamais les mots de passe, cles ou numeros de compte.", "Non ricordo mai password, chiavi o numeri di conto.", "Nunca recuerdo contrasenas, claves ni numeros de cuenta." },
+    { "I could not save that.", "Je n'ai pas pu l'enregistrer.", "Non sono riuscito a salvarlo.", "No pude guardarlo." },
+    { "I have cleared my whole memory.", "J'ai efface toute ma memoire.", "Ho cancellato tutta la mia memoria.", "He borrado toda mi memoria." },
+    { "Really everything? Say: forget all yes", "Vraiment tout ? Dis : oublie tout oui", "Proprio tutto? Di': dimentica tutto si", "Realmente todo? Di: olvida todo si" },
+    { " memory(ies) forgotten.", " souvenir(s) oublie(s).", " ricordo/i dimenticato/i.", " recuerdo(s) olvidado(s)." },
+    { "I found nothing about that.", "Je n'ai rien trouve a ce sujet.", "Non ho trovato nulla al riguardo.", "No encontre nada sobre eso." },
+    { "This is what I know:", "Voici ce que je sais :", "Ecco cosa so:", "Esto es lo que se:" },
+    { "Nothing yet. Say for example: remember that my dog is called Bello.", "Rien pour l'instant. Dis par exemple : souviens-toi que mon chien s'appelle Bello.", "Ancora niente. Di ad esempio: ricorda che il mio cane si chiama Bello.", "Aun nada. Di por ejemplo: recuerda que mi perro se llama Bello." },
 };
 #define NUEB ((int)(sizeof(UEB) / sizeof(UEB[0])))
 static char pend_en[48][100]; static int npend;
@@ -1747,8 +1757,10 @@ static int ged_beginnt(const char* s, const char* const* liste, const char** res
 }
 static int ged_sprache(const char* s, const char* roh) {
     static const char* const M[] = { "merk dir ", "merke dir ", "bitte merk dir ", "remember that ", "remember ", "souviens-toi ", "souviens toi ", "ricorda ", "ricordati ", "recuerda ", "acuerdate ", 0 };
-    static const char* const V[] = { "vergiss ", "vergesse ", "forget ", "oublie ", "dimentica ", "olvida ", 0 };
-    static const char* const D[] = { "dass ", "that ", "que ", "che ", 0 };
+    static const char* const V[] = { "vergiss ", "vergesse ", "forget ", "oublie ", "oubliez ", "dimentica ", "dimenticare ", "olvida ", "olvidate ", 0 };
+    static const char* const D[] = { "dass ", "that ", "que ", "qu'", "che ", "de que ", 0 };
+    static const char* const ALLE[] = { "alles", "all", "tout", "tutto", "todo", 0 };
+    static const char* const JA[] = { "ja", "yes", "y", "oui", "si", "s", 0 };
     const char* r;
     if (ged_beginnt(s, M, &r)) {
         const char* r2; if (ged_beginnt(r, D, &r2)) r = r2;
@@ -1760,18 +1772,24 @@ static int ged_sprache(const char* s, const char* roh) {
     if (ged_beginnt(s, V, &r)) {
         const char* r2; if (ged_beginnt(r, D, &r2)) r = r2;
         const char* t = roh + (r - s);
-        if (r[0] == 'a' && r[1] == 'l' && r[2] == 'l' && (r[3] == 'e' || r[3] == ' ' || !r[3]) && slen(r) < 12) {                   /* "alles" / "all" */
-            int ja = 0; for (int i = 0; r[i]; i++) if (r[i] == ' ' && (r[i + 1] == 'j' || r[i + 1] == 'y')) ja = 1;
-            if (ja) { ged_loeschen(); reply1(TR("Ich habe mein ganzes Gedaechtnis geleert.", "I have cleared my whole memory.")); }
-            else reply1(TR("Wirklich alles? Sag: vergiss alles ja", "Really everything? Say: forget all yes"));
-            return 1;
+        { /* "alles" / "all" / "tout" / "tutto" / "todo", optional gefolgt von "ja" / "yes" / "oui" / "si" */
+            int wl = 0; while (r[wl] && r[wl] != ' ') wl++;
+            int alle = 0; for (int i = 0; ALLE[i]; i++) { int n = slen(ALLE[i]); if (n == wl) { int ok = 1; for (int j = 0; j < n; j++) if (r[j] != ALLE[i][j]) { ok = 0; break; } if (ok) alle = 1; } }
+            if (alle && slen(r) < 14) {
+                int ja = 0; const char* q = r + wl; while (*q == ' ') q++;
+                for (int i = 0; JA[i]; i++) { int n = slen(JA[i]), ok = 1; for (int j = 0; j < n; j++) if (q[j] != JA[i][j]) { ok = 0; break; } if (ok && !q[n]) ja = 1; }
+                if (ja) { ged_loeschen(); reply1(TR("Ich habe mein ganzes Gedaechtnis geleert.", "I have cleared my whole memory.")); }
+                else reply1(TR("Wirklich alles? Sag: vergiss alles ja", "Really everything? Say: forget all yes"));
+                return 1;
+            }
         }
         int n = ged_vergiss(t);
         if (n) { char m[100], a[12]; dec(a, (uint32_t)n); scopy(m, a, 100); cat(m, TR(" Erinnerung(en) vergessen.", " memory(ies) forgotten."), 100); reply1(m); }
         else reply1(TR("Dazu habe ich nichts gefunden.", "I found nothing about that."));
         return 1;
     }
-    if ((enthaelt(s, "was weisst du") || enthaelt(s, "what do you know") || enthaelt(s, "woran erinnerst")) && (slen(s) < 24 || enthaelt(s, "ueber mich") || enthaelt(s, "about me"))) {
+    if ((enthaelt(s, "was weisst du") || enthaelt(s, "what do you know") || enthaelt(s, "woran erinnerst") || enthaelt(s, "que sais-tu") || enthaelt(s, "que sais tu") || enthaelt(s, "que sais-je") || enthaelt(s, "cosa sai") || enthaelt(s, "che cosa sai") || enthaelt(s, "que sabes") || enthaelt(s, "qu'est-ce que tu sais"))
+        && (slen(s) < 24 || enthaelt(s, "ueber mich") || enthaelt(s, "about me") || enthaelt(s, "sur moi") || enthaelt(s, "di me") || enthaelt(s, "de mi") || enthaelt(s, "sobre mi"))) {
         static char z[4][100]; int c = 0, art, st; char t[112];
         for (int i = 0; c < 4 && ged_erinnerung(i, t, 112, &art, &st); i++) { if (art == 0 && c >= 2) continue; scopy(z[c], t, 100); c++; }
         if (!c) reply1(TR("Noch nichts. Sag zum Beispiel: merk dir, dass mein Hund Bello heisst.", "Nothing yet. Say for example: remember that my dog is called Bello."));
