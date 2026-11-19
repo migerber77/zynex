@@ -841,7 +841,7 @@ static void wuerfel_dreh(int nach) {
         uint32_t t0 = timer_get_ticks();
         for (int y = 0; y < H; y++) { uint32_t* r = f + (uint64_t)y * pp; for (int x = 0; x < W; x++) r[x] = C_BG; }
         wuerfel_flaeche(snapA, deg, dir, 0); wuerfel_flaeche(snapB, deg, dir, 1);
-        while (timer_get_ticks() - t0 < 2) __asm__ volatile ("pause");
+        for (uint32_t n = 0; n < 400000 && timer_get_ticks() - t0 < 2; n++) __asm__ volatile ("pause");   /* begrenzt: tickt der Timer nicht (z. B. Hyper-V ohne PIT), darf die Drehung nicht haengen */
     }
     for (int y = 0; y < H; y++) { uint32_t* r = f + (uint64_t)y * pp; uint32_t* q = snapB + (uint64_t)y * W; for (int x = 0; x < W; x++) r[x] = q[x]; }
     gfx_end();
@@ -1858,7 +1858,7 @@ static void ausfuehren_roh(void) {
         kprint("Wartungs-Konsole\n"); usb_set_rawgrab(0); shell_set_tick(0); hv_status_aus(); gfx_console(1); shell_wartung(); return;
     default:
         if (ki_nutzbar()) { kprint("Sprachmodell\n"); ki_antwort(roh); break; }
-        kprint("nicht verstanden\n"); antwort_setze(TR("Das habe ich noch nicht verstanden.", "I did not understand that yet."), TR("Sag zum Beispiel: text erstellen, rechne 12*7, system oder hilfe.", "Try: write a text, calc 12*7, system or help."), 0, 0, 0, 0); break;
+        kprint("nicht verstanden\n"); antwort_setze(TR("Das habe ich noch nicht verstanden.", "I did not understand that yet."), TR("Sag zum Beispiel: text erstellen, rechne 12*7, system oder hilfe.", "Try: write a text, calc 12*7, system or help."), TR("Freie Fragen brauchen ein Sprachmodell. Es ist hier keins geladen (ISO mit KI verwenden).", "Free questions need a language model. None is loaded here (use the ISO with AI)."), 0, 0, 0); break;
     }
     zeichne_antwort(); zeichne_eingabe();
 }

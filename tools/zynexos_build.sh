@@ -16,7 +16,9 @@ tools/mk-zynexos-template.sh "$K" "$D/BOOTX64.EFI" "$D/sig-system" "$D/cfg-syste
 tools/mk-zynexos-iso.sh "$K" "$D/BOOTX64.EFI" "$D/sig-live" "modus=live" zynexos-test.iso zynex-install.pack
 tools/mk-zynexos-iso.sh "$K" "$D/BOOTX64.EFI" "$D/sig-gui" "modus=live installer=gui" zynexos-os.iso zynex-install.pack
 # optional: Test-ISO mit Sprachmodell (ZYNEX_MODELL=<datei.gguf>)
-[ -n "$ZYNEX_MODELL" ] && tools/mk-zynexos-iso.sh "$K" "$D/BOOTX64.EFI" "$D/sig-live" "modus=live" zynexos-ki.iso zynex-install.pack "$ZYNEX_MODELL"
+[ -n "${ZYNEX_MODELL:-}" ] && tools/mk-zynexos-iso.sh "$K" "$D/BOOTX64.EFI" "$D/sig-live" "modus=live" zynexos-ki.iso zynex-install.pack "$ZYNEX_MODELL"
+# optional: Installations-ISO mit Sprachmodell (Desktop-Installer kopiert das Modell auf die Platte)
+[ -n "${ZYNEX_MODELL:-}" ] && tools/mk-zynexos-iso.sh "$K" "$D/BOOTX64.EFI" "$D/sig-gui" "modus=live installer=gui" zynexos-os-ki.iso zynex-install.pack "$ZYNEX_MODELL"
 # Manipulation: ein Byte im Kernel aendern, alte Signatur behalten
 python3 - "$K" "$D/kernel-manip.bin" <<'PY'
 import sys
