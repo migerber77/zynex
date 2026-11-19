@@ -31,3 +31,11 @@ extern int usb_ctrl;                                           /* Strg gedrueckt
 void usb_key_event(uint8_t k, int shift, int altgr);            /* Tastenereignis von USB/PS2 */
 void usb_set_rawgrab(void (*fn)(uint8_t k, int shift, int altgr));         /* Roh-Tastennummern abgreifen (0 = aus) */
 int  usb_get_layout(void);
+
+/* USB-Audio (UAC1, PCM 16 Bit, isochron): Headset, USB-Mikrofon, USB-Lautsprecher. Ausgabe 48 kHz stereo-Rahmen (Mono-Geraete bekommen den Mittelwert), Aufnahme Mono in der Geraetefrequenz. */
+int         usbaud_hat_ausgabe(void);
+int         usbaud_hat_eingabe(void);
+const char* usbaud_info(void);
+int         usbaud_spielen_strom(uint32_t (*fill)(int16_t* stereo, uint32_t frames, void* ctx), void* ctx);   /* 0 = ok */
+int         usbaud_aufnehmen(int16_t* mono, uint32_t max_frames, uint32_t* rate);                             /* Anzahl Werte, < 0 Fehler */
+int         usbaud_fehler(void);                                                                              /* Pakete mit Fehler/Unterlauf seit dem letzten Start */

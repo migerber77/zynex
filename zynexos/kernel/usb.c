@@ -26,7 +26,7 @@ struct trb { uint64_t param; uint32_t status; uint32_t control; } __attribute__(
 #define EVT_N  256
 #define MAX_DEV 8
 
-struct ring { struct trb* t; uint32_t enq; uint32_t cycle; };
+struct ring { struct trb* t; uint32_t enq; uint32_t cycle; uint32_t n; };      /* n = 0: RING_N Eintraege */
 
 struct hid_field { int valid; uint32_t off, size, count; int32_t lmin, lmax; int rel; };
 struct hid_ptr {
@@ -55,6 +55,9 @@ struct usbdev {
     volatile int rx_done, tx_done, tx_ok;
     volatile uint32_t rx_len;
     uint8_t mac[6];
+    /* USB-Audio (kind 4): je ein isochroner Kanal fuer Aufnahme (ain) und Wiedergabe (aout) */
+    struct audep { int ok; uint8_t iface, alt, addr, dci, ch, ival; uint16_t mps; uint32_t rate, stride; struct ring r; uint8_t* buf; int aktiv; } ain, aout;
+    uint8_t *inctx, *outctx;
 };
 #define NET_BUF 4096
 
@@ -72,6 +75,7 @@ static volatile int port_change = 0, scan_busy = 0, net_reenum = 0;
 static uint8_t tried[64];
 static int net_pref = 0;                    /* 0 = CDC-ECM bevorzugt, 1 = RNDIS bevorzugt */
 static struct usbdev* netdev = 0;
+static struct usbdev* auddev = 0;           /* USB-Audiogeraet (Mikrofon/Headset) */
 extern void net_usb_attach(const uint8_t* mac);
 extern void net_usb_detach(void);
 static struct usb_pointer ptr;
@@ -96,13 +100,14 @@ static void ring_init(struct ring* r) {
 }
 
 static void ring_push(struct ring* r, uint64_t param, uint32_t status, uint32_t control) {
+    uint32_t n = r->n ? r->n : RING_N;
     struct trb* t = &r->t[r->enq];
     t->param = param; t->status = status;
     fence();
     t->control = control | r->cycle;
     r->enq++;
-    if (r->enq == RING_N - 1) {                    /* Link-TRB zurueck an den Anfang */
-        struct trb* l = &r->t[RING_N - 1];
+    if (r->enq == n - 1) {                         /* Link-TRB zurueck an den Anfang */
+        struct trb* l = &r->t[n - 1];
         l->param = (uint64_t)(uintptr_t)r->t; l->status = 0;
         fence();
         l->control = (6u << 10) | (1u << 1) | r->cycle;   /* Link, Toggle Cycle */
@@ -271,6 +276,7 @@ static void rx_queue(struct usbdev* d) {
     w32(db, d->slot * 4, d->dci_in);
 }
 
+static void aud_event(struct usbdev* d, const struct trb* e, uint32_t dci, uint32_t code);
 static void handle_event(const struct trb* e) {
     uint32_t type = (e->control >> 10) & 0x3F;
     uint32_t code = e->status >> 24;
@@ -281,7 +287,9 @@ static void handle_event(const struct trb* e) {
         uint32_t slot = e->control >> 24, dci = (e->control >> 16) & 0x1F;
         struct usbdev* d = 0;
         for (int i = 0; i < MAX_DEV; i++) if (devs[i].used && devs[i].slot == slot) d = &devs[i];
-        if (d && d->kind == 3 && (dci == d->dci_in || dci == d->dci_out)) {
+        if (d && d->kind == 4 && ((d->ain.aktiv && dci == d->ain.dci) || (d->aout.aktiv && dci == d->aout.dci))) { aud_event(d, e, dci, code); }
+        else if (d && d->kind == 4) { /* verspaetetes Ereignis eines angehaltenen Kanals: ignorieren */ }
+        else if (d && d->kind == 3 && (dci == d->dci_in || dci == d->dci_out)) {
             if (dci == d->dci_in) {
                 if (code == 1 || code == 13) { d->rx_len = NET_BUF - (e->status & 0xFFFFFFu); d->rx_done = 1; }
                 else rx_queue(d);
@@ -413,6 +421,7 @@ static int konfiguriere_hid(struct usbdev* d, uint8_t* inctx, uint8_t* outctx, u
 /* ---------- Geraet einrichten ---------- */
 static int geraet(int port);
 static int net_versuch(struct usbdev* d, uint8_t* inctx, uint8_t* outctx, uint8_t* tmp);
+static int aud_versuch(struct usbdev* d, uint8_t* tmp);
 
 static int geraet(int port) {
     int idx = -1;
@@ -437,6 +446,7 @@ static int geraet(int port) {
     if (!inctx || !outctx || !d->buf || !d->ep0.t) return -3;
     if (adressiere(d, inctx, outctx) != 0) { kprint("[USB] Adressieren fehlgeschlagen\n"); return -4; }
     d->used = 1;
+    d->inctx = inctx; d->outctx = outctx;
 
     if (ctrl(d, 0x80, 6, 0x0100, 0, 18, tmp) != 0) { kprint("[USB] Geraetebeschreibung nicht lesbar\n"); d->used = 0; return -5; }
     d->vid = (uint16_t)(tmp[8] | (tmp[9] << 8));
@@ -448,6 +458,7 @@ static int geraet(int port) {
         if (nr < 0) { kprint("[USB] Netzwerkgeraet konnte nicht gestartet werden ("); kprint_dec((uint32_t)-nr); kprint(")\n"); d->used = 0; return nr; }
         if (nr > 0) return 0;
     }
+    if (aud_versuch(d, tmp) > 0) return 0;                          /* USB-Audio (Mikrofon, Headset, Lautsprecher)? */
     if (ctrl(d, 0x80, 6, 0x0200, 0, 9, tmp) != 0) { d->used = 0; return -6; }
     uint16_t total = (uint16_t)(tmp[2] | (tmp[3] << 8));
     if (total > 1024) total = 1024;
@@ -690,6 +701,7 @@ static int port_aufnehmen(uint32_t pt) {
 static void entfernen(struct usbdev* d) {
     kprint("[USB] Geraet an Port "); kprint_dec((uint32_t)d->port + 1); kprint(" entfernt\n");
     if (d->kind == 3) { netdev = 0; net_usb_detach(); }
+    if (d->kind == 4 && auddev == d) auddev = 0;
     d->used = 0;
     befehl(0, 0, (10u << 10) | ((uint32_t)d->slot << 24), 0);           /* Disable Slot */
     dcbaa[d->slot] = 0;
@@ -715,6 +727,179 @@ void usb_hotplug(void) {
 
 /* Bevorzugtes Protokoll waehlen (0 = ECM, 1 = RNDIS) und das Netzwerkgeraet neu aufnehmen */
 void usb_net_prefer(int rndis) { net_pref = rndis ? 1 : 0; net_reenum = 1; port_change = 1; }
+
+/* ---------- USB-Audio (Klasse 1, UAC1, PCM 16 Bit, isochron) ---------- */
+#define AUD_N 256                                  /* Ringgroesse (eine Seite): 255 Pakete = 255 ms Puffer */
+static volatile int a_ein_n, a_aus_gepostet, a_aus_fertig, a_aus_ende, a_fehler;
+static int16_t* a_rec; static uint32_t a_rec_max, a_rec_n;
+static uint32_t (*a_fill)(int16_t*, uint32_t, void*); static void* a_ctx;
+static char aud_info[96] = "kein USB-Audiogeraet";
+
+static void aud_kopie_info(const char* s) { int i = 0; while (s[i] && i < 95) { aud_info[i] = s[i]; i++; } aud_info[i] = 0; }
+
+/* Beschreibung durchsehen: je Richtung die erste passende Alternativeinstellung (16 Bit PCM, 1-2 Kanaele, bevorzugt 48 kHz) */
+static void aud_parse(const uint8_t* c, int total, struct usbdev* d) {
+    int iface = -1, alt = -1, asif = 0, ch = 0, bits = 0, ftyp = -1, fo = 0; int ok_fmt = 0; uint32_t rate = 0;
+    for (int o = 0; o + 2 <= total && c[o] >= 2; o += c[o]) {
+        uint8_t ty = c[o + 1];
+        if (ty == 4) {
+            asif = (c[o + 5] == 1 && c[o + 6] == 2 && c[o + 7] == 0);                 /* Audio-Streaming, UAC1 */
+            iface = c[o + 2]; alt = c[o + 3]; ok_fmt = 0;
+        } else if (ty == 0x24 && asif && alt > 0 && c[o + 2] == 2 && c[o + 3] == 1) {  /* FORMAT_TYPE_I */
+            ch = c[o + 4]; bits = c[o + 6]; ftyp = c[o + 7]; fo = o; ok_fmt = 0; rate = 0;
+            if (c[o + 5] != 2 || bits != 16 || ch < 1 || ch > 2) continue;
+            if (ftyp == 0) { uint32_t lo = (uint32_t)c[o + 8] | ((uint32_t)c[o + 9] << 8) | ((uint32_t)c[o + 10] << 16), hi = (uint32_t)c[o + 11] | ((uint32_t)c[o + 12] << 8) | ((uint32_t)c[o + 13] << 16); rate = (lo <= 48000 && 48000 <= hi) ? 48000 : lo; ok_fmt = 1; }
+            else { for (int k = 0; k < ftyp && fo + 8 + 3 * k + 2 < o + c[o] + 1; k++) { uint32_t f = (uint32_t)c[o + 8 + 3 * k] | ((uint32_t)c[o + 9 + 3 * k] << 8) | ((uint32_t)c[o + 10 + 3 * k] << 16); if (f == 48000 || !rate) rate = f; if (f == 48000) break; } ok_fmt = rate != 0; }
+        } else if (ty == 5 && asif && alt > 0 && ok_fmt && (c[o + 3] & 3) == 1) {      /* isochroner Endpunkt */
+            struct audep* e = (c[o + 2] & 0x80) ? &d->ain : &d->aout;
+            uint16_t mps = (uint16_t)((c[o + 4] | (c[o + 5] << 8)) & 0x7FF);
+            if (e->ok || mps == 0 || mps > 1000) continue;
+            e->ok = 1; e->iface = (uint8_t)iface; e->alt = (uint8_t)alt; e->addr = c[o + 2]; e->dci = (uint8_t)((c[o + 2] & 0xF) * 2 + ((c[o + 2] & 0x80) ? 1 : 0));
+            e->ch = (uint8_t)ch; e->mps = mps; e->ival = c[o + 6] ? c[o + 6] : 1; e->rate = rate;
+            if (!(c[o + 2] & 0x80) && rate != 48000) e->ok = 0;                         /* Ausgabe nur mit 48 kHz */
+        }
+    }
+}
+
+static int aud_versuch(struct usbdev* d, uint8_t* tmp) {
+    if (ctrl(d, 0x80, 6, 0x0200, 0, 9, tmp) != 0) return 0;
+    uint16_t total = (uint16_t)(tmp[2] | (tmp[3] << 8)); if (total > 1024) total = 1024;
+    if (ctrl(d, 0x80, 6, 0x0200, 0, total, tmp) != 0) return 0;
+    uint8_t cfg = tmp[5];
+    aud_parse(tmp, total, d);
+    if (!d->ain.ok && !d->aout.ok) return 0;
+    if (ctrl(d, 0x00, 9, cfg, 0, 0, 0) != 0) { zero(&d->ain, sizeof(d->ain)); zero(&d->aout, sizeof(d->aout)); return 0; }
+    d->kind = 4; auddev = d;
+    kprint("[USB] Audio an Port "); kprint_dec((uint32_t)d->port + 1); kprint(":");
+    if (d->aout.ok) { kprint(" Wiedergabe "); kprint_dec(d->aout.ch); kprint("ch 48000 Hz"); }
+    if (d->ain.ok) { kprint(" Aufnahme "); kprint_dec(d->ain.ch); kprint("ch "); kprint_dec(d->ain.rate); kprint(" Hz"); }
+    kprint("\n");
+    aud_kopie_info((d->ain.ok && d->aout.ok) ? "USB-Audio: Wiedergabe und Aufnahme" : d->ain.ok ? "USB-Audio: nur Aufnahme" : "USB-Audio: nur Wiedergabe");
+    return 1;
+}
+
+static void aud_push(struct usbdev* d, struct audep* e, uint32_t len) {
+    uint32_t pos = e->r.enq;
+    ring_push(&e->r, (uint64_t)(uintptr_t)(e->buf + pos * e->stride), len, (5u << 10) | (1u << 5) | (1u << 31));   /* Isoch-TRB, IOC, SIA */
+}
+
+static int aud_ep_an(struct usbdev* d, struct audep* e, int ausgabe) {
+    if (ctrl(d, 0x01, 11, e->alt, e->iface, 0, 0) != 0) return -1;                  /* Alternativeinstellung mit Daten */
+    if (e->rate) { uint8_t f[3] = { (uint8_t)e->rate, (uint8_t)(e->rate >> 8), (uint8_t)(e->rate >> 16) }; uint8_t* t = d->buf + 3072; t[0] = f[0]; t[1] = f[1]; t[2] = f[2]; ctrl(d, 0x22, 1, 0x0100, e->addr, 3, t); }   /* Abtastrate setzen (Fehler egal) */
+    if (!e->r.t) {
+        e->r.n = AUD_N; e->r.t = (struct trb*)seite();
+        e->stride = (uint32_t)((e->mps + 63) & ~63);
+        uint32_t seiten = ((AUD_N - 1) * e->stride + 4095) / 4096;
+        e->buf = (uint8_t*)pmm_alloc_pages(seiten);
+        if (!e->r.t || !e->buf) return -2;
+    } else zero(e->r.t, 4096);
+    e->r.enq = 0; e->r.cycle = 1;
+    zero(d->inctx, 4096);
+    uint32_t* icc = cx(d->inctx, 0);
+    icc[1] = 1u | (1u << e->dci);
+    uint32_t* sl = cx(d->inctx, 1);
+    for (uint32_t i = 0; i < 8; i++) sl[i] = cx(d->outctx, 0)[i];
+    uint32_t cur = sl[0] >> 27; if (cur < e->dci) cur = e->dci;
+    sl[0] = (sl[0] & 0x07FFFFFFu) | (cur << 27);
+    uint32_t* ep = cx(d->inctx, 1 + e->dci);
+    uint32_t iv = (d->speed == 1 || d->speed == 2) ? (uint32_t)e->ival + 2 : (uint32_t)e->ival - 1;
+    if (iv > 15) iv = 15;
+    ep[0] = iv << 16;
+    ep[1] = (ausgabe ? 1u : 5u) << 3 | ((uint32_t)e->mps << 16);                   /* Isoch OUT = 1, Isoch IN = 5, CErr 0 */
+    uint64_t trp = (uint64_t)(uintptr_t)e->r.t | 1;
+    ep[2] = (uint32_t)trp; ep[3] = (uint32_t)(trp >> 32);
+    ep[4] = (uint32_t)e->mps | ((uint32_t)e->mps << 16);
+    if (befehl((uint64_t)(uintptr_t)d->inctx, 0, (12u << 10) | ((uint32_t)d->slot << 24), 0) != 0) return -3;
+    return 0;
+}
+
+static void aud_ep_aus(struct usbdev* d, struct audep* e) {
+    e->aktiv = 0;
+    befehl(0, 0, (15u << 10) | ((uint32_t)d->slot << 24) | ((uint32_t)e->dci << 16), 0);        /* Stop Endpoint */
+    zero(d->inctx, 4096);
+    uint32_t* icc = cx(d->inctx, 0);
+    icc[0] = 1u << e->dci; icc[1] = 1;
+    uint32_t* sl = cx(d->inctx, 1);
+    for (uint32_t i = 0; i < 8; i++) sl[i] = cx(d->outctx, 0)[i];
+    befehl((uint64_t)(uintptr_t)d->inctx, 0, (12u << 10) | ((uint32_t)d->slot << 24), 0);       /* Endpunkt entfernen */
+    ctrl(d, 0x01, 11, 0, e->iface, 0, 0);                                                        /* Alternativeinstellung 0: kein Strom */
+}
+
+static uint32_t aud_fuell_paket(struct usbdev* d, struct audep* e) {                              /* 1 ms Wiedergabe in den naechsten Puffer */
+    int16_t st[96]; uint32_t n = a_fill ? a_fill(st, 48, a_ctx) : 0;
+    if (n > 48) n = 48;
+    if (n < 48) { for (uint32_t i = n * 2; i < 96; i++) st[i] = 0; a_aus_ende = 1; }
+    int16_t* o = (int16_t*)(e->buf + e->r.enq * e->stride);
+    if (e->ch == 2) for (int i = 0; i < 96; i++) o[i] = st[i];
+    else for (int i = 0; i < 48; i++) o[i] = (int16_t)(((int)st[2 * i] + st[2 * i + 1]) / 2);
+    return 48u * e->ch * 2;
+}
+
+static void aud_event(struct usbdev* d, const struct trb* ev, uint32_t dci, uint32_t code) {
+    int ok = (code == 1 || code == 13 || code == 14 || code == 15 || code == 23);          /* Erfolg, kurzes Paket, Unter-/Ueberlauf, verpasst: weiter */
+    if (!(code == 1 || code == 13)) a_fehler++;
+    if (dci == d->ain.dci && d->ain.aktiv) {
+        struct audep* e = &d->ain;
+        uint64_t off = (uint64_t)ev->param - (uint64_t)(uintptr_t)e->r.t;
+        uint32_t pos = (uint32_t)(off / 16);
+        if ((code == 1 || code == 13) && pos < AUD_N - 1 && a_rec) {
+            uint32_t got = e->mps - (ev->status & 0xFFFFFFu); if (got > e->mps) got = 0;
+            const int16_t* sp = (const int16_t*)(e->buf + pos * e->stride);
+            uint32_t fr = got / (2u * e->ch);
+            for (uint32_t i = 0; i < fr && a_rec_n < a_rec_max; i++)
+                a_rec[a_rec_n++] = e->ch == 2 ? (int16_t)(((int)sp[2 * i] + sp[2 * i + 1]) / 2) : sp[i];
+        }
+        if (ok && a_rec_n < a_rec_max) { aud_push(d, e, e->mps); fence(); w32(db, d->slot * 4, e->dci); }
+        a_ein_n++;
+    } else if (dci == d->aout.dci && d->aout.aktiv) {
+        struct audep* e = &d->aout;
+        a_aus_fertig++;
+        if (ok && !a_aus_ende) { uint32_t l = aud_fuell_paket(d, e); aud_push(d, e, l); a_aus_gepostet++; fence(); w32(db, d->slot * 4, e->dci); }
+    }
+}
+
+int usbaud_hat_ausgabe(void) { return auddev && auddev->used && auddev->aout.ok; }
+int usbaud_hat_eingabe(void) { return auddev && auddev->used && auddev->ain.ok; }
+const char* usbaud_info(void) { return auddev && auddev->used ? aud_info : "kein USB-Audiogeraet"; }
+
+int usbaud_spielen_strom(uint32_t (*fill)(int16_t* stereo, uint32_t frames, void* ctx), void* ctx) {
+    struct usbdev* d = auddev; if (!d || !d->used || !d->aout.ok) return -1;
+    struct audep* e = &d->aout;
+    a_fill = fill; a_ctx = ctx; a_aus_gepostet = 0; a_aus_fertig = 0; a_aus_ende = 0; a_fehler = 0;
+    int r = aud_ep_an(d, e, 1); if (r) { ctrl(d, 0x01, 11, 0, e->iface, 0, 0); return -10 + r; }
+    e->aktiv = 1;
+    for (int i = 0; i < 100 && !a_aus_ende; i++) { uint32_t l = aud_fuell_paket(d, e); aud_push(d, e, l); a_aus_gepostet++; }
+    fence(); w32(db, d->slot * 4, e->dci);
+    uint32_t t0 = timer_get_ticks(), letzt = t0; int last = 0;
+    while (a_aus_fertig < a_aus_gepostet) {
+        usb_poll();
+        if (a_aus_fertig != last) { last = a_aus_fertig; letzt = timer_get_ticks(); }
+        if (timer_get_ticks() - letzt > 100) { aud_ep_aus(d, e); return -5; }                   /* 1 s ohne Fortschritt */
+    }
+    aud_ep_aus(d, e);
+    return 0;
+}
+
+int usbaud_aufnehmen(int16_t* mono, uint32_t max_frames, uint32_t* rate) {
+    struct usbdev* d = auddev; if (!d || !d->used || !d->ain.ok) return -1;
+    struct audep* e = &d->ain;
+    a_rec = mono; a_rec_max = max_frames; a_rec_n = 0; a_ein_n = 0; a_fehler = 0;
+    int r = aud_ep_an(d, e, 0); if (r) { ctrl(d, 0x01, 11, 0, e->iface, 0, 0); return -10 + r; }
+    e->aktiv = 1;
+    for (int i = 0; i < 100; i++) aud_push(d, e, e->mps);
+    fence(); w32(db, d->slot * 4, e->dci);
+    uint32_t t0 = timer_get_ticks(), letzt = t0; uint32_t last = 0;
+    while (a_rec_n < a_rec_max) {
+        usb_poll();
+        if (a_rec_n != last) { last = a_rec_n; letzt = timer_get_ticks(); }
+        if (timer_get_ticks() - letzt > 100) break;                                              /* 1 s ohne Daten */
+    }
+    aud_ep_aus(d, e);
+    if (rate) *rate = e->rate;
+    a_rec = 0;
+    return (int)a_rec_n;
+}
+int usbaud_fehler(void) { return a_fehler; }
 
 /* ---------- Controller ---------- */
 int usb_init(void) {

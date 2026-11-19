@@ -12,6 +12,7 @@
 #include "pmm.h"
 #include "paging.h"
 #include "timer.h"
+#include "usb.h"
 #include <stdint.h>
 
 extern void kprint(const char* str);
@@ -406,6 +407,7 @@ void audio_befehl(const char* a) {
     if (!*a || (a[0] == 's' && a[1] == 't')) {
         hda_init();
         kprint("Audio: "); kprint(info); kprint("\n");
+        kprint("USB-Audio: "); kprint(usbaud_info()); kprint("\n");
         if (hda_bereit()) { kprint("  Ausgabe: "); kprint(aus_n ? "ja" : "nein"); kprint(", Eingabe: "); kprint(ein_n ? "ja" : "nein"); kprint(", Streams ein/aus: "); kprint_dec(n_iss); kprint("/"); kprint_dec(n_oss); kprint("\n"); }
         kprint("  Befehle: audio status | ton [Hz] [ms] | aufnahme [ms]\n");
         return;
@@ -414,23 +416,27 @@ void audio_befehl(const char* a) {
         while (*a && *a != ' ') a++;
         int hz = zahl(&a, 440), ms = zahl(&a, 700);
         if (hz < 50) hz = 50; if (hz > 8000) hz = 8000; if (ms < 50) ms = 50; if (ms > 5000) ms = 5000;
-        if (hda_init() || !hda_hat_ausgabe()) { kprint("Keine Audio-Ausgabe verfuegbar ("); kprint(info); kprint(")\n"); return; }
+        int usb = usbaud_hat_ausgabe();
+        if (!usb && (hda_init() || !hda_hat_ausgabe())) { kprint("Keine Audio-Ausgabe verfuegbar ("); kprint(info); kprint(")\n"); return; }
         struct ton t; ton_start(&t, hz, ms);
-        int r = hda_spielen_strom(ton_fill, &t);
+        int r = usb ? usbaud_spielen_strom(ton_fill, &t) : hda_spielen_strom(ton_fill, &t);
+        if (usb && r == 0) kprint("(ueber USB-Audio)\n");
         if (r == 0) { kprint("Ton gespielt: "); kprint_dec((uint32_t)hz); kprint(" Hz, "); kprint_dec((uint32_t)ms); kprint(" ms\n"); } else { kprint("Wiedergabe fehlgeschlagen (Code "); kprint_dec((uint32_t)(-r)); kprint(")\n"); }
         return;
     }
     if (a[0] == 'a') {                                                                       /* aufnahme */
         while (*a && *a != ' ') a++;
         int ms = zahl(&a, 1000); if (ms < 100) ms = 100; if (ms > 5000) ms = 5000;
-        if (hda_init() || !hda_hat_eingabe()) { kprint("Kein Mikrofon verfuegbar ("); kprint(info); kprint(")\n"); return; }
-        int n = hda_aufnehmen(aufn, (uint32_t)ms * 48);
+        int usb = usbaud_hat_eingabe(); uint32_t rate = 48000;
+        if (!usb && (hda_init() || !hda_hat_eingabe())) { kprint("Kein Mikrofon verfuegbar ("); kprint(info); kprint(")\n"); return; }
+        int n = usb ? usbaud_aufnehmen(aufn, (uint32_t)ms * 48, &rate) : hda_aufnehmen(aufn, (uint32_t)ms * 48);
+        if (usb && n > 0) { kprint("(USB-Audio, "); kprint_dec(rate); kprint(" Hz) "); }
         if (n <= 0) { kprint("Aufnahme fehlgeschlagen (Code "); kprint_dec((uint32_t)(-n)); kprint(")\n"); return; }
         int spitze = 0; uint64_t q = 0; int nd = 0;
         for (int i = 0; i < n; i++) { int v = aufn[i]; int av = v < 0 ? -v : v; if (av > spitze) spitze = av; q += (uint64_t)((int64_t)v * v); if (i && (aufn[i - 1] < 0) != (v < 0)) nd++; }
         int rms = isqrt(q / (uint64_t)n);
-        kprint("Aufnahme: "); kprint_dec((uint32_t)n); kprint(" Werte ("); kprint_dec((uint32_t)(n / 48)); kprint(" ms), Spitze "); kprint_dec((uint32_t)spitze); kprint(", Effektivwert "); kprint_dec((uint32_t)rms);
-        kprint(", Nulldurchgaenge "); kprint_dec((uint32_t)nd); kprint(", etwa "); kprint_dec((uint32_t)((uint64_t)nd * 48000 / 2 / (uint64_t)n)); kprint(" Hz\n");
+        kprint("Aufnahme: "); kprint_dec((uint32_t)n); kprint(" Werte ("); kprint_dec((uint32_t)((uint64_t)n * 1000 / rate)); kprint(" ms), Spitze "); kprint_dec((uint32_t)spitze); kprint(", Effektivwert "); kprint_dec((uint32_t)rms);
+        kprint(", Nulldurchgaenge "); kprint_dec((uint32_t)nd); kprint(", etwa "); kprint_dec((uint32_t)((uint64_t)nd * rate / 2 / (uint64_t)n)); kprint(" Hz\n");
         return;
     }
     kprint("audio: status | ton [Hz] [ms] | aufnahme [ms]\n");

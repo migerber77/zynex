@@ -899,6 +899,47 @@ def audio():
     pruefe("Audio: Aufnahme liefert Daten", "Aufnahme: " in out and " Werte (" in out)
 
 
+def usbaudio():
+    """USB-Audio (UAC1, isochron ueber xHCI): QEMU usb-audio als Lautsprecher, Ton muss in der WAV-Datei ankommen."""
+    import wave, struct
+    print("\n===== Szenario usbaudio (USB-Audio, isochron) =====")
+    wav = "/tmp/zx-usbaudio.wav"
+    if os.path.exists(wav):
+        os.remove(wav)
+    vm = starten(extra=["-audiodev", "wav,id=zxu,path=%s,out.frequency=48000,out.channels=2,out.format=s16" % wav,
+                        "-device", "qemu-xhci,id=xhci", "-device", "usb-audio,audiodev=zxu,bus=xhci.0"])
+    vm.tippe("audio", 4.0)
+    vm.tippe("audio ton 1000 1500", 8.0)
+    out = vm.log()
+    print(out)
+    vm.mon("quit", 1.0)
+    try:
+        vm.q.wait(timeout=20)
+    except Exception:
+        vm.ende()
+    pruefe("USB-Audio: Geraet erkannt", "[USB] Audio an Port" in out and "Wiedergabe" in out)
+    pruefe("USB-Audio: Ton gespielt", "Ton gespielt: 1000 Hz" in out and "(ueber USB-Audio)" in out)
+    frei = None
+    try:
+        w = wave.open(wav, "rb")
+        n = w.getnframes(); ch = w.getnchannels(); rate = w.getframerate()
+        d = w.readframes(n); w.close()
+        v = struct.unpack("<%dh" % (len(d) // 2), d)[0::ch]
+        idx = [i for i, x in enumerate(v) if abs(x) > 1000]
+        if idx:
+            a, b = idx[0], idx[-1]
+            kreuz = sum(1 for i in range(a + 1, b + 1) if (v[i - 1] < 0) != (v[i] < 0))
+            dauer = (b - a) / float(rate)
+            frei = kreuz / 2.0 / dauer if dauer > 0.2 else None
+            print("WAV: %d Werte, %d Hz, Ton %.2f s lang, Frequenz etwa %s Hz, Spitze %d" % (len(v), rate, dauer, frei, max(abs(x) for x in v)))
+        else:
+            print("WAV: nur Stille (%d Werte)" % len(v))
+    except Exception as e:
+        print("WAV nicht lesbar:", e)
+    pruefe("USB-Audio: WAV enthaelt Ton", frei is not None)
+    pruefe("USB-Audio: Frequenz stimmt (1000 Hz +-5 %)", frei is not None and 950 <= frei <= 1050)
+
+
 def manip():
     """Manipulierter Kernel (ein Byte geaendert, Signatur unveraendert): der Lader muss den Start verweigern."""
     print("\n===== Szenario manip (Manipulation wird erkannt) =====")
@@ -914,6 +955,6 @@ def manip():
 
 
 for s in SZEN:
-    {"kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
+    {"kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
 
 sys.exit(0 if all(ergebnis) else 1)
