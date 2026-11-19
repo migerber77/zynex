@@ -411,6 +411,9 @@ static void xor_rahmen(int x, int y, int w, int h) {         /* Umriss beim Zieh
 /* Ladeanzeige unten rechts, solange das System arbeitet (KI denkt, Sprachpaket wird erzeugt) */
 static uint32_t busy_f; static int busy_an;
 static void zeichne_desktop(void);
+static int desk_gen;                                              /* zaehlt ganze Neuzeichnungen (macht den Schnappschuss des Befehlsrads ungueltig) */
+static int rad_modus(void);                                      /* 1 = Befehlsrad statt Vorschlagsliste (Maus vorhanden) */
+static void rad_weg(void);
 static void busy_tick(void) { uint32_t f = timer_get_ticks() / 5; if (!busy_an || f != busy_f) { busy_an = 1; busy_f = f; lader(W - 70, H - 70, 28, f, C_BG); } }
 static void busy_ende(void) { if (!busy_an) return; busy_an = 0; gfx_begin(); gfx_rect(W - 70 - 40, H - 70 - 40, 80, 80, C_BG); gfx_end(); zeichne_desktop(); }
 static const char* fenster_titel(int typ) { if (typ == FT_GED) return TR("Gedaechtnis", "Memory"); if (typ == FT_EINST) return TR("Einstellungen", "Settings"); if (typ == FT_CHATS) return "Chats"; return typ == FT_EDIT ? TR("Dokument", "Document") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
@@ -517,6 +520,8 @@ static const sug_e katalog[] = {
     { "wer bist du?", "who are you?", 1 }, { "was ist ein betriebssystem?", "what is an operating system?", 1 },
     { "erklaere mir quantencomputer", "explain quantum computers to me", 1 }, { "erzaehle mir einen witz", "tell me a joke", 1 },
     { "schreibe mir ein gedicht", "write me a poem", 1 },
+    { "merk dir ", "remember ", 0 }, { "vergiss ", "forget ", 0 }, { "was weisst du", "what do you know", 0 }, { "gedaechtnis", "memory", 0 }, { "chats", "chats", 0 },
+    { "rechne ", "calc ", 0 }, { "sprache deutsch", "language german", 0 }, { "sprache francais", "language french", 0 }, { "sprache italiano", "language italian", 0 }, { "sprache espanol", "language spanish", 0 },
 };
 #define NKAT ((int)(sizeof(katalog) / sizeof(katalog[0])))
 static char hist[8][64]; static int nhist;
@@ -651,7 +656,7 @@ static void zeichne_eingabe(void) {
     if (einlen == 0) gtxt(bar_x + 40, bar_y + 18, TR("Frag mich alles - schon der erste Buchstabe zeigt Vorschlaege ...", "Ask me anything - the first letter already shows suggestions ..."), 0x00647488u, 1);
     else gfx_text(bar_x + 40, bar_y + 18, eingabe, C_TEXT, 1);
     gfx_rect(bar_x + 40 + einlen * 8, bar_y + 14, 2, 24, C_TEXT);
-    if (nsug > 0) {
+    if (nsug > 0 && !rad_modus()) {
         int y0 = bar_y + 60;
         rrect_rand(bar_x, y0, bar_w, nsug * 30 + 12, 14, C_CARD, C_BORDER);
         for (int i = 0; i < nsug; i++) {
@@ -784,6 +789,7 @@ static void zeichne_f_aufgaben(void) {
 }
 
 static void zeichne_desktop(void) {
+    desk_gen++;
     gfx_begin(); gfx_rect(0, 0, W, H, C_BG); gfx_end();
     nkn = 0; lbw = 0; in_szene = 1; zeichne_leiste();
     if (flaeche == 0) { zeichne_robot(); zeichne_antwort(); zeichne_eingabe(); szene_oben(); }
@@ -1897,7 +1903,7 @@ static void entsperren_versuch(void) {
     else { zustand = Z_DESK; einlen = 0; eingabe[0] = 0; reply1(TR("Festplatte entsperrt. Was moechtest du tun?", "Disk unlocked. What would you like to do?")); zeichne_desktop(); }
 }
 
-static void taste(uint8_t k, int shift, int altgr) {
+static void taste_roh(uint8_t k, int shift, int altgr) {
     if (menu.offen) { if (k == 0x29) menu_schliessen(); return; }
     if (zustand != Z_LOGIN && k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }
     if (zustand == Z_RECH) { rech_taste(k, shift, altgr); return; }
@@ -1946,6 +1952,150 @@ static void taste(uint8_t k, int shift, int altgr) {
         if (sel1) { einlen = 0; sel1 = 0; }
         eingabe[einlen++] = c; eingabe[einlen] = 0; sug_suche(); zeichne_eingabe();
     }
+}
+
+/* ---------- Befehlsrad: erster Buchstabe oeffnet am Mauszeiger ein Rad mit Befehlen, frueheren Eingaben und Merk-Saetzen ----------
+ * Mausrad dreht, Mitteltaste/Tab uebernimmt, Linksklick fuehrt aus, Pfeile dienen als Ersatz, Esc schliesst. Das Rad liegt als Glas ueber dem Desktop;
+ * darunter wird ein Schnappschuss des Bildschirms gehalten und beim Schliessen zurueckgeschrieben. */
+static void ausfuehren(void);
+#define RMAX 16
+#define RR 170                                    /* Radius */
+#define RLW 232                                   /* Breite der Beschriftungen */
+#define RBW (40 + 24 + RR + 16 + RLW + 16)
+#define RBH 420
+#define RSL 22                                    /* Winkel zwischen zwei Eintraegen */
+static struct { int offen, n, sel, bewegt, gen, cx, cy, dir, bx, by; } rad;
+static char rc[RMAX][96]; static int rtyp[RMAX];
+static int rrx[RMAX], rry[RMAX], rrw[RMAX];       /* Trefferflaechen der sichtbaren Eintraege (-1 = nicht sichtbar) */
+static uint32_t radbuf[RBW * RBH];
+static int rad_modus(void) { const struct usb_pointer* p = usb_pointer_state(); return p && p->present && gfx_fbptr(&(uint32_t){0}) != 0; }
+static int sin_d(int deg) {
+    deg %= 360; if (deg < 0) deg += 360;
+    int neg = 0; if (deg >= 180) { neg = 1; deg -= 180; }
+    if (deg > 90) deg = 180 - deg;
+    int i = deg / 5, f = deg % 5; int v = sin90[i] + (i < 18 ? (sin90[i + 1] - sin90[i]) * f / 5 : 0);
+    return neg ? -v : v;
+}
+static int cos_d(int deg) { return sin_d(deg + 90); }
+static int wortstart(const char* t, const char* q) { for (int j = 1; t[j]; j++) if (t[j - 1] == ' ' && praefix(t + j, q)) return 1; return 0; }
+static void rad_add(const char* t, int typ) {
+    if (rad.n >= RMAX || gleich(t, sug_q)) return;
+    for (int i = 0; i < rad.n; i++) if (gleich(rc[i], t)) return;
+    scopy(rc[rad.n], t, 96); rtyp[rad.n] = typ; rad.n++;
+}
+static void rad_baue(void) {
+    rad.n = 0; rad.sel = 0; rad.bewegt = 0;
+    const char* q = eingabe; while (*q == ' ') q++;
+    if (!*q) return;
+    sug_q = q;
+    for (int i = nhist - 1; i >= 0; i--) if (praefix(hist[i], q)) rad_add(hist[i], 2);
+    for (int i = 0; i < NKAT; i++) { const char* t = lang == 0 ? katalog[i].de : katalog[i].en; if (praefix(t, q)) rad_add(t, katalog[i].typ == 1 ? 1 : 0); }
+    for (int i = 0; i < NKAT; i++) { const char* t = lang == 0 ? katalog[i].de : katalog[i].en; if (wortstart(t, q)) rad_add(t, katalog[i].typ == 1 ? 1 : 0); }
+    char t[112]; int art, st;
+    for (int i = 0; rad.n < RMAX && ged_erinnerung(i, t, 112, &art, &st); i++) if (praefix(t, q) || wortstart(t, q)) rad_add(t, 3);
+}
+static void rad_glas(int x0, int y0, int w, int h, int rr) {                    /* abgedunkelte, abgerundete Flaeche (Glas) */
+    uint32_t pp; uint32_t* f = gfx_fbptr(&pp); if (!f) return;
+    for (int y = 0; y < h; y++) {
+        int yy = y0 + y; if (yy < 0 || yy >= H) continue;
+        int dy = -1; if (y < rr) dy = rr - y; else if (y >= h - rr) dy = y - (h - rr - 1);
+        int ix = 0; if (dy >= 0) { for (ix = 0; ix < rr; ix++) if ((rr - ix) * (rr - ix) + dy * dy <= rr * rr) break; }
+        for (int x = ix; x < w - ix; x++) { int xx = x0 + x; if (xx < 0 || xx >= W) continue; uint32_t* q = f + (uint64_t)yy * pp + xx; uint32_t v = *q; *q = ((v >> 2) & 0x003F3F3Fu) + ((v >> 3) & 0x001F1F1Fu); }
+    }
+}
+static void rad_sichern(int bx, int by) {
+    uint32_t pp; uint32_t* f = gfx_fbptr(&pp); if (!f) return;
+    for (int y = 0; y < RBH; y++) { int yy = by + y; for (int x = 0; x < RBW; x++) { int xx = bx + x; radbuf[y * RBW + x] = (yy >= 0 && yy < H && xx >= 0 && xx < W) ? f[(uint64_t)yy * pp + xx] : 0; } }
+}
+static void rad_zurueck(void) {
+    uint32_t pp; uint32_t* f = gfx_fbptr(&pp); if (!f) return;
+    for (int y = 0; y < RBH; y++) { int yy = rad.by + y; if (yy < 0 || yy >= H) continue; for (int x = 0; x < RBW; x++) { int xx = rad.bx + x; if (xx >= 0 && xx < W) f[(uint64_t)yy * pp + xx] = radbuf[y * RBW + x]; } }
+}
+static uint32_t rad_farbe(int typ) { return typ == 1 ? 0x00A78BFAu : typ == 2 ? 0x0094A3B8u : typ == 3 ? C_OK : C_ACC; }
+static void rad_punkt(int x, int y, int s, uint32_t c) { gfx_rect(x - s / 2, y - s / 2, s, s, c); }
+static void rad_zeichne(void) {                                                   /* zeichnet das Rad auf den (sauberen) Bildschirm */
+    int cx = rad.cx, cy = rad.cy, dir = rad.dir;
+    for (int i = 0; i < RMAX; i++) rrx[i] = -1;
+    gfx_begin();
+    int gx = dir > 0 ? cx + 24 : cx - 24 - (RR + 16 + RLW + 8), gw = RR + 16 + RLW + 8, gy = cy - 196, gh = 392;
+    rad_glas(gx, gy, gw, gh, 22);
+    for (int a = -84; a <= 84; a += 3) rad_punkt(cx + dir * (RR * cos_d(a) / 1024), cy + RR * sin_d(a) / 1024, 2, C_BORDER);       /* Ring */
+    for (int a = 0; a < 360; a += 15) rad_punkt(cx + 16 * cos_d(a) / 1024, cy + 16 * sin_d(a) / 1024, 2, mix(C_BORDER, C_ACC, 140));    /* Nabe */
+    for (int o = -3; o <= 3; o++) {
+        int i = rad.sel + o; if (i < 0 || i >= rad.n) continue;
+        int ang = o * RSL; int px = cx + dir * (RR * cos_d(ang) / 1024), py = cy + RR * sin_d(ang) / 1024;
+        int selk = (o == 0); uint32_t fc = rad_farbe(rtyp[i]);
+        char t[40]; scopy(t, rc[i], 40); int tl = slen(t);
+        while (tl > 3 && gtw(t, 1) + 34 > RLW) { t[--tl] = 0; t[tl - 1] = '.'; if (tl > 1) t[tl - 2] = '.'; }
+        int w = gtw(t, 1) + 34; if (w > RLW) w = RLW; if (w < 70) w = 70;
+        int x = dir > 0 ? px + 16 : px - 16 - w, y = py - 14;
+        if (selk) {                                                                          /* Zeiger von der Nabe zum gewaehlten Eintrag */
+            for (int k = 22; k < RR; k += 7) rad_punkt(cx + dir * (k * cos_d(ang) / 1024), cy + k * sin_d(ang) / 1024, 3, C_ACC);
+            rrect(x - 2, y - 2, w + 4, 32, 14, mix(C_ACC, C_BG, 80)); rrect(x, y, w, 28, 12, mix(C_CARD, C_ACC, 150));
+            rad_punkt(px, py, 12, C_ACC); rad_punkt(px, py, 6, C_TEXT);
+        } else { rrect_rand(x, y, w, 28, 12, mix(C_CARD, C_BG, 90), C_BORDER); rad_punkt(px, py, 6, fc); }
+        rrect(x + 10, y + 10, 8, 8, 4, fc);
+        gtxt(x + 24, y + 6, t, selk ? C_TEXT : (o == 1 || o == -1) ? 0x00B8C4D6u : C_MUTED, 1);
+        rrx[i] = x; rry[i] = y; rrw[i] = w;
+    }
+    { const char* h = TR("Mausrad drehen - Mitteltaste/Tab uebernehmen", "Wheel: turn - middle click/Tab inserts"); int hw = gtw(h, 1); gtxt(gx + (gw - hw) / 2, gy + gh - 26, h, C_MUTED, 1); }
+    { char z[16], a[8]; dec(a, (uint32_t)rad.sel + 1); scopy(z, a, 16); cat(z, "/", 16); dec(a, (uint32_t)rad.n); cat(z, a, 16); gtxt(gx + gw - 16 - gtw(z, 1), gy + 10, z, C_MUTED, 1); }
+    gfx_end();
+}
+static void rad_weg(void) {
+    if (!rad.offen) return;
+    rad.offen = 0;
+    if (rad.gen == desk_gen) { gfx_begin(); rad_zurueck(); gfx_end(); }
+}
+static void rad_neu(void) {
+    if (zustand != Z_DESK || flaeche != 0 || menu.offen || sel1 || einlen == 0 || !rad_modus()) return;
+    rad_baue(); if (rad.n == 0) return;
+    const struct usb_pointer* p = usb_pointer_state();
+    int cx = p->x, cy = p->y;
+    rad.dir = (cx + RBW - 40 <= W) ? 1 : -1;
+    if (rad.dir > 0) { if (cx < 40) cx = 40; if (cx > W - RBW + 40) cx = W - RBW + 40; } else { if (cx > W - 40) cx = W - 40; if (cx < RBW - 40) cx = RBW - 40; }
+    if (cy < RBH / 2) cy = RBH / 2; if (cy > H - RBH / 2) cy = H - RBH / 2;
+    rad.cx = cx; rad.cy = cy; rad.bx = rad.dir > 0 ? cx - 40 : cx + 40 - RBW; rad.by = cy - RBH / 2;
+    int neu = !rad.offen;
+    gfx_begin(); rad_sichern(rad.bx, rad.by); gfx_end();
+    rad.gen = desk_gen; rad.offen = 1;
+    rad_zeichne();
+    if (neu) { kprint("[DESKTOP] Rad: geoeffnet, "); kprint_dec((uint32_t)rad.n); kprint(" Eintraege\n"); }
+}
+static void rad_drehen(int d) {
+    if (!rad.offen) return;
+    int n = rad.sel + d; if (n < 0) n = 0; if (n >= rad.n) n = rad.n - 1;
+    if (n == rad.sel) return;
+    rad.sel = n; rad.bewegt = 1;
+    gfx_begin(); rad_zurueck(); gfx_end(); rad_zeichne();
+}
+static void rad_einfuegen(int lauf) {
+    if (!rad.offen || rad.sel < 0 || rad.sel >= rad.n) return;
+    char t[96]; scopy(t, rc[rad.sel], 96);
+    rad_weg();
+    scopy(eingabe, t, 96); einlen = slen(eingabe); sel1 = 0; sug_suche();
+    kprint("[DESKTOP] Rad: uebernommen\n");
+    if (lauf && !(einlen && eingabe[einlen - 1] == ' ')) { ausfuehren(); return; }
+    zeichne_eingabe(); rad_neu();
+}
+static int rad_treffer(int x, int y) {
+    for (int i = 0; i < rad.n; i++) if (rrx[i] >= 0 && x >= rrx[i] && x < rrx[i] + rrw[i] && y >= rry[i] && y < rry[i] + 28) return i;
+    return -1;
+}
+static int rad_taste(uint8_t k) {
+    if (!rad.offen) return 0;
+    if (k == 0x51 || k == 0x52) { rad_drehen(k == 0x51 ? 1 : -1); return 1; }                  /* Pfeil runter/hoch dreht */
+    if (k == 0x2B) { rad_einfuegen(0); return 1; }                                             /* Tab uebernimmt */
+    if (k == 0x29) { rad_weg(); return 1; }                                                    /* Esc schliesst */
+    if ((k == 0x28 || k == 0x58) && rad.bewegt) { rad_einfuegen(1); return 1; }                /* Enter nach dem Drehen: uebernehmen und ausfuehren */
+    return 0;
+}
+static void taste(uint8_t k, int shift, int altgr) {
+    int desk = zustand == Z_DESK && flaeche == 0 && !menu.offen;
+    if (desk && rad_taste(k)) return;
+    rad_weg();
+    taste_roh(k, shift, altgr);
+    if (zustand == Z_DESK && flaeche == 0 && !menu.offen) rad_neu();
 }
 
 static void klick(int x, int y, int owner) {
@@ -2033,6 +2183,9 @@ static void tick(void) {
         if (p->x != lpx || p->y != lpy) { lpx = p->x; lpy = p->y; letzte_eingabe = t; }
         int down = p->buttons & 1; static int was_r;
         int rd = (p->buttons & 2) != 0;
+        { int wd = usb_wheel_take(); if (wd && rad.offen && !menu.offen) rad_drehen(wd > 0 ? -1 : 1); }               /* Mausrad dreht das Befehlsrad */
+        { static int was_mid; int mid = (p->buttons & 4) != 0; if (mid && !was_mid && rad.offen) rad_einfuegen(0); was_mid = mid; }
+        if (rd && !was_r && zustand != Z_LOGIN) rad_weg();
         if (rd && !was_r && zustand != Z_LOGIN) { if (menu.offen) menu_schliessen(); else { fokus_bei(p->x, p->y); menu_oeffnen(p->x, p->y); } }
         was_r = rd;
         if (menu.offen) {
@@ -2040,6 +2193,7 @@ static void tick(void) {
             if (down && !was_down) { was_down = down; if (i >= 0) menu_aktion(menu.p[i].id); else menu_schliessen(); }
             was_down = down; return;
         }
+        if (down && !was_down && rad.offen) { int i = rad_treffer(p->x, p->y); if (i >= 0) { rad.sel = i; rad_einfuegen(1); was_down = down; return; } rad_weg(); }
         if (down && !was_down && zustand != Z_LOGIN) maus_runter(p->x, p->y);
         if (down && fdrag) {                                                      /* Fenster/Widget ziehen: Umriss folgt der Maus */
             int nx = p->x - fdx, ny = p->y - fdy;
@@ -2059,6 +2213,7 @@ static void tick(void) {
         if (!down && zdrag) { zdrag = 0; layout_speichern(); kprint("[DESKTOP] Zynie: Position "); kprint_dec((uint32_t)zx); kprint(","); kprint_dec((uint32_t)zy); kprint(" Groesse "); kprint_dec((uint32_t)zs); kprint("%\n"); }
         was_down = down;
     }
+    if (rad.offen) return;                                                       /* solange das Rad offen ist, nichts darunter neu zeichnen */
     static int war_ruhe;
     int r = ruhend(); if (r != war_ruhe) { war_ruhe = r; kprint(r ? "[DESKTOP] Zynie: Ruhemodus\n" : "[DESKTOP] Zynie: wach\n"); }
     uint32_t ph = t / (t < sprech_bis ? 6 : r ? 30 : 12);

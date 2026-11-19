@@ -30,7 +30,7 @@ struct ring { struct trb* t; uint32_t enq; uint32_t cycle; };
 
 struct hid_field { int valid; uint32_t off, size, count; int32_t lmin, lmax; int rel; };
 struct hid_ptr {
-    struct hid_field x, y, btn, tip;
+    struct hid_field x, y, btn, tip, wheel;
     int has_id; uint8_t id;
 };
 
@@ -167,6 +167,7 @@ static void hid_parse(const uint8_t* d, int len, struct hid_ptr* p) {
                         else if (page == 1 && us == 0x31 && !p->y.valid) f = &p->y;
                         else if (page == 9 && us == 1 && !p->btn.valid) f = &p->btn;
                         else if (page == 0x0D && us == 0x42 && !p->tip.valid) f = &p->tip;
+                        else if (page == 1 && us == 0x38 && !p->wheel.valid) f = &p->wheel;
                         if (f) { f->valid = 1; f->off = off; f->size = rsize; f->lmin = lmin; f->lmax = lmax; f->rel = rel; f->count = 1; }
                     }
                 }
@@ -247,6 +248,7 @@ static void ptr_report(struct usbdev* d, const uint8_t* r) {
     if (ptr.x > w - 1) ptr.x = w - 1;
     if (ptr.y < 0) ptr.y = 0;
     if (ptr.y > h - 1) ptr.y = h - 1;
+    if (p->wheel.valid) { int32_t v = sbits(r, &p->wheel, 0); if (v > 8) v = 8; if (v < -8) v = -8; ptr.wheel += v; }
     uint8_t b = 0;
     if (p->btn.valid) b = (uint8_t)(bits(r, p->btn.off, 3));
     ptr.buttons = b;
@@ -797,6 +799,8 @@ int usb_init(void) {
 
 int usb_has_keyboard(void) { return have_kbd; }
 const struct usb_pointer* usb_pointer_state(void) { return &ptr; }
+int usb_wheel_take(void) { int d = ptr.wheel; ptr.wheel = 0; return d; }
+void usb_wheel_add(int d) { ptr.wheel += d; if (ptr.wheel > 64) ptr.wheel = 64; if (ptr.wheel < -64) ptr.wheel = -64; }
 
 void usb_list(void) {
     if (!ready) { kprint("Kein USB-Controller\n"); return; }

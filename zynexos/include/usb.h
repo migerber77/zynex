@@ -8,7 +8,9 @@ void usb_list(void);
 int  usb_has_keyboard(void);
 
 /* Zeigerzustand (Bildschirmkoordinaten) */
-struct usb_pointer { int x, y; uint8_t buttons; uint8_t down; uint8_t present; uint32_t events; };
+struct usb_pointer { int x, y; uint8_t buttons; uint8_t down; uint8_t present; uint32_t events; int wheel; };   /* wheel: aufgelaufene Mausrad-Raster (+ = nach oben/vorn), siehe usb_wheel_take */
+int  usb_wheel_take(void);                      /* Mausrad-Raster seit dem letzten Aufruf abholen */
+void usb_wheel_add(int d);                      /* vom Maustreiber (USB, Hyper-V) */
 const struct usb_pointer* usb_pointer_state(void);
 
 /* vom Bildschirmtreiber (kernel.c) */

@@ -18,6 +18,7 @@ extern void gfx_rect(int x, int y, int w, int h, uint32_t c);
 extern void gfx_text(int x, int y, const char* s, uint32_t fg, int scale);
 extern int  gfx_available(void);
 extern void usb_abs_pointer(int x, int y, uint8_t buttons);
+extern void usb_wheel_add(int d);
 
 #define MSR_GUEST_OS_ID 0x40000000u
 #define MSR_HYPERCALL   0x40000001u
@@ -281,6 +282,7 @@ static void kanal_bearbeiten(struct kanal* c) {
                 maus_gesehen++;
                 int w, h; gfx_size(&w, &h);
                 if (w > 0 && h > 0) maus_geliefert++;
+                if ((int8_t)r[o + 5] != 0) usb_wheel_add((int8_t)r[o + 5]);        /* Hyper-V-Maus: [Tasten][X][Y][Rad (vorzeichenbehaftet)] */
                 if (w > 0 && h > 0) usb_abs_pointer((int)((int64_t)x * (w - 1) / 32767), (int)((int64_t)y * (h - 1) / 32767), (uint8_t)(r[o] & 7));
             }
         }
