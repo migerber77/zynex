@@ -70,8 +70,17 @@ static uint8_t* ring;                                      /* 64 KiB, vom Stream
 static uint8_t* bdl;                                       /* 128 Byte ausgerichtet */
 
 /* ---- Verben ---- */
+static int use_imm, diag_gezeigt;
+static int verb_imm(uint32_t cmd, uint32_t* antwort) {                                  /* Sofort-Befehlsschnittstelle (ICO/IRI/ICS) */
+    for (long t = 0; t < 100000 && (r16(0x68) & 1); t++) warte_us(1);
+    w16(0x68, 2);                                                                       /* Gueltig-Bit loeschen */
+    w32(0x60, cmd); fence(); w16(0x68, 1);
+    for (long t = 0; t < 100000; t++) { if ((r16(0x68) & 3) == 2) { if (antwort) *antwort = r32(0x64); w16(0x68, 2); return 0; } warte_us(1); }
+    return -1;
+}
 static int verb(int nid, uint32_t v20, uint32_t* antwort) {
     uint32_t cmd = ((uint32_t)cad << 28) | ((uint32_t)nid << 20) | (v20 & 0xFFFFFu);
+    if (use_imm) return verb_imm(cmd, antwort);
     uint32_t wp = ((uint32_t)(r16(CORBWP) & 0xFF) + 1) % (uint32_t)corb_n;
     corb[wp] = cmd; fence();
     w16(CORBWP, (uint16_t)wp);
@@ -86,6 +95,13 @@ static int verb(int nid, uint32_t v20, uint32_t* antwort) {
         if ((t & 1023) == 1023) warte_us(1);
         pause_();
     }
+    if (!diag_gezeigt) {
+        diag_gezeigt = 1;
+        kprint("[HDA] CORB-Zeitueberschreitung: CORBWP="); kprint_hex(r16(CORBWP)); kprint(" CORBRP="); kprint_hex(r16(CORBRP));
+        kprint(" CORBCTL="); kprint_hex(r8(CORBCTL)); kprint(" RIRBWP="); kprint_hex(r16(RIRBWP)); kprint(" RIRBCTL="); kprint_hex(r8(RIRBCTL));
+        kprint(" GCTL="); kprint_hex(r32(GCTL)); kprint(" STATESTS="); kprint_hex(r16(STATESTS)); kprint("\n");
+    }
+    if (verb_imm(cmd, antwort) == 0) { use_imm = 1; kprint("[HDA] nutze Sofort-Befehle\n"); return 0; }
     return -1;
 }
 static uint32_t param(int nid, int p) { uint32_t r = 0; if (verb(nid, 0xF0000u | (uint32_t)p, &r)) return 0; return r; }
