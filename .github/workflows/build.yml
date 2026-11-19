@@ -1,10 +1,6 @@
-name: build
+name: build-alt-buildroot
+# Alter Linux/Buildroot-Build (nicht Zynex OS mit eigenem Kernel). Nur noch von Hand; Zynex OS baut der Workflow 'zynexos'.
 on:
-  push:
-    paths-ignore:
-      - '.github/workflows/genode.yml'
-      - 'genode/**'
-      - 'docs/**'
   workflow_dispatch:
 env:
   MODELL_URL: https://huggingface.co/ggml-org/SmolLM3-3B-GGUF/resolve/main/SmolLM3-Q4_K_M.gguf

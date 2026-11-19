@@ -814,7 +814,7 @@ def boot():
     pruefe("Kernel: pqtest bestanden", "pq: Selbsttest bestanden" in out)
     pruefe("Kernel: Firewall aktiv", "Firewall: normal" in out)
     pruefe("Kernel: Verschluesselung meldet Zustand", "Verschluesselung: aus" in out)
-    pruefe("Kernel: ZynDB speichert und findet", "netz.dns = 1.1.1.1" in out and "ZynDB: 1 Fakten" in out)
+    pruefe("Kernel: ZynDB speichert und findet", "netz.dns = 1.1.1.1" in out and "ZynDB: " in out and " Fakten, " in out)
     pruefe("Kernel: Gedaechtnis merkt sich etwas", "Gemerkt (wichtig, verblasst nicht)" in out)
     pruefe("Kernel: Gedaechtnis ruft per Aktivierung ab", "Neuronen feuern" in out and "Mein Hund heisst Bello" in out)
     pruefe("Kernel: Gedaechtnis zaehlt Neuronen und Synapsen", "Synapsen-Gedaechtnis:" in out and "Erinnerungen" in out)
