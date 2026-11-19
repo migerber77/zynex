@@ -288,7 +288,7 @@ static void handle_event(const struct trb* e) {
         struct usbdev* d = 0;
         for (int i = 0; i < MAX_DEV; i++) if (devs[i].used && devs[i].slot == slot) d = &devs[i];
         if (d && d->kind == 4 && ((d->ain.aktiv && dci == d->ain.dci) || (d->aout.aktiv && dci == d->aout.dci))) { aud_event(d, e, dci, code); }
-        else if (d && d->kind == 4) { /* verspaetetes Ereignis eines angehaltenen Kanals: ignorieren */ }
+        else if (d && d->kind == 4 && dci != 1) { /* verspaetetes Ereignis eines angehaltenen Kanals: ignorieren */ }
         else if (d && d->kind == 3 && (dci == d->dci_in || dci == d->dci_out)) {
             if (dci == d->dci_in) {
                 if (code == 1 || code == 13) { d->rx_len = NET_BUF - (e->status & 0xFFFFFFu); d->rx_done = 1; }
