@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
     }
     if (!strcmp(argv[2], "chat")) {
         int mx = argc > 4 ? atoi(argv[4]) : 60; int ids[400], n = 0; char buf[1024];
-        ids[n++] = m.im_start; { const char* sys = "system\nDu bist Zynie, der freundliche Assistent von Zynex OS. Antworte kurz."; n += llm_encode(&m, sys, (int)strlen(sys), ids + n, 100); } ids[n++] = m.im_end; n += llm_encode(&m, "\n", 1, ids + n, 10);
+        ids[n++] = m.im_start; { const char* sys = "system\nDu bist Zynie, der freundliche Assistent von Zynex OS. Antworte kurz, sachlich und in der Sprache der Frage. Wenn du etwas nicht sicher weisst, sag es ehrlich, statt zu raten."; n += llm_encode(&m, sys, (int)strlen(sys), ids + n, 100); } ids[n++] = m.im_end; n += llm_encode(&m, "\n", 1, ids + n, 10);
         ids[n++] = m.im_start; n += llm_encode(&m, "user\n", 5, ids + n, 10); n += llm_encode(&m, argv[3], (int)strlen(argv[3]), ids + n, 200); ids[n++] = m.im_end; n += llm_encode(&m, "\n", 1, ids + n, 10);
         ids[n++] = m.im_start; n += llm_encode(&m, "assistant\n", 10, ids + n, 10);
         clock_t t0 = clock(); float* lg = 0; int pos = 0;

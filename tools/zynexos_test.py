@@ -411,7 +411,7 @@ def kiinstall():
     m = re.search(r"\[DESKTOP\] Zynie antwortet: (.*)", out2); antwort = m.group(1).strip() if m else ""
     host, modell = os.environ.get("ZYNEX_LLM_HOST"), os.environ.get("ZYNEX_MODELL")
     if host and modell:
-        r = subprocess.run([host, modell, "chat", "wieviel ist vierzig plus zwei", "200"], capture_output=True, text=True)
+        r = subprocess.run([host, modell, "chat", "Antworte kurz auf Deutsch. wieviel ist vierzig plus zwei", "200"], capture_output=True, text=True)
         h = re.search(r"Antwort: (.*)", r.stdout); erwartet = h.group(1).strip() if h else "?"
         print("Platte:", antwort, "| Referenz:", erwartet)
         pruefe("Desktop: Antwort identisch mit der Referenz (Wortlaut)", antwort.replace(" ", "") == erwartet.replace("\n", " ").replace(" ", ""))
