@@ -560,10 +560,14 @@ static int nv_ctl(uint32_t len) {
     uint8_t ex[24]; mz(ex, 24); *(uint32_t*)(ex + 4) = 1; *(uint32_t*)(ex + 8) = len; *(uint32_t*)(ex + 12) = 0;
     uint64_t pfn = (uint64_t)(uintptr_t)nctl >> 12; mc(ex + 16, &pfn, 8);
     uint8_t pl[40]; mz(pl, 40); *(uint32_t*)pl = 107; *(uint32_t*)(pl + 4) = 1; *(uint32_t*)(pl + 8) = 0xFFFFFFFFu;
-    n_ctl_da = 0; uint64_t tid = ++n_tid;
+    n_ctl_da = 0; uint64_t tid = ++n_tid; uint32_t rid = *(uint32_t*)(nctl + 8);
     if (nv_senden(9, 1, ex, 24, pl, 40, tid)) return -1;
-    if (nv_warten(&n_ctl_da)) return -2;
-    return 0;
+    for (int k = 0; k < 8; k++) {                                       /* Statusmeldungen des Hosts (Typ 7) ueberspringen, auf die Antwort zu unserer Anfrage warten */
+        if (nv_warten(&n_ctl_da)) return -2;
+        if ((*(uint32_t*)nant & 0x80000000u) && *(uint32_t*)(nant + 8) == rid) return 0;
+        n_ctl_da = 0;
+    }
+    return -3;
 }
 static int gpadl_erzeugen(uint32_t relid, uint32_t handle, const void* mem, uint32_t pages) {
     uint8_t m[256], ant[240]; uint32_t* w = (uint32_t*)m;
@@ -631,10 +635,17 @@ static void nv_start(void) {
     if (*(uint32_t*)nant != 0x80000002u || *(uint32_t*)(nant + 12) != 0) { st_anhaengen(" RNDIS abgelehnt"); return; }
     static const uint8_t fest[6] = { 0x02, 0x5A, 0x59, 0x4E, 0x45, 0x58 };
     for (int i = 0; i < 6; i++) n_mac[i] = fest[i];
-    mz(nctl, 4096); *(uint32_t*)nctl = 4; *(uint32_t*)(nctl + 4) = 28; *(uint32_t*)(nctl + 8) = ++n_req; *(uint32_t*)(nctl + 12) = 0x01010101u; *(uint32_t*)(nctl + 16) = 0; *(uint32_t*)(nctl + 20) = 20;   /* MAC erfragen */
-    if (nv_ctl(28) == 0 && *(uint32_t*)nant == 0x80000004u && *(uint32_t*)(nant + 12) == 0 && *(uint32_t*)(nant + 16) >= 6) {
-        uint32_t off = 8 + *(uint32_t*)(nant + 20); if (off + 6 <= sizeof(nant)) for (int i = 0; i < 6; i++) n_mac[i] = nant[off + i];
-    } else st_anhaengen(" MAC unbekannt");
+    int mac_ok = 0;
+    static const uint32_t macoid[2] = { 0x01010101u, 0x01010102u };      /* permanente, dann aktuelle Adresse */
+    for (int o = 0; o < 2 && !mac_ok; o++) {
+        mz(nctl, 4096); *(uint32_t*)nctl = 4; *(uint32_t*)(nctl + 4) = 28; *(uint32_t*)(nctl + 8) = ++n_req; *(uint32_t*)(nctl + 12) = macoid[o]; *(uint32_t*)(nctl + 16) = 0; *(uint32_t*)(nctl + 20) = 20;
+        int r = nv_ctl(28);
+        if (r == 0 && *(uint32_t*)nant == 0x80000004u && *(uint32_t*)(nant + 12) == 0 && *(uint32_t*)(nant + 16) >= 6) {
+            uint32_t off = 8 + *(uint32_t*)(nant + 20); uint8_t sum = 0;
+            if (off + 6 <= sizeof(nant)) { for (int i = 0; i < 6; i++) { n_mac[i] = nant[off + i]; sum |= nant[off + i]; } if (sum) mac_ok = 1; }
+        } else { st_anhaengen(" MAC-Abfrage "); st_zahl(r < 0 ? -r : 0); st_anhaengen("/"); st_zahl(*(uint32_t*)(nant + 12) & 0xFFFF); }
+    }
+    if (!mac_ok) st_anhaengen(" MAC unbekannt (erfundene Adresse, Hyper-V verwirft evtl. alle Pakete)");
     mz(nctl, 4096); *(uint32_t*)nctl = 5; *(uint32_t*)(nctl + 4) = 32; *(uint32_t*)(nctl + 8) = ++n_req; *(uint32_t*)(nctl + 12) = 0x0001010Eu; *(uint32_t*)(nctl + 16) = 4; *(uint32_t*)(nctl + 20) = 20; *(uint32_t*)(nctl + 24) = 0; *(uint32_t*)(nctl + 28) = 0x0D;   /* Paketfilter */
     if (nv_ctl(32) || *(uint32_t*)nant != 0x80000005u || *(uint32_t*)(nant + 12) != 0) { st_anhaengen(" Paketfilter Fehler"); return; }
     n_ok = 1;
