@@ -58,12 +58,34 @@ void timer_init(uint32_t frequency) {
     kprint(" Hz + preemptive timeslice\n");
 }
 
-uint32_t timer_get_ticks(void) { return timer_ticks; }
-uint32_t timer_get_seconds(void) { return timer_ticks / timer_frequency; }
+/* Hyper-V (Generation 2) hat oft keinen laufenden PIT: dann bleibt timer_ticks stehen und jede Warteschleife (DHCP, Link, Wuerfel ...)
+ * haengt fuer immer. Darum dort die Referenzzeit des Hypervisors (MSR 0x40000020, Einheit 100 ns) als Zeitquelle nehmen. */
+static int hv_ref = -1;
+static inline void cpuid4(uint32_t leaf, uint32_t* a, uint32_t* b, uint32_t* c, uint32_t* d) { __asm__ volatile ("cpuid" : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d) : "a"(leaf), "c"(0)); }
+static int hv_ref_pruefen(void) {
+    uint32_t a, b, c, d;
+    cpuid4(1, &a, &b, &c, &d);
+    if (!(c & (1u << 31))) return 0;                                    /* kein Hypervisor */
+    cpuid4(0x40000000, &a, &b, &c, &d);
+    if (a < 0x40000003 || b != 0x7263694Du || c != 0x666F736Fu || d != 0x76482074u) return 0;   /* "Microsoft Hv" */
+    cpuid4(0x40000003, &a, &b, &c, &d);
+    return (a & 2) ? 1 : 0;                                             /* AccessPartitionReferenceCounter */
+}
+static uint32_t ticks_jetzt(void) {
+    if (hv_ref < 0) hv_ref = hv_ref_pruefen();
+    if (hv_ref) {
+        uint32_t lo, hi; __asm__ volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(0x40000020u));
+        uint64_t t100ns = ((uint64_t)hi << 32) | lo;
+        return (uint32_t)(t100ns / (10000000u / timer_frequency));
+    }
+    return timer_ticks;
+}
+uint32_t timer_get_ticks(void) { return ticks_jetzt(); }
+uint32_t timer_get_seconds(void) { return ticks_jetzt() / timer_frequency; }
 
 void timer_sleep(uint32_t ms) {
-    uint32_t target = timer_ticks + (ms * timer_frequency) / 1000;
-    while (timer_ticks < target) __asm__ volatile ("hlt");
+    uint32_t target = ticks_jetzt() + (ms * timer_frequency) / 1000;
+    while ((int32_t)(ticks_jetzt() - target) < 0) __asm__ volatile ("pause");
 }
 
 /* ---- Hardware-Uhr (CMOS) ---- */
