@@ -785,11 +785,9 @@ static void aud_push(struct usbdev* d, struct audep* e, uint32_t len) {
 }
 
 static int aud_ep_an(struct usbdev* d, struct audep* e, int ausgabe) {
-    kprint("[USB-Audio] SetInterface "); kprint_dec(e->iface); kprint("/"); kprint_dec(e->alt); kprint("\n");
     if (ctrl(d, 0x01, 11, e->alt, e->iface, 0, 0) != 0) return -1;                  /* Alternativeinstellung mit Daten */
-    kprint("[USB-Audio] SetInterface ok\n");
+
     if (e->rate) { uint8_t f[3] = { (uint8_t)e->rate, (uint8_t)(e->rate >> 8), (uint8_t)(e->rate >> 16) }; uint8_t* t = d->buf + 3072; t[0] = f[0]; t[1] = f[1]; t[2] = f[2]; ctrl(d, 0x22, 1, 0x0100, e->addr, 3, t); }   /* Abtastrate setzen (Fehler egal) */
-    kprint("[USB-Audio] Abtastrate gesetzt\n");
     if (!e->r.t) {
         e->r.n = AUD_N; e->r.t = (struct trb*)seite();
         e->stride = (uint32_t)((e->mps + 63) & ~63);
@@ -813,9 +811,7 @@ static int aud_ep_an(struct usbdev* d, struct audep* e, int ausgabe) {
     uint64_t trp = (uint64_t)(uintptr_t)e->r.t | 1;
     ep[2] = (uint32_t)trp; ep[3] = (uint32_t)(trp >> 32);
     ep[4] = (uint32_t)e->mps | ((uint32_t)e->mps << 16);
-    kprint("[USB-Audio] Endpunkt konfigurieren\n");
     if (befehl((uint64_t)(uintptr_t)d->inctx, 0, (12u << 10) | ((uint32_t)d->slot << 24), 0) != 0) { kprint("[USB-Audio] Konfiguration abgelehnt, Code "); kprint_dec(cmd_code); kprint("\n"); return -3; }
-    kprint("[USB-Audio] Endpunkt bereit\n");
     return 0;
 }
 
@@ -875,10 +871,8 @@ int usbaud_spielen_strom(uint32_t (*fill)(int16_t* stereo, uint32_t frames, void
     a_fill = fill; a_ctx = ctx; a_aus_gepostet = 0; a_aus_fertig = 0; a_aus_ende = 0; a_fehler = 0; a_erster_code = 0;
     int r = aud_ep_an(d, e, 1); if (r) { ctrl(d, 0x01, 11, 0, e->iface, 0, 0); return -10 + r; }
     e->aktiv = 1;
-    kprint("[USB-Audio] Pakete einreihen\n");
     for (int i = 0; i < 100 && !a_aus_ende; i++) { uint32_t l = aud_fuell_paket(d, e); aud_push(d, e, l); a_aus_gepostet++; }
     fence(); w32(db, d->slot * 4, e->dci);
-    kprint("[USB-Audio] Doorbell\n");
     uint32_t t0 = timer_get_ticks(), letzt = t0; int last = 0;
     while (a_aus_fertig < a_aus_gepostet) {
         usb_poll();
