@@ -400,6 +400,8 @@ def installieren():
         vm = VM(extra, cd=False)
         vm.warte("[LOADER] Bildschirm", 90); time.sleep(1); out3 = vm.log(); vm.ende()
         print(out3[:1500])
+        mm = re.search(r"\[LOADER\] Aufloesungen: (\d+)\n", out3)
+        pruefe("Lader meldet die Liste der Aufloesungen (mindestens eine)", bool(mm) and int(mm.group(1)) >= 1)
         pruefe("Lader stellt die gewaehlte Aufloesung ein (%sx%s)" % (m.group(1), m.group(2)), ("[LOADER] Gewuenschte Aufloesung %sx%s wird eingestellt" % (m.group(1), m.group(2))) in out3 and ("[LOADER] Bildschirm %sx%s" % (m.group(1), m.group(2))) in out3)
     pruefe("Einstellungen: Platte verschluesselt", "[DESKTOP] Plattenverschluesselung: Fertig" in out2)
     pruefe("Desktop: Dock gezeichnet, geglaettete Schrift", "[DESKTOP] Zynex OS Quantum Desktop" in out2)

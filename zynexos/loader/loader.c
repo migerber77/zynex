@@ -85,6 +85,17 @@ struct elf_ph { unsigned int type, flags; unsigned long long off, vaddr, paddr, 
 static void put32(unsigned char* p, unsigned v) { p[0] = (unsigned char)v; p[1] = (unsigned char)(v >> 8); p[2] = (unsigned char)(v >> 16); p[3] = (unsigned char)(v >> 24); }
 static void put64(unsigned char* p, unsigned long long v) { put32(p, (unsigned)v); put32(p + 4, (unsigned)(v >> 32)); }
 
+/* GOP-Pixelformat pruefen: 0 = nicht nutzbar, 1 = BGR (8 Bit je Farbe), 2 = RGB. Format 2 (Bitmaske) haben manche Notebooks/Grafikkarten. */
+static int pixel_format(const EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* mi) {
+    if (mi->PixelFormat == 1) return 1;
+    if (mi->PixelFormat == 0) return 2;
+    if (mi->PixelFormat == 2) {
+        if (mi->Mask[0] == 0x00FF0000u && mi->Mask[1] == 0x0000FF00u && mi->Mask[2] == 0x000000FFu) return 1;
+        if (mi->Mask[0] == 0x000000FFu && mi->Mask[1] == 0x0000FF00u && mi->Mask[2] == 0x00FF0000u) return 2;
+    }
+    return 0;
+}
+
 EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
     ST = st; BS = st->BootServices;
     BS->SetWatchdogTimer(0, 0, 0, 0);
@@ -178,10 +189,21 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
         for (UINT32 m = 0; m < gop->Mode->MaxMode; m++) {
             UINTN sz; EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* mi;
             if (gop->QueryMode(gop, m, &sz, &mi) != 0) continue;
-            if (mi->PixelFormat != 0 && mi->PixelFormat != 1) continue;
+            if (!pixel_format(mi)) continue;
             unsigned w = mi->HorizontalResolution, h = mi->VerticalResolution, neu = 1;
             for (unsigned k = 0; k < nmodi; k++) if (modi[k][0] == w && modi[k][1] == h) neu = 0;
-            if (neu && nmodi < 32 && w >= 640 && h >= 480) { modi[nmodi][0] = w; modi[nmodi][1] = h; nmodi++; }
+            if (neu && w >= 640 && h >= 480 && w <= 2560 && h <= 1440) {
+                /* Liste nach Flaeche aufsteigend halten (der Kernel nimmt den letzten Eintrag als "groesste"); bei Ueberlauf faellt der kleinste weg */
+                UINT64 fl = (UINT64)w * h; unsigned pos = nmodi; int ok = 1;
+                if (nmodi == 32) {
+                    if (fl <= (UINT64)modi[0][0] * modi[0][1]) ok = 0;
+                    else { for (unsigned k = 0; k + 1 < 32; k++) { modi[k][0] = modi[k + 1][0]; modi[k][1] = modi[k + 1][1]; } pos = 31; }
+                } else nmodi++;
+                if (ok) {
+                    while (pos > 0 && (UINT64)modi[pos - 1][0] * modi[pos - 1][1] > fl) { modi[pos][0] = modi[pos - 1][0]; modi[pos][1] = modi[pos - 1][1]; pos--; }
+                    modi[pos][0] = w; modi[pos][1] = h;
+                }
+            }
             if (w == ww && h == wh) wunsch = (int)m;
             if (w <= 2560 && h <= 1440) {
                 UINT64 a = (UINT64)w * h;
@@ -192,11 +214,13 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
         if (wunsch >= 0) { best = (UINT32)wunsch; bestarea = 1; }
         if (bestarea && best != gop->Mode->Mode) gop->SetMode(gop, best);
         EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* mi = gop->Mode->Info;
-        if (mi->PixelFormat == 0 || mi->PixelFormat == 1) {
+        int pf = pixel_format(mi);
+        if (pf) {
             have_fb = 1; fb_addr = gop->Mode->FrameBufferBase; fb_pitch = mi->PixelsPerScanLine * 4; fb_w = mi->HorizontalResolution; fb_h = mi->VerticalResolution;
-            if (mi->PixelFormat == 0) flags |= 2;                         /* RGB-Reihenfolge: Kernel muss Rot/Blau tauschen */
+            if (pf == 2) flags |= 2;                                      /* RGB-Reihenfolge: Kernel muss Rot/Blau tauschen */
         }
     }
+    say("[LOADER] Aufloesungen: "); say_dec(nmodi); say("\n");
     say("[LOADER] Bildschirm "); say_dec(fb_w); say("x"); say_dec(fb_h); say("\n");
 
     /* Boot-Informationen im Multiboot2-Format (unter 4 GiB) */
