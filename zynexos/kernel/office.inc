@@ -9,6 +9,7 @@
 #define OC_EXCEL 0x00217346u
 #define OC_PPT   0x00C43E1Cu
 #define OC_BOARD 0x007719AAu
+#define OC_MAL   0x00D9480Fu
 #define O_RIB    0x00F3F2F1u
 #define O_RAND   0x00D2D0CEu
 #define O_TXT    0x00323130u
@@ -17,10 +18,10 @@
 #define O_HELL   0x00E1DFDDu
 #define O_BLAU   0x000078D4u
 
-static uint32_t ob_farbe(int typ) { return typ == FT_EDIT ? OC_WORD : typ == FT_TAB ? OC_EXCEL : typ == FT_PRAES ? OC_PPT : typ == FT_BOARD ? OC_BOARD : 0; }
+static uint32_t ob_farbe(int typ) { return typ == FT_EDIT ? OC_WORD : typ == FT_TAB ? OC_EXCEL : typ == FT_PRAES ? OC_PPT : typ == FT_BOARD ? OC_BOARD : typ == FT_MAL ? OC_MAL : 0; }
 
 enum { K_OF0 = 600, K_OTAB0 = 600, K_OKP = 610, K_OKP_SEND, K_OKP_UEB, K_OKP_KOP, K_OKP_FELD, K_OKP_ZU, K_OKP_AUF, K_OKP_AB,
-       K_W0 = 620, K_T0 = 650, K_P0 = 680, K_PTH = 700, K_B0 = 730, K_OF_END = 800 };
+       K_W0 = 620, K_T0 = 650, K_P0 = 680, K_PTH = 700, K_B0 = 730, K_OF_END = 860 };
 
 static int ob_tab[12];                         /* gewaehlter Reiter je Programm (0 Start, 1 Zynie) */
 static char ob_meld[100];                      /* Meldung in der Statuszeile */
@@ -103,7 +104,7 @@ static int ob_ki(const char* auftrag, const char* daten, char* out, int max) {
 
 /* ---------- Zynie-Bereich (rechts in jedem Programm) ---------- */
 enum { KA_KEINE, KA_ANHAENGEN, KA_ERSETZEN, KA_TAB, KA_FOLIEN, KA_FOLIE, KA_NOTIZ };
-enum { KE_FRAGE, KE_TAB, KE_FOLIEN };
+enum { KE_FRAGE, KE_TAB, KE_FOLIEN, KE_MAL, KE_MAL_DAZU };
 static int kp_auf[12], kp_quelle, kp_scroll, kp_fokus, kp_aktion, kp_modus, kp_einlen;
 static char kp_text[2400], kp_ein[200];
 #define KP_B 330
@@ -124,6 +125,7 @@ static void kp_zeichnen(int typ, int x, int y, int w, int h) {
         const char* hilfe = typ == FT_EDIT ? TR("Frag mich etwas zu deinem Dokument, oder nutze den Reiter \"Zynie (KI)\": Zusammenfassen, Verbessern, Fortsetzen, Uebersetzen.", "Ask me about your document or use the \"Zynie (AI)\" tab.")
                           : typ == FT_TAB ? TR("Frag mich etwas zu deiner Tabelle, oder lass mich eine Tabelle aus einer Beschreibung erzeugen.", "Ask about your sheet or let me create a sheet from a description.")
                           : typ == FT_PRAES ? TR("Nenne ein Thema, und ich erstelle die Folien. Oder frag mich etwas zu deiner Praesentation.", "Name a topic and I create the slides, or ask about your presentation.")
+                          : typ == FT_MAL ? TR("Beschreibe ein Motiv, und ich zeichne es auf die Leinwand (Reiter Zynie: Zynie zeichnet). Strg+Z macht es rueckgaengig.", "Describe a subject and I draw it on the canvas. Ctrl+Z undoes it.")
                           : TR("Ich lese dein Diagramm mit: erklaeren, analysieren, beraten, Risiken, Schritte. Oder stell eine eigene Frage.", "I read your diagram: explain, analyse, advise, risks, steps. Or ask your own question.");
         n = ob_umbruch(hilfe, (w - 36) / 8, z, 120);
     }
@@ -144,7 +146,7 @@ static void kp_zeichnen(int typ, int x, int y, int w, int h) {
     int fy = y + h - 64;
     rrect_rand(x + 14, fy, w - 28, 50, 8, O_WEISS, kp_fokus == typ ? oc : O_RAND);
     if (kp_einlen) { char t[60]; int mc = (w - 130) / 8; if (mc > 58) mc = 58; int von = kp_einlen > mc ? kp_einlen - mc : 0; scopy(t, kp_ein + von, 60); gtxt(x + 24, fy + 16, t, O_TXT, 1); if (kp_fokus == typ) gfx_rect(x + 24 + gtw(t, 1), fy + 13, 2, 20, oc); }
-    else gtxt(x + 24, fy + 16, kp_modus == KE_TAB && kp_fokus == typ ? TR("Beschreibe die Tabelle ...", "Describe the sheet ...") : kp_modus == KE_FOLIEN && kp_fokus == typ ? TR("Thema der Praesentation ...", "Topic of the presentation ...") : TR("Frag Zynie ...", "Ask Zynie ..."), 0x00A19F9Du, 1);
+    else gtxt(x + 24, fy + 16, (kp_modus == KE_MAL || kp_modus == KE_MAL_DAZU) && kp_fokus == typ ? TR("Was soll ich zeichnen?", "What should I draw?") : kp_modus == KE_TAB && kp_fokus == typ ? TR("Beschreibe die Tabelle ...", "Describe the sheet ...") : kp_modus == KE_FOLIEN && kp_fokus == typ ? TR("Thema der Praesentation ...", "Topic of the presentation ...") : TR("Frag Zynie ...", "Ask Zynie ..."), 0x00A19F9Du, 1);
     kn_reg(K_OKP_FELD, x + 14, fy, w - 100, 50);
     rrect(x + w - 82, fy + 10, 60, 30, 6, oc); gtxt(x + w - 76, fy + 17, TR("Los", "Go"), O_WEISS, 1); kn_reg(K_OKP_SEND, x + w - 82, fy + 10, 60, 30);
 }
@@ -906,6 +908,8 @@ static void board_los(int x, int y) {
     b_zieh = 0; b_von = -1; ob_maus = 0; zeichne_board();
 }
 
+#include "zeichnen.inc"
+
 /* ======================================================================= Klicks, Tasten, Maus ======================================================================= */
 static void kp_senden(int typ) {
     if (!kp_einlen) { kp_fokus = typ; return; }
@@ -918,6 +922,15 @@ static void kp_senden(int typ) {
         else if (typ == FT_TAB) t_csv(d, sizeof(d), 1);
         else if (typ == FT_PRAES) pf_text(d, sizeof(d));
         else { b_struktur(d, sizeof(d)); akt = KA_NOTIZ; }
+    }
+    if ((kp_modus == KE_MAL || kp_modus == KE_MAL_DAZU) && typ == FT_MAL) {
+        int dazu = kp_modus == KE_MAL_DAZU; kprint("[OFFICE] Zynie zeichnet: "); kprint(kp_ein); kprint("\n");
+        char motiv[200]; scopy(motiv, kp_ein, 200); kp_einlen = 0; kp_ein[0] = 0; kp_fokus = 0; kp_modus = KE_FRAGE;
+        if (mal_speicher()) return;
+        m_merken(); m_geaendert = 1; ob_meld[0] = 0;
+        m_ki_zeichnen(motiv, dazu, mz, out, sizeof(out));
+        static char z[2400]; scopy(z, TR("Gezeichnet. Rueckgaengig: Strg+Z.\n\nBefehle:\n", "Done. Undo: Ctrl+Z.\n\nCommands:\n"), sizeof(z)); cat(z, out, sizeof(z));
+        kp_zeige(FT_MAL, z, KA_KEINE); return;
     }
     kprint("[OFFICE] Frage an Zynie: "); kprint(kp_ein); kprint("\n");
     kp_einlen = 0; kp_ein[0] = 0; kp_fokus = 0; kp_modus = KE_FRAGE;
@@ -944,7 +957,7 @@ static void kp_taste(uint8_t k, int shift, int altgr) {
     else { char c = usb_key_char(k, shift, altgr); if (((c >= 32 && c < 127) || (unsigned char)c >= 0xA0) && kp_einlen < 196) { kp_ein[kp_einlen++] = c; kp_ein[kp_einlen] = 0; } else return; }
     ob_neu_zeichnen(typ);
 }
-static void ob_neu_zeichnen(int typ) { if (typ == FT_EDIT) ob_word(1); else if (typ == FT_TAB) zeichne_tabelle(); else if (typ == FT_PRAES) zeichne_praes(); else zeichne_board(); }
+static void ob_neu_zeichnen(int typ) { if (typ == FT_EDIT) ob_word(1); else if (typ == FT_TAB) zeichne_tabelle(); else if (typ == FT_PRAES) zeichne_praes(); else if (typ == FT_MAL) zeichne_mal(); else zeichne_board(); }
 static void office_klick(int id, int wi) {
     if (wi < 0 || wi >= nfen) return;
     int typ = fen[wi].typ; static char out[2400], d[2600];
@@ -958,6 +971,7 @@ static void office_klick(int id, int wi) {
     else if (id == K_OKP_SEND) { kp_senden(typ); zeichne_desktop(); return; }
     else if (id == K_OKP_KOP) { clip_setze(kp_text, slen(kp_text)); scopy(ob_meld, TR("Antwort kopiert", "Answer copied"), 100); }
     else if (id == K_OKP_UEB) kp_uebernehmen();
+    else if (id >= K_M0 && id < K_M0 + 60) { mal_klick(id); return; }
     /* Text */
     else if (id == K_W0 + 0) { if (doklen > 0 && dokgeaendert) dok_speichern(); dok_neu(); }
     else if (id == K_W0 + 1) { if (doklen > 0 && dokgeaendert) dok_speichern(); char nm[28]; if (ob_naechste("dokument-", ".txt", dokname, nm)) dok_laden(nm); else scopy(ob_meld, TR("Noch keine Dokumente gespeichert", "No documents saved yet"), 100); }
@@ -1037,10 +1051,11 @@ static void office_taste(uint8_t k, int shift, int altgr) {
     if (!nfen) return;
     int typ = fen[nfen - 1].typ;
     if (kp_fokus == typ) { kp_taste(k, shift, altgr); return; }
-    if (typ == FT_TAB) t_taste(k, shift, altgr); else if (typ == FT_PRAES) pf_taste(k, shift, altgr); else if (typ == FT_BOARD) b_taste(k, shift, altgr);
+    if (typ == FT_TAB) t_taste(k, shift, altgr); else if (typ == FT_PRAES) pf_taste(k, shift, altgr); else if (typ == FT_BOARD) b_taste(k, shift, altgr); else if (typ == FT_MAL) mal_taste(k, shift, altgr);
 }
 static int office_maus(int typ, int x, int y) {                     /* Klick in den Arbeitsbereich (nicht auf Knoepfe); 1 = erledigt */
     if (typ == FT_BOARD) return board_runter(x, y);
+    if (typ == FT_MAL) return mal_runter(x, y);
     if (typ == FT_TAB && x >= tg_x + TG_HW && y >= tg_y + TG_RH && x < tg_x + tg_gw && y < tg_y + tg_gh) {
         int c = (x - tg_x - TG_HW) / tg_cw, r = t_sr + (y - tg_y - TG_RH) / TG_RH;
         if (c < TS && r < TZ) { t_uebernehme(); t_r = r; t_c = c; kp_fokus = 0; zeichne_tabelle(); return 1; }
@@ -1056,8 +1071,8 @@ static int office_maus(int typ, int x, int y) {                     /* Klick in 
     }
     return 0;
 }
-static void office_zug(int x, int y) { if (ob_maus && fenster_idx(FT_BOARD) == nfen - 1) board_zug(x, y); }
-static void office_los(int x, int y) { if (ob_maus) board_los(x, y); }
+static void office_zug(int x, int y) { if (!ob_maus || !nfen) return; if (fen[nfen - 1].typ == FT_BOARD) board_zug(x, y); else if (fen[nfen - 1].typ == FT_MAL) mal_zug(x, y); }
+static void office_los(int x, int y) { if (!ob_maus || !nfen) return; if (fen[nfen - 1].typ == FT_MAL) mal_los(x, y); else board_los(x, y); }
 
 /* ======================================================================= Agenten fuer die Programme ======================================================================= */
 static char ag_text[2600];                                          /* Ergebnis, das auf die Freigabe wartet */
@@ -1108,6 +1123,7 @@ static void ag_office(int i) {
         scopy(z, TR("Zahlenspalten: ", "Number columns: "), 100); cat(z, sp, 100); al(z);
         scopy(z, TR("Vorschlag: Summenzeile in Zeile ", "Proposal: sum row in row "), 100); dec(a, (uint32_t)ag_tzeile + 1); cat(z, a, 100); al(z);
         pend = 4; al(TR("Wartet auf deine Freigabe.", "Waiting for your approval.")); kprint("[AGENT] Freigabe angefragt: Summenzeile einfuegen\n");
+    } else if (i == 8) { ag_bild();
     } else if (i == 7) {
         if (!nbf) { al(TR("Das SmartBoard ist leer. Zuerst einen Ablauf zeichnen.", "The SmartBoard is empty. Draw a flow first.")); return; }
         int st = -1; for (int k = 0; k < nbf; k++) if (bf[k].typ == 0 && !b_eingaenge(k) && b_ausgaenge(k)) { st = k; break; }
@@ -1141,6 +1157,7 @@ static void ag_office_frei(int p) {
     } else if (p == 5) {
         pf_neu(); pf_n = 0; int n = pf_aus_text(ag_text, 0); pf_cur = 0; pf_speichern();
         char z[100], a[8]; scopy(z, TR("Freigegeben: ", "Approved: "), 100); dec(a, (uint32_t)n); cat(z, a, 100); cat(z, TR(" Folien in ", " slides in "), 100); cat(z, pfname, 100); al(z);
+    } else if (p == 7) { ag_bild_frei();
     } else if (p == 6) {
         const char* q = ag_text; int n = 0;
         while (*q) { char t[100]; scopy(t, TR("Ablauf: ", "Flow: "), 100); int o = slen(t); while (*q && *q != '\n' && o < 98) t[o++] = *q++; t[o] = 0; if (*q) q++; if (aufg_add(t) == 0) n++; }
@@ -1148,11 +1165,12 @@ static void ag_office_frei(int p) {
     }
 }
 
-static void office_init(int typ) { if (typ == FT_TAB && !tabname[0]) t_neu(); if (typ == FT_PRAES && !pfname[0]) pf_neu(); if (typ == FT_BOARD && !bname[0]) b_neu(); }
+static void office_init(int typ) { if (typ == FT_MAL) mal_init(); if (typ == FT_TAB && !tabname[0]) t_neu(); if (typ == FT_PRAES && !pfname[0]) pf_neu(); if (typ == FT_BOARD && !bname[0]) b_neu(); }
 static void office_schliessen(int typ) {
     if (typ == FT_TAB) { t_uebernehme(); if (t_geaendert) t_speichern(); }
     else if (typ == FT_PRAES) { if (pf_geaendert) pf_speichern(); }
     else if (typ == FT_BOARD) { b_edit = 0; if (b_geaendert) b_speichern(); }
+    else if (typ == FT_MAL) { m_tipp = 0; if (m_geaendert) mal_speichern(); }
     if (kp_fokus == typ) kp_fokus = 0;
     fenster_schliessen_typ(typ);
 }
