@@ -3,17 +3,18 @@
    Schrift 0-3: DejaVu Sans Mono, feste Breite 8*s, Zeilenhoehe 16*s (ersetzt die Pixelschrift in gfx_text)
    Schrift 4-7: Inter Medium, proportional (Oberflaeche, gfx_text_p)
    Zeichen 32-126 und 160-255 (Latin-1).
-   Aufruf: python3 tools/mkfont.py <DejaVuSansMono.ttf> <Inter-Medium.otf> <ziel.c>"""
+   Schrift 8-12: Webseiten: Inter SemiBold 15/20/26/34 (fett, Ueberschriften), Inter Regular 13 (klein)
+   Aufruf: python3 tools/mkfont.py <DejaVuSansMono.ttf> <Inter-Medium.otf> <ziel.c> <Inter-SemiBold.otf> <Inter-Regular.otf>"""
 import sys
 from PIL import Image, ImageDraw, ImageFont
 
-mono_ttf, prop_ttf, ziel = sys.argv[1:4]
+mono_ttf, prop_ttf, ziel, bold_ttf, reg_ttf = sys.argv[1:6]
 ZEICHEN = list(range(32, 127)) + list(range(160, 256))
 GAMMA = 0.8                      # Deckung leicht anheben (helle Schrift auf dunklem Grund wirkt sonst duenn)
 
-def schrift(pfad, groesse, skala, mono):
+def schrift(pfad, groesse, skala, mono, box=None):
     f = ImageFont.truetype(pfad, groesse)
-    box = 16 * skala
+    box = box or 16 * skala
     grund = round(box * 0.77)      # Grundlinie innerhalb der Zeile
     glyphen = []
     for c in ZEICHEN:
@@ -42,6 +43,9 @@ for s in (1, 2, 3, 4):
     fonts.append(schrift(mono_ttf, round(8 * s / 0.6021), s, True))
 for s, g in ((1, 15), (2, 27), (3, 40), (4, 54)):
     fonts.append(schrift(prop_ttf, g, s, False))
+for g, b in ((15, 16), (20, 22), (26, 30), (34, 40)):
+    fonts.append(schrift(bold_ttf, g, 1, False, b))
+fonts.append(schrift(reg_ttf, 13, 1, False, 16))
 
 daten = bytearray()
 meta = []
@@ -53,7 +57,7 @@ for fnt in fonts:
 with open(ziel, "w") as o:
     o.write("/* Geglaettete Schriften, erzeugt mit tools/mkfont.py - nicht von Hand aendern.\n")
     o.write(" * DejaVu Sans Mono: Bitstream Vera / DejaVu-Lizenz (frei).  Inter: SIL Open Font License 1.1, (c) The Inter Project Authors.\n")
-    o.write(" * Schrift 0-3 = Mono (Skala 1-4), 4-7 = Inter (Skala 1-4); 191 Zeichen je Schrift (32-126, 160-255). */\n")
+    o.write(" * Schrift 0-3 = Mono (Skala 1-4), 4-7 = Inter (Skala 1-4), 8-11 Inter SemiBold 15/20/26/34, 12 Inter 13; 191 Zeichen je Schrift (32-126, 160-255). */\n")
     o.write("#include <stdint.h>\n#include \"font_aa.h\"\n")
     o.write("const struct aa_glyph aa_glyphen[%d] = {\n" % len(meta))
     for i, (off, w, h, x0, y0, adv) in enumerate(meta):

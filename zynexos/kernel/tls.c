@@ -34,7 +34,7 @@ static uint16_t suite;
 static int v12;
 static int is_gcm(void) { return suite == 0x1301 || suite == 0xc02b || suite == 0xc02f; }
 static struct sha256 tr;
-static uint8_t rec[16700], sendbuf[16700], hsbuf[24000], certbuf[16384], outbuf[65536];
+static uint8_t rec[16700], sendbuf[16700], hsbuf[24000], certbuf[16384], outbuf[3u * 1024u * 1024u];
 static uint32_t hsl, certlen, certlistlen;
 static struct xcert leaf;
 
@@ -484,7 +484,7 @@ int tls_get(uint32_t ip, uint16_t port, const char* host, const uint8_t* req, ui
     /* Antwort lesen */
     uint32_t t0 = timer_get_ticks(), letzte = t0;
     for (;;) {
-        if (timer_get_ticks() - t0 > 1500 || timer_get_ticks() - letzte > 400) break;
+        if (timer_get_ticks() - t0 > 3000 || timer_get_ticks() - letzte > 400 || *outlen >= sizeof(outbuf)) break;
         if (tcp_have() < 5) { if (tcp_eof()) break; net_poll(); continue; }
         int r = read_rec(&type, &rl);
         if (r != 0) break;

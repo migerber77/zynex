@@ -193,6 +193,18 @@ void gfx_text_p(int x,int y,const char* s,uint32_t fg,int scale){
     const struct aa_glyph* f=aa_glyphen+aa_schrift(4,scale)*AA_ZEICHEN; uint32_t c=pc(fg);
     for(;*s;s++){ const struct aa_glyph* g=f+aa_index((unsigned char)*s); aa_glyph_zeichnen(x,y,g,c); x+=g->adv; }
 }
+/* beliebige Schrift 0-12 (siehe font_aa.c), z. B. fuer Webseiten */
+int gfx_text_fw(const char* s,int font){ if(font<0||font>12) font=4; const struct aa_glyph* f=aa_glyphen+font*AA_ZEICHEN; int w=0; for(;*s;s++) w+=f[aa_index((unsigned char)*s)].adv; return w; }
+void gfx_text_f(int x,int y,const char* s,uint32_t fg,int font){
+    if(mode!=1) return; if(font<0||font>12) font=4;
+    const struct aa_glyph* f=aa_glyphen+font*AA_ZEICHEN; uint32_t c=pc(fg);
+    for(;*s;s++){ const struct aa_glyph* g=f+aa_index((unsigned char)*s); aa_glyph_zeichnen(x,y,g,c); x+=g->adv; }
+}
+/* Bild (0x00RRGGBB) mit Ausschnitt: nur Zeilen y0..y1 des Bildschirms */
+void gfx_bild(int x,int y,int w,int h,const uint32_t* px,int stride,int y0,int y1){
+    if(mode!=1) return;
+    for(int j=0;j<h;j++){ int yy=y+j; if(yy<y0||yy>=y1||yy<0||yy>=(int)fb_h) continue; uint32_t* row=(uint32_t*)(fb+(uint64_t)yy*fb_pitch); const uint32_t* q=px+(uint64_t)j*stride; for(int i=0;i<w;i++){ int xx=x+i; if(xx>=0&&xx<(int)fb_w) row[xx]=pc(q[i]); } }
+}
 /* einen Pixel mit Deckung a (0-255) mischen (Kantenglaettung) */
 void gfx_blend(int x,int y,uint32_t fg,int a){
     if(mode!=1||x<0||y<0||x>=(int)fb_w||y>=(int)fb_h||a<=0) return;

@@ -43,6 +43,8 @@
 #include "gedaechtnis.h"
 #include "krypto.h"
 #include "hda.h"
+#include "webseite.h"
+#include "browser.h"
 
 extern void kprint(const char* str);
 extern void kprint_dec(uint32_t val);
@@ -547,6 +549,21 @@ static void run_legacy(char* cmd) {
     else if (streq(cmd, "db") || starts_with(cmd, "db ")) zdb_befehl(cmd + 2);
     else if (streq(cmd, "gedaechtnis") || starts_with(cmd, "gedaechtnis ")) ged_befehl(cmd + 11);
     else if (streq(cmd, "krypto") || starts_with(cmd, "krypto ")) krypto_befehl(cmd + 6);
+    else if (starts_with(cmd, "webtest ")) {                       /* Browser-Engine pruefen: Seite laden, setzen, Bilder holen */
+        char u[300]; web_url_bauen(cmd + 8, u, 300);
+        int r = wd_laden(u);
+        if (r) { kprint("[WEB] Fehler: "); kprint(wd_fehler); kprint("\n"); }
+        else {
+            wd_layout(900);
+            int nt = 0; for (int i = 0; i < wd_nel; i++) if (wd_el[i].typ == WE_TEXT) nt++;
+            kprint("[WEB] Seite: "); kprint(wd_titel); kprint(" ("); kprint_dec((uint32_t)nt); kprint(" Woerter, "); kprint_dec((uint32_t)wd_nlinks); kprint(" Links, ");
+            kprint_dec((uint32_t)wd_nbild); kprint(" Bilder, "); kprint_dec((uint32_t)wd_nfeld); kprint(" Felder)\n");
+            int ok = 0, n = 0; for (int i = 0; i < wd_nbild; i++) { if (wd_bild[i].status) continue; n++; if (wd_bild_laden(i) == 0) { ok++; kprint("[WEB] Bild "); kprint_dec((uint32_t)wd_bild[i].dw); kprint("x"); kprint_dec((uint32_t)wd_bild[i].dh); kprint("\n"); } }
+            wd_layout(900);
+            kprint("[WEB] Bilder geladen: "); kprint_dec((uint32_t)ok); kprint(" von "); kprint_dec((uint32_t)n); kprint(", Hoehe "); kprint_dec((uint32_t)wd_hoehe); kprint("\n");
+            for (int i = 0; i < wd_nfeld; i++) if (wd_feld[i].typ == 0) { kopiere(wd_feld[i].wert, "zynex test", 200); char f[400]; if (wd_form_url(i, f, 400) == 0) { kprint("[WEB] Formular: "); kprint(f); kprint("\n"); } break; }
+        }
+    }
     else if (streq(cmd, "audio") || starts_with(cmd, "audio ")) audio_befehl(cmd + 5);
     else if (streq(cmd, "sicherheit")) {
         kprint("Startkette: "); kprint((g_boot.flags & BOOT_SIGNIERT) ? "Kernel und Kommandozeile durch LMS-Signatur (SHA-256, quantensicher) geprueft\n" : "NICHT durch eine Signatur geprueft\n");

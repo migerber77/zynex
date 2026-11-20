@@ -528,7 +528,7 @@ static void dns_rx(const uint8_t* d, int len) {
 
 
 /* ---------- TCP (ein Client-Anschluss, Stop-and-Wait) ---------- */
-#define TCP_RCAP 65536
+#define TCP_RCAP (2u * 1024u * 1024u)
 enum { T_CLOSED, T_SYN, T_EST };
 static struct {
     int state; uint32_t rip; uint16_t lport, rport;
@@ -656,9 +656,9 @@ int net_http_fp(const char* url, const char* fp) {
         if (net_dns(host, &ip) != 0) { kprint("Name nicht aufloesbar\n"); return -2; }
     }
     kprint(tls ? "Verbinde (TLS) mit " : "Verbinde mit "); kprint_ip(ip); kputchar(':'); kprint_dec(port); kprint(" ...\n");
-    char rq[300]; int n = 0;
-    const char* teile[] = { "GET ", path, " HTTP/1.0\r\nHost: ", host, "\r\nUser-Agent: ZynexOS\r\nConnection: close\r\n\r\n" };
-    for (int i = 0; i < 5; i++) for (const char* c = teile[i]; *c && n < 299; c++) rq[n++] = *c;
+    static char rq[1000]; int n = 0;
+    const char* teile[] = { "GET ", path, " HTTP/1.0\r\nHost: ", host, "\r\nUser-Agent: Mozilla/5.0 (X11; ZynexOS x86_64) ZynexBrowser/1.0\r\nAccept: text/html,application/xhtml+xml,image/png,image/jpeg,image/gif,*/*;q=0.5\r\nAccept-Language: de-CH,de;q=0.9,en;q=0.7\r\nConnection: close\r\n\r\n" };
+    for (int i = 0; i < 5; i++) for (const char* c = teile[i]; *c && n < 999; c++) rq[n++] = *c;
     if (tls) {
         int r = tls_get(ip, port, host, (const uint8_t*)rq, (uint32_t)n, fp, &http_rb, &http_len, &http_complete);
         if (r != 0) return -3;
@@ -666,7 +666,7 @@ int net_http_fp(const char* url, const char* fp) {
         if (tcp_connect(ip, port) != 0) { kprint("Verbindung fehlgeschlagen\n"); return -3; }
         if (tcp_write((const uint8_t*)rq, n) != 0) { kprint("Senden fehlgeschlagen\n"); tcp_close(); return -4; }
         uint32_t t0 = timer_get_ticks(), letzte = t0, rl = 0;
-        while (!tc.fin && tc.state == T_EST && timer_get_ticks() - t0 < 1000 && timer_get_ticks() - letzte < 300) {
+        while (!tc.fin && tc.state == T_EST && timer_get_ticks() - t0 < 3000 && timer_get_ticks() - letzte < 300) {
             net_poll();
             if (tc.rlen != rl) { rl = tc.rlen; letzte = timer_get_ticks(); }
             if (tc.rlen >= TCP_RCAP) break;

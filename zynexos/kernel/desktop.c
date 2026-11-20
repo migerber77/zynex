@@ -1028,7 +1028,7 @@ static void fenster_oeffnen(int typ) {
         int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 640 : typ == FT_CHATS ? 720 : typ == FT_GED ? 700 : 480;
         int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 530 : typ == FT_CHATS ? 470 : typ == FT_GED ? 480 : 250;
         if (typ == FT_WEB && w < 640) w = W - 40;
-        if (typ == FT_EDIT || typ == FT_TAB || typ == FT_PRAES || typ == FT_BOARD) { w = W - 60 < 1500 ? W - 60 : 1500; h = H - 70 < 900 ? H - 70 : 900; }
+        if (typ == FT_EDIT || typ == FT_TAB || typ == FT_PRAES || typ == FT_BOARD || typ == FT_WEB) { w = W - 60 < 1500 ? W - 60 : 1500; h = H - 70 < 900 ? H - 70 : 900; }
         int x = 60 + nfen * 36, y = 56 + nfen * 30;
         if (x + w > W - 8) x = W - w - 8; if (x < 4) x = 4; if (y + h > H - 8) y = H - h - 8; if (y < 44) y = 44;
         {   /* nicht unter Zynie oeffnen: wenn das Fenster den Roboter verdeckt, rechts neben ihn schieben (sonst unter ihn) */
@@ -1164,132 +1164,7 @@ static int pdf_drucken(const char* titel, const char* text) {
     return nseiten;
 }
 
-/* ---------- Browser-Oberflaeche ---------- */
-#include "browser.h"
-static char adr[192]; static int adrlen;
-static int wscroll, wcols, wrows, wok, wlauf;                       /* wok: Seite geladen; wlauf: Abruf laeuft */
-static char whist[16][200]; static int nwh, whp = -1;
-static char lesez[1500]; static int lzlen;
-static int wx0, wy0, ww, wh;                                         /* Seitenbereich */
-enum { K_WB = 60, K_WV, K_WR, K_WL, K_WX, K_WS, K_LZ0 = 70 };
-static void lz_laden(void) { int r = zdb_get_text("desktop.lesezeichen", lesez, sizeof(lesez) - 1); if (r < 0) r = synfs_read("lesezeichen.txt", lesez, sizeof(lesez) - 1); lzlen = r > 0 ? r : 0; lesez[lzlen] = 0; }
-static int lz_zeile(int n, char* out, int max) {
-    int z = 0, i = 0;
-    while (i < lzlen) { int e = i; while (e < lzlen && lesez[e] != '\n') e++; if (e > i) { if (z == n) { int k = 0; for (int j = i; j < e && k < max - 1; j++) out[k++] = lesez[j]; out[k] = 0; return 1; } z++; } i = e + 1; }
-    return 0;
-}
-static void lz_add(const char* u) {
-    lz_laden(); char t[200]; for (int n = 0; lz_zeile(n, t, 200); n++) if (gleich(t, u)) { scopy(meldung, TR("Schon in den Lesezeichen.", "Already bookmarked."), 100); return; }
-    int n = slen(u); if (lzlen + n + 2 >= (int)sizeof(lesez) - 4) { scopy(meldung, TR("Lesezeichen voll.", "Bookmarks full."), 100); return; }
-    for (int i = 0; i < n; i++) lesez[lzlen++] = u[i];
-    lesez[lzlen++] = '\n'; lesez[lzlen] = 0;
-    zdb_put_text("desktop.lesezeichen", lesez, lzlen);
-    scopy(meldung, TR("Lesezeichen gespeichert.", "Bookmark saved."), 100); kprint("[WEB] Lesezeichen: "); kprint(u); kprint("\n");
-}
-static const char* const web_vorgabe[] = { "de.wikipedia.org", "en.wikipedia.org", "example.com", "duckduckgo.com", "news.ycombinator.com", 0 };
-static void web_sug_suche(void) {
-    nsug = 0; sugsel = -1; const char* q = adr; while (*q == ' ') q++; if (!*q) return;
-    sug_q = q; int ql = slen(q); char t[200];
-    for (int i = nwh - 1; i >= 0; i--) { const char* u = whist[i]; if (praefix(u, "https://")) u += 8; else if (praefix(u, "http://")) u += 7; if (praefix(u, q)) sug_add(u, 2, ql); }
-    lz_laden(); for (int n = 0; lz_zeile(n, t, 200); n++) { const char* u = t; if (praefix(u, "https://")) u += 8; else if (praefix(u, "http://")) u += 7; if (praefix(u, q)) sug_add(u, 0, ql); }
-    for (int i = 0; web_vorgabe[i]; i++) if (praefix(web_vorgabe[i], q)) sug_add(web_vorgabe[i], 0, ql);
-}
-static void zeichne_web(int voll);
-static void web_gehe(const char* eingabe_url, int push) {
-    char u[200]; web_url_bauen(eingabe_url, u, 200);
-    wlauf = 1; scopy(meldung, TR("Lade ", "Loading "), 100); cat(meldung, u, 100); zeichne_web(0);
-    kprint("[WEB] Lade: "); kprint(u); kprint("\n");
-    int r = web_laden(u, wcols);
-    wlauf = 0; nsug = 0; sugsel = -1;
-    if (r != 0) { wok = 0; scopy(meldung, web_fehler, 100); kprint("[WEB] Fehler: "); kprint(web_fehler); kprint("\n"); scopy(adr, u, 192); adrlen = slen(adr); }
-    else {
-        wok = 1; wscroll = 0; scopy(adr, web_url, 192); adrlen = slen(adr); meldung[0] = 0;
-        if (push) { if (whp + 1 < 16) { whp++; } else { for (int i = 0; i < 15; i++) scopy(whist[i], whist[i + 1], 200); } scopy(whist[whp], web_url, 200); nwh = whp + 1; }
-        kprint("[WEB] Seite: "); kprint(web_titel); kprint(" ("); kprint_dec((uint32_t)web_nz); kprint(" Zeilen, "); kprint_dec((uint32_t)web_nlinks); kprint(" Links)\n");
-    }
-    sel1 = 0; zeichne_web(1);
-}
-static void web_zurueck(int d) { int n = whp + d; if (n < 0 || n >= nwh) return; whp = n; web_gehe(whist[whp], 0); }
-static void web_geo(int* fx, int* fw, int* ty) { int wi = fenster_idx(FT_WEB); *fx = *fw = *ty = 0; if (wi < 0) return; *ty = fen[wi].y + WT_H + 8; *fx = fen[wi].x + 12 + 3 * 42; *fw = fen[wi].w - 12 - 3 * 42 - 12 - 90; }
-static void zeichne_web(int voll) {
-    int wi = fenster_idx(FT_WEB); if (wi < 0) return;
-    int wox = fen[wi].x, woy = fen[wi].y + WT_H, wow = fen[wi].w, woh = fen[wi].h - WT_H;
-    int fx, fw, ty; web_geo(&fx, &fw, &ty);
-    gfx_begin();
-    wx0 = wox + 10; wy0 = woy + 50; ww = wow - 20; wh = woh - 50 - 30;
-    wcols = (ww - 60) / 8; if (wcols > 110) wcols = 110; wrows = (wh - 24) / 20;
-    if (voll) {
-        int ko = kn_owner; kn_owner = wi; kn_loesche_owner(wi);
-        gfx_rect(wox + 2, woy, wow - 4, woh - 2, C_BG);
-        knopf(K_WB, "<", wox + 12, ty, 36, 0); knopf(K_WV, ">", wox + 54, ty, 36, 0); knopf(K_WR, "R", wox + 96, ty, 36, 0);
-        rrect_rand(fx, ty, fw, 34, 12, C_FIELD, C_ACC);
-        { char a[200]; scopy(a, adr, 200); int mc = (fw - 24) / 8; if (slen(a) > mc) { for (int i = 0; i < mc - 1; i++) a[i] = adr[slen(adr) - (mc - 1) + i]; a[mc - 1] = 0; }
-          if (sel1 && adrlen) rrect(fx + 8, ty + 5, slen(a) * 8 + 8, 24, 6, mix(C_FIELD, C_ACC, 140));
-          if (!adrlen) gtxt(fx + 14, ty + 9, TR("Adresse oder Suchbegriff ...", "Address or search ..."), 0x00647488u, 1); else gfx_text(fx + 14, ty + 9, a, C_TEXT, 1);
-          gfx_rect(fx + 14 + slen(a) * 8, ty + 6, 2, 22, C_TEXT); }
-        knopf(K_WS, TR("Merken", "Save"), fx + fw + 8, ty, 82, 0);
-        kn_owner = ko;
-    }
-    rrect_rand(wx0, wy0, ww, wh, 14, C_CARD, C_BORDER);
-    if (wlauf) gtxt(wx0 + 24, wy0 + 24, TR("Seite wird geladen ...", "Loading page ..."), C_MUTED, 1);
-    else if (!wok) {
-        int y = wy0 + 20; char t[200];
-        if (meldung[0]) { gtxt(wx0 + 24, y, meldung, 0x00F59E0Bu, 1); y += 34; }
-        gtxt(wx0 + 24, y, TR("Zynex Browser - Lesezeichen und Vorschlaege", "Zynex browser - bookmarks and suggestions"), C_TEXT, 1); y += 30;
-        lz_laden(); int n = 0; int ko = kn_owner; kn_owner = wi;
-        for (; lz_zeile(n, t, 200) && n < 8 && y + n * 28 < wy0 + wh - 50; n++) { gtxt(wx0 + 40, y + n * 28, t, C_ACC2, 1); kn_reg(K_LZ0 + n, wx0 + 30, y + n * 28 - 4, ww - 60, 26); }
-        y += n * 28 + 8;
-        for (int i = 0; web_vorgabe[i] && y < wy0 + wh - 50; i++) { gtxt(wx0 + 40, y, web_vorgabe[i], C_MUTED, 1); kn_reg(K_LZ0 + 10 + i, wx0 + 30, y - 4, ww - 60, 26); y += 28; }
-        kn_owner = ko;
-        int ns = net_status(t, 32); gtxt(wx0 + 24, wy0 + wh - 30, ns != 2 ? TR("Kein Netzwerk: zuerst verbinden (netz dhcp).", "No network: connect first (net dhcp).") : TR("Adresse oder Suchbegriff tippen. Rechtsklick: Menue.", "Type an address or search term. Right click: menu."), C_MUTED, 1);
-    } else {
-        if (wscroll > web_nz - wrows) wscroll = web_nz - wrows;
-        if (wscroll < 0) wscroll = 0;
-        for (int r = 0; r < wrows && wscroll + r < web_nz; r++) {
-            struct web_zeile* z = &web_z[wscroll + r]; int y = wy0 + 14 + r * 20, x = wx0 + 24;
-            uint32_t c = z->stil == 2 ? C_ACC2 : z->stil == 3 ? C_MUTED : C_TEXT;
-            if (z->stil == 3) rrect(wx0 + 14, y - 2, ww - 40, 20, 4, C_FIELD);
-            gfx_text(x, y, z->t, c, 1); if (z->stil == 1) gfx_text(x + 1, y, z->t, c, 1);
-            for (int k = 0; k < z->nl; k++) {
-                char seg[120]; int a = z->l[k].a, b = z->l[k].b, n = 0; for (int q = a; q < b && q < 115; q++) seg[n++] = z->t[q]; seg[n] = 0;
-                rrect(x + a * 8 - 1, y, (b - a) * 8 + 2, 18, 0, z->stil == 3 ? C_FIELD : C_CARD); gfx_text(x + a * 8, y, seg, C_ACC2, 1); gfx_rect(x + a * 8, y + 16, (b - a) * 8, 1, C_ACC2);
-            }
-        }
-        int sbx = wx0 + ww - 18, sbh = wh - 24; rrect(sbx, wy0 + 12, 8, sbh, 4, C_FIELD);
-        if (web_nz > wrows) { int kh = sbh * wrows / web_nz; if (kh < 24) kh = 24; int ky = wy0 + 12 + (sbh - kh) * wscroll / (web_nz - wrows); rrect(sbx, ky, 8, kh, 4, C_ACC); }
-    }
-    gfx_rect(wox + 2, woy + woh - 28, wow - 4, 26, C_BG);
-    { char s[140]; if (meldung[0] && wok) scopy(s, meldung, 140); else if (wok) scopy(s, web_titel[0] ? web_titel : web_url, 140); else s[0] = 0;
-      if (slen(s) > (wow - 200) / 8) s[(wow - 200) / 8] = 0; gtxt(wox + 14, woy + woh - 24, s, C_MUTED, 1);
-      char z[40], a[12]; scopy(z, "", 40); if (wok && web_nz > wrows) { dec(a, (uint32_t)wscroll + 1); cat(z, a, 40); cat(z, "-", 40); int e = wscroll + wrows; if (e > web_nz) e = web_nz; dec(a, (uint32_t)e); cat(z, a, 40); cat(z, " / ", 40); dec(a, (uint32_t)web_nz); cat(z, a, 40); }
-      gtxt(wox + wow - 14 - gtw(z, 1), woy + woh - 24, z, C_MUTED, 1); }
-    if (nsug > 0) {
-        int y0 = ty + 36;
-        rrect_rand(fx, y0, fw, nsug * 30 + 12, 14, C_CARD, C_ACC);
-        for (int i = 0; i < nsug; i++) {
-            int ry = y0 + 6 + i * 30; if (i == sugsel) rrect(fx + 6, ry, fw - 12, 28, 10, mix(C_CARD, C_ACC, 120));
-            char a[96]; int pl = sugpre[i] < 95 ? sugpre[i] : 95; for (int j = 0; j < pl; j++) a[j] = sug[i][j]; a[pl] = 0; int px = fx + 20;
-            if (pl) { gtxt(px, ry + 6, a, C_TEXT, 1); px += gtw(a, 1); } gtxt(px, ry + 6, sug[i] + pl, i == sugsel ? C_TEXT : C_MUTED, 1);
-            const char* tg = sugtyp[i] == 0 ? TR("Lesezeichen", "bookmark") : TR("Verlauf", "history"); gtxt(fx + fw - 20 - gtw(tg, 1), ry + 6, tg, C_MUTED, 1);
-            int ko = kn_owner; kn_owner = wi; kn_reg(K_SUG0 + i, fx + 6, ry, fw - 12, 28); kn_owner = ko;
-        }
-    }
-    gfx_end();
-}
-static void web_oeffnen(const char* url) {
-    nsug = 0; sugsel = -1; sel1 = 0; wlauf = 0; meldung[0] = 0;
-    kprint("[DESKTOP] Browser geoeffnet\n");
-    fenster_oeffnen(FT_WEB);
-    if (url && *url) web_gehe(url, 1);
-}
-static void web_schliessen(void) { nsug = 0; sugsel = -1; sel1 = 0; fenster_schliessen_typ(FT_WEB); }
-static int web_link_bei(int x, int y) {                              /* Link unter der Maus oder -1 */
-    if (!wok || x < wx0 + 24 || y < wy0 + 14) return -1;
-    int r = (y - wy0 - 14) / 20; if (r < 0 || r >= wrows || wscroll + r >= web_nz) return -1;
-    struct web_zeile* z = &web_z[wscroll + r]; int sp = (x - wx0 - 24) / 8;
-    for (int k = 0; k < z->nl; k++) if (sp >= z->l[k].a && sp < z->l[k].b) return z->l[k].id;
-    return -1;
-}
+#include "browser_ui.inc"
 
 /* ---------- Rechtsklick-Menue ---------- */
 enum { M_NEUDOK = 30, M_BROWSER, M_RECHNER, M_INFO, M_EINST, M_CHATS, M_GED, M_WUHR, M_WSYS, M_WAUF, M_WAGENT, M_WSCHL, M_FSCHL, M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN };
@@ -1412,25 +1287,6 @@ static int strg_taste(uint8_t k) {
     return 1;
 }
 
-
-static void web_taste(uint8_t k, int shift, int altgr) {
-    if (cur_ctrl && strg_taste(k)) return;
-    if (k == 0x29) { if (nsug) { nsug = 0; sugsel = -1; zeichne_web(1); } else web_schliessen(); return; }
-    if (k == 0x28 || k == 0x58) {
-        if (sugsel >= 0 && sugsel < nsug) { scopy(adr, sug[sugsel], 192); adrlen = slen(adr); }
-        if (adrlen) web_gehe(adr, 1); return;
-    }
-    if (nsug > 0 && (k == 0x51 || k == 0x52)) { sugsel += (k == 0x51) ? 1 : -1; if (sugsel >= nsug) sugsel = -1; if (sugsel < -1) sugsel = nsug - 1; zeichne_web(1); return; }
-    if (nsug > 0 && k == 0x2B) { scopy(adr, sug[sugsel >= 0 ? sugsel : 0], 192); adrlen = slen(adr); web_sug_suche(); zeichne_web(1); return; }
-    if (k == 0x3E) { web_gehe(web_url[0] ? web_url : adr, 0); return; }                               /* F5 */
-    if (k == 0x51 || k == 0x52 || k == 0x4E || k == 0x4B || k == 0x4A || k == 0x4D) {
-        int d = k == 0x51 ? 1 : k == 0x52 ? -1 : k == 0x4E ? wrows - 1 : k == 0x4B ? -(wrows - 1) : k == 0x4A ? -100000 : 100000;
-        wscroll += d; if (wscroll > web_nz - wrows) wscroll = web_nz - wrows; if (wscroll < 0) wscroll = 0; zeichne_web(0); return;
-    }
-    if (k == 0x2A) { if (sel1) { adrlen = 0; adr[0] = 0; sel1 = 0; } else if (adrlen) adr[--adrlen] = 0; web_sug_suche(); zeichne_web(1); return; }
-    char c = usb_key_char(k, shift, altgr);
-    if (c >= 32 && c < 127 && adrlen < 190) { if (sel1) { adrlen = 0; sel1 = 0; } adr[adrlen++] = c; adr[adrlen] = 0; web_sug_suche(); zeichne_web(1); }
-}
 
 /* ---------- Intents ---------- */
 enum { I_NICHTS, I_TEXT, I_RECHNEN, I_SYSTEM, I_DATEIEN, I_QUBIT, I_SICHER, I_ABMELDEN, I_NEUSTART, I_WARTUNG, I_HILFE, I_AGENT, I_AUFGABE, I_FLAECHE, I_WEB, I_FENSTER };
@@ -2453,13 +2309,7 @@ static void klick(int x, int y, int owner) {
         else if (zustand == Z_DESK && id == K_NEXT) flaeche_wechsel(flaeche + 1);
         else if (zustand == Z_DESK && id >= K_AG0 && id < K_AG0 + NAG) { ag_start(id - K_AG0); zeichne_desktop(); }
         else if (zustand == Z_DESK && (id == K_FREI || id == K_ABL)) { ag_entscheid(id == K_FREI); zeichne_desktop(); }
-        else if (zustand == Z_WEB && id == K_WB) web_zurueck(-1);
-        else if (zustand == Z_WEB && id == K_WV) web_zurueck(1);
-        else if (zustand == Z_WEB && id == K_WR) web_gehe(web_url[0] ? web_url : adr, 0);
-        else if (zustand == Z_WEB && id == K_WX) web_schliessen();
-        else if (zustand == Z_WEB && id == K_WS) { if (wok) lz_add(web_url); else scopy(meldung, TR("Erst eine Seite oeffnen.", "Open a page first."), 100); zeichne_web(1); }
-        else if (zustand == Z_WEB && id >= K_SUG0 && id < K_SUG0 + 5 && id - K_SUG0 < nsug) { scopy(adr, sug[id - K_SUG0], 192); adrlen = slen(adr); web_gehe(adr, 1); }
-        else if (zustand == Z_WEB && id >= K_LZ0 && id < K_LZ0 + 14) { char t[200]; int n = id - K_LZ0; if (n < 10) { if (lz_zeile(n, t, 200)) web_gehe(t, 1); } else if (web_vorgabe[n - 10]) web_gehe(web_vorgabe[n - 10], 1); }
+        else if (zustand == Z_WEB && web_klick(id)) { }
         else if (zustand == Z_DESK && id == K_NEUDOK) editor_oeffnen();
         else if (zustand == Z_INFO && id >= K_EIN0 && id < K_EIN0 + 60) einst_klick(id);
         else if (zustand == Z_INFO && id >= K_CH0 && id < K_CH_DEL + 1) chats_klick(id);
@@ -2471,10 +2321,7 @@ static void klick(int x, int y, int owner) {
         else if (zustand == Z_EDIT && id == K_SCHLIESSEN) editor_schliessen();
         return;
     }
-    if (zustand == Z_WEB && wok) {                                  /* Link oder Rollbalken */
-        int l = web_link_bei(x, y); if (l >= 0) { web_gehe(web_links[l], 1); return; }
-        if (x >= wx0 + ww - 26 && y >= wy0 && y < wy0 + wh && web_nz > wrows) { wscroll = (y - wy0 - 12) * (web_nz - wrows) / (wh - 24); if (wscroll < 0) wscroll = 0; zeichne_web(0); }
-    }
+    if (zustand == Z_WEB) web_maus(x, y);                                /* Link, Formularfeld oder Rollbalken */
 }
 
 static void rohtaste(uint8_t k, int shift, int altgr) { unsigned n = (qt + 1) % QN; if (n != qh) { kq[qt] = (uint16_t)(k | (shift << 8) | (altgr << 9) | (usb_ctrl << 10)); qt = n; } }
@@ -2524,7 +2371,7 @@ static void tick(void) {
         if (p->x != lpx || p->y != lpy) { lpx = p->x; lpy = p->y; letzte_eingabe = t; }
         int down = p->buttons & 1; static int was_r;
         int rd = (p->buttons & 2) != 0;
-        { int wd = usb_wheel_take(); if (wd && rad.offen && !menu.offen) rad_drehen(wd > 0 ? -1 : 1); }               /* Mausrad dreht das Befehlsrad */
+        { int wd = usb_wheel_take(); if (wd && rad.offen && !menu.offen) rad_drehen(wd > 0 ? -1 : 1); else if (wd && zustand == Z_WEB && !menu.offen && fenster_idx(FT_WEB) == nfen - 1) web_scroll(wd > 0 ? -120 : 120); }               /* Mausrad dreht das Befehlsrad */
         { static int was_mid; int mid = (p->buttons & 4) != 0; if (mid && !was_mid && rad.offen) rad_einfuegen(0); was_mid = mid; }
         if (rd && !was_r && zustand != Z_LOGIN) rad_weg();
         if (rd && !was_r && zustand != Z_LOGIN) { if (menu.offen) menu_schliessen(); else { fokus_bei(p->x, p->y); menu_oeffnen(p->x, p->y); } }
@@ -2564,6 +2411,7 @@ static void tick(void) {
     if (ph != robot_phase) { robot_phase = ph; if (zustand != Z_LOGIN && !zdrag && !fdrag && !menu.offen && flaeche == 0 && !deckt(zr_x() - 4, zr_y() - 4, zr_w() + 8, zr_h() + 8)) zeichne_robot(); }
     { static uint32_t lmin; static uint32_t lt; if (zustand != Z_LOGIN && flaeche == 0 && nwid && !fdrag && !menu.offen && t - lt > 300) { lt = t; uint32_t ymd, hm; rtc_get(&ymd, &hm); if (hm != lmin) { if (lmin) zeichne_desktop(); lmin = hm; } } }
     { static uint32_t lf; int wi = fenster_idx(FT_EINST); if (wi >= 0 && wi == nfen - 1 && flaeche == 0 && zustand != Z_LOGIN && !fdrag && !menu.offen && t / 5 != lf) { lf = t / 5; lader(fen[wi].x + fen[wi].w - 60, fen[wi].y + fen[wi].h - 56, 34, lf, C_BG); } }
+    { static uint32_t lw; if (qh == qt && !fdrag && !menu.offen && t - lw > 15) { lw = t; web_bilder_tick(); } }       /* Bilder im Browser nachladen */
     { static uint32_t lsek; if (zustand == Z_DESK && flaeche == 1 && t / 100 != lsek) { lsek = t / 100; gfx_begin(); sys_k_zeit(); gfx_end(); } }
 }
 

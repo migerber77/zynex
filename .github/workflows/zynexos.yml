@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Werkzeuge
-        run: sudo apt-get update -qq && sudo apt-get install -y nasm gcc clang lld xorriso mtools gdisk dosfstools qemu-system-x86 qemu-utils ovmf sbsigntool >/dev/null && sudo pip3 install --break-system-packages virt-firmware >/dev/null
+        run: sudo apt-get update -qq && sudo apt-get install -y nasm gcc clang lld xorriso mtools gdisk dosfstools qemu-system-x86 qemu-utils ovmf sbsigntool >/dev/null && sudo pip3 install --break-system-packages virt-firmware pillow >/dev/null
       - name: Kleines Sprachmodell holen (Test)
         run: |
           if [ "${{ github.event.inputs.modell }}" = "1.5b" ]; then
@@ -32,6 +32,7 @@ jobs:
         run: |
           python3 tools/zynexos_test.py zynexos-test.iso uefi boot
           python3 tools/zynexos_test.py zynexos-os.iso uefi stick
+          python3 tools/zynexos_test.py zynexos-test.iso uefi browser
           python3 tools/zynexos_test.py zynexos-manip.iso uefi manip
       - name: Test UEFI Secure Boot
         run: python3 tools/zynexos_test.py zynexos-test.iso uefi sicherboot

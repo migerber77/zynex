@@ -854,6 +854,41 @@ def usbnet():
     pruefe("Hot-Plug: HTTP-Download nach dem Einstecken", "Hallo-vom-Server" in hot_log.split("zynex> http", 1)[-1])
 
 
+def browser():
+    """Browser-Engine im Kernel: HTML-Seite mit Ueberschriften, Liste, Tabelle, Formular und Bildern (PNG, JPEG, GIF) von einem lokalen Server."""
+    print("\n===== Szenario browser (Engine, Bilder, grosse Seite) =====")
+    from PIL import Image, ImageDraw
+    www = "/tmp/wwwb"; os.makedirs(www, exist_ok=True)
+    im = Image.new("RGB", (320, 180), (40, 90, 160)); d = ImageDraw.Draw(im)
+    for i in range(12): d.ellipse([i * 25, 20 + i * 5, i * 25 + 40, 60 + i * 5], fill=(200, 30 + i * 15, 60))
+    im.save(www + "/a.png"); im.save(www + "/b.jpg", quality=88); im.convert("P", palette=Image.ADAPTIVE, colors=32).save(www + "/c.gif")
+    open(www + "/index.html", "w", encoding="utf-8").write(
+        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Testseite Zürich</title><script>var a=1<2;</script><style>p{}</style></head><body>"
+        "<h1>Willkommen</h1><p>Ein <b>fetter</b> Absatz mit <a href='/zwei.html'>Link</a> und Umlauten: Grüsse.</p>"
+        "<ul><li>Eins</li><li>Zwei</li></ul><table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>"
+        "<img src='a.png' alt='PNG'><img src='/b.jpg' width='160' alt='JPEG'><img src='c.gif'>"
+        "<form action='/suche' method='get'><input type='hidden' name='q0' value='x'><input name='q' placeholder='Suche'><input type='submit' value='Los'></form></body></html>")
+    worte = " ".join("Wort%d" % i for i in range(60000))
+    open(www + "/gross.html", "w").write("<html><title>Grosse Seite</title><body><p>" + worte + "</p></body></html>")
+    srv = subprocess.Popen([sys.executable, "-m", "http.server", "8090", "--bind", "0.0.0.0", "--directory", www], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1)
+    vm = starten()
+    for b in ["net", "webtest http://10.0.2.2:8090/index.html"]:
+        vm.tippe(b, 3.0)
+    vm.warte("[WEB] Bilder geladen", 60)
+    vm.tippe("webtest http://10.0.2.2:8090/gross.html", 3.0)
+    vm.warte("Grosse Seite", 60); time.sleep(2)
+    out = vm.log(); vm.ende(); srv.kill()
+    print(out[out.find("webtest"):][:3000])
+    pruefe("Browser: Seite geladen, Titel mit Umlaut", "[WEB] Seite: Testseite Z\xfcrich" in out or "[WEB] Seite: Testseite Z" in out)
+    pruefe("Browser: Links, Bilder, Felder erkannt", " 1 Links, 3 Bilder, 3 Felder)" in out)
+    pruefe("Browser: PNG, JPEG und GIF dekodiert", "[WEB] Bilder geladen: 3 von 3" in out)
+    pruefe("Browser: Bildgroesse aus width-Attribut (160x90)", "[WEB] Bild 160x90" in out)
+    pruefe("Browser: Formular als GET-Adresse", "[WEB] Formular: http://10.0.2.2:8090/suche?q0=x&q=zynex+test" in out)
+    m = re.search(r"\[WEB\] Seite: Grosse Seite \((\d+) Woerter", out)
+    pruefe("Browser: grosse Seite (500 KB) vollstaendig", bool(m) and int(m.group(1)) >= 59000)
+
+
 def stick():
     """Die ISO wie mit balenaEtcher / Rufus (DD) auf einen USB-Stick geschrieben: Start ueber die EFI-Partition der GPT, ohne DVD."""
     print("\n===== Szenario stick (ISO als USB-Stick, GPT mit EFI-Partition) =====")
@@ -1063,6 +1098,6 @@ def manip():
 
 
 for s in SZEN:
-    {"stick": stick, "kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "sicherboot": sicherboot, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
+    {"browser": browser, "stick": stick, "kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "sicherboot": sicherboot, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
 
 sys.exit(0 if all(ergebnis) else 1)
