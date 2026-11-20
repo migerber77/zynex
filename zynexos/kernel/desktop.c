@@ -59,14 +59,15 @@ static const struct thema { const char* de; const char* en; uint32_t c[13]; } TH
     { "Hell", "Light",      { 0x00F5F7FCu, 0x00FFFFFFu, 0x00D3DAE8u, 0x001B2438u, 0x0066728Cu, 0x003B63F0u, 0x002F52D6u, 0x00EAEFFAu, 0x00B4BFD6u, 0x00DCE6FAu, 0x00F4EEFFu, 0x00B8CEFFu, 0x00E0C8FFu } },
 };
 static uint32_t th_bg, th_card, th_border, th_text, th_muted, th_acc, th_acc2, th_field, th_off, th_hg1, th_hg2, th_gl1, th_gl2;
-static int th_nr, hg_nr;                                  /* gewaehltes Farbschema und Hintergrund (0 Verlauf, 1 Aurora, 2 Raster, 3 Einfarbig) */
+static int th_nr, hg_nr;                                  /* gewaehltes Farbschema und Hintergrund (0 Verlauf, 1 Aurora, 2 Raster, 3 Einfarbig, 4 Futuristisch, 5 eigenes Bild) */
+static char hg_datei[32];
 static void thema_anwenden(int n);
 static void th_laden(void);
 static void thema_anwenden(int n) {
     const uint32_t* c = THEMEN[n < 0 || n > 5 ? 0 : n].c;
     th_bg = c[0]; th_card = c[1]; th_border = c[2]; th_text = c[3]; th_muted = c[4]; th_acc = c[5]; th_acc2 = c[6]; th_field = c[7]; th_off = c[8]; th_hg1 = c[9]; th_hg2 = c[10]; th_gl1 = c[11]; th_gl2 = c[12];
 }
-static void th_laden(void) { th_nr = zdb_geti("ui.schema", 0); if (th_nr < 0 || th_nr > 5) th_nr = 0; hg_nr = zdb_geti("ui.hintergrund", 0); if (hg_nr < 0 || hg_nr > 3) hg_nr = 0; thema_anwenden(th_nr); }
+static void th_laden(void) { th_nr = zdb_geti("ui.schema", 0); if (th_nr < 0 || th_nr > 5) th_nr = 0; hg_nr = zdb_geti("ui.hintergrund", 4); if (hg_nr < 0 || hg_nr > 5) hg_nr = 4; { const char* d = zdb_get("ui.hgbild"); int i = 0; while (d && d[i] && i < 31) { hg_datei[i] = d[i]; i++; } hg_datei[i] = 0; } if (hg_nr == 5 && !hg_datei[0]) hg_nr = 4; thema_anwenden(th_nr); }
 #define C_BG     th_bg
 #define C_CARD   th_card
 #define C_BORDER th_border
@@ -206,7 +207,8 @@ static uint32_t mix(uint32_t a, uint32_t b, int t /*0..256*/) {
 
 /* ---------- Hintergrundbild (Verlauf, Aurora, Raster, einfarbig): hg() malt einen Ausschnitt neu, so bleiben Flecken beim Neuzeichnen aus ---------- */
 static int isqf(uint32_t v) { uint32_t r = 0, b = 1u << 30; while (b > v) b >>= 2; while (b) { if (v >= r + b) { v -= r + b; r = (r >> 1) + b; } else r >>= 1; b >>= 2; } return (int)r; }
-static uint32_t hg_zeile(int y) { if (hg_nr == 3) return th_hg1; if (y < 0) y = 0; if (y >= H) y = H - 1; return mix(th_hg1, th_hg2, y * 256 / H); }
+static uint32_t* wand; static int wand_art = -1;
+static uint32_t hg_zeile(int y) { if (hg_nr >= 4 && wand && wand_art == hg_nr && y >= 0 && y < H) return wand[y * W + W / 2]; if (hg_nr == 3) return th_hg1; if (y < 0) y = 0; if (y >= H) y = H - 1; return mix(th_hg1, th_hg2, y * 256 / H); }
 static void hg_glow(int x, int y, int w, uint32_t base) {            /* zwei weiche Leuchtflecken aus verschachtelten Ellipsen */
     for (int g = 0; g < 2; g++) {
         int cx = g ? W * 80 / 100 : W * 22 / 100, cy = g ? H * 78 / 100 : H * 28 / 100, rx = g ? W * 36 / 100 : W * 34 / 100, ry = g ? H * 46 / 100 : H * 48 / 100;
@@ -221,11 +223,77 @@ static void hg_glow(int x, int y, int w, uint32_t base) {            /* zwei wei
         }
     }
 }
+/* ---------- Hintergrundbild im Speicher (Futuristisch oder eigenes Bild): einmal berechnet, danach nur kopiert ---------- */
+extern void gfx_bild(int x, int y, int w, int h, const uint32_t* px, int stride, int y0, int y1);
+static char wand_name[32];
+static int wand_bild(const char* name, uint32_t* ziel);                  /* zeichnen.inc: Bild laden und auf den Bildschirm skalieren */
+static uint32_t h32(int x, int y, int s) { uint32_t h = (uint32_t)x * 374761393u + (uint32_t)y * 668265263u + (uint32_t)s * 2246822519u; h = (h ^ (h >> 13)) * 1274126177u; return h ^ (h >> 16); }
+static int wglatt(int t) { return (int)((int64_t)t * t * (3072 - 2 * t) / (1024 * 1024)); }
+static int vrausch(int x, int y, int z, int s) {                          /* Wertrauschen 0..1023, Zellgroesse z */
+    int gx = x / z, gy = y / z, fx = wglatt((x % z) * 1024 / z), fy = wglatt((y % z) * 1024 / z);
+    int a = (int)(h32(gx, gy, s) & 1023), b = (int)(h32(gx + 1, gy, s) & 1023), c = (int)(h32(gx, gy + 1, s) & 1023), d = (int)(h32(gx + 1, gy + 1, s) & 1023);
+    int o = a + (b - a) * fx / 1024, u = c + (d - c) * fx / 1024; return o + (u - o) * fy / 1024;
+}
+static uint16_t neb1[961 * 541], neb2[961 * 541];
+static uint32_t wmix(uint32_t a, uint32_t b, int t) { if (t < 0) t = 0; if (t > 256) t = 256; return mix(a, b, t); }
+static void wand_futur(uint32_t* b) {
+    int hz = H * 66 / 100, sk = W / 4 + 1, sh = H / 4 + 1; if (sk > 961) sk = 961; if (sh > 541) sh = 541;
+    int z0 = W / 6 > 40 ? W / 6 : 40;
+    for (int y = 0; y < sh; y++) for (int x = 0; x < sk; x++) {                /* Nebel in Viertel-Aufloesung */
+        int f = (vrausch(x * 4, y * 4, z0, 1) * 8 + vrausch(x * 4, y * 4, z0 / 2, 2) * 4 + vrausch(x * 4, y * 4, z0 / 4, 3) * 2 + vrausch(x * 4, y * 4, z0 / 8, 4)) / 15;
+        neb1[y * sk + x] = (uint16_t)f; neb2[y * sk + x] = (uint16_t)vrausch(x * 4 + 777, y * 4, z0, 5);
+    }
+    for (int y = 0; y < H; y++) {
+        uint32_t basis = y < hz ? wmix(0x0005060Fu, 0x0026104Au, y * 256 / hz) : wmix(0x00140828u, 0x00050310u, (y - hz) * 256 / (H - hz + 1));
+        int qy = y / 4, fy = (y % 4) * 256 / 4; if (qy >= sh - 1) qy = sh - 2;
+        for (int x = 0; x < W; x++) {
+            uint32_t c = basis;
+            if (y < hz) {
+                int qx = x / 4, fx = (x % 4) * 256 / 4; if (qx >= sk - 1) qx = sk - 2;
+                int n = ((neb1[qy * sk + qx] * (256 - fx) + neb1[qy * sk + qx + 1] * fx) * (256 - fy) + (neb1[(qy + 1) * sk + qx] * (256 - fx) + neb1[(qy + 1) * sk + qx + 1] * fx) * fy) >> 16;
+                int m = ((neb2[qy * sk + qx] * (256 - fx) + neb2[qy * sk + qx + 1] * fx) * (256 - fy) + (neb2[(qy + 1) * sk + qx] * (256 - fx) + neb2[(qy + 1) * sk + qx + 1] * fx) * fy) >> 16;
+                int a = (n - 430) * 3; if (a < 0) a = 0; if (a > 1023) a = 1023; a = a * (hz - y) / hz;
+                c = wmix(c, wmix(0x00C026D3u, 0x0006B6D4u, m / 4), a * 170 / 1024);
+            }
+            int dh = y - hz; if (dh < 0) dh = -dh; int gl = 256 - dh * 256 / (H / 10 + 1);           /* Leuchten am Horizont */
+            if (gl > 0) c = wmix(c, 0x00FF2E97u, gl * gl / 400);
+            b[y * W + x] = c;
+        }
+    }
+    /* Sterne */
+    for (int i = 0; i < W * H / 700; i++) { int x = (int)(h32(i, 1, 9) % (uint32_t)W), y = (int)(h32(i, 2, 9) % (uint32_t)hz); int hl = 90 + (int)(h32(i, 3, 9) % 166); uint32_t sc = (uint32_t)hl * 0x010101u;
+        b[y * W + x] = wmix(b[y * W + x], sc | 0x101020u, 230);
+        if (hl > 235 && x > 1 && y > 1 && x < W - 2 && y < hz - 2) { for (int k = 1; k <= 2; k++) { int t = 140 / k; b[y * W + x + k] = wmix(b[y * W + x + k], sc, t); b[y * W + x - k] = wmix(b[y * W + x - k], sc, t); b[(y + k) * W + x] = wmix(b[(y + k) * W + x], sc, t); b[(y - k) * W + x] = wmix(b[(y - k) * W + x], sc, t); } } }
+    /* Planet mit Ring */
+    int pcx = W * 76 / 100, pcy = H * 30 / 100, pr = H * 15 / 100, rx = pr * 19 / 10, ry = pr * 38 / 100;
+    for (int y = pcy - pr - pr / 4; y <= pcy + pr + pr / 4; y++) for (int x = pcx - rx - 4; x <= pcx + rx + 4; x++) {
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        int dx = x - pcx, dy = y - pcy, d2 = dx * dx + dy * dy; uint32_t* q = &b[y * W + x];
+        int innen = d2 <= pr * pr;
+        int e = (int)((int64_t)dx * dx * 1024 / ((int64_t)rx * rx) + (int64_t)dy * dy * 1024 / ((int64_t)ry * ry));
+        int ring = e >= 760 && e <= 1024 && !(innen && dy < 0);
+        if (innen) { int l = (-dx - dy) * 256 / (2 * pr) + 128; uint32_t pc = wmix(0x00180A3Cu, 0x007C5CFFu, l); int rand = isq(d2) * 256 / pr; if (rand > 215) pc = wmix(pc, 0x0022D3EEu, (rand - 215) * 5); *q = pc; }
+        else { int d = isq(d2); if (d < pr + pr / 5) *q = wmix(*q, 0x0022D3EEu, (pr + pr / 5 - d) * 180 / (pr / 5 + 1)); }
+        if (ring) *q = wmix(*q, 0x00D8C8FFu, 120 + (e - 760) / 4);
+    }
+    /* Neon-Raster unter dem Horizont */
+    for (int k = 1; k <= 16; k++) { int yk = hz + (H - hz) * k * k / 256; if (yk >= H) break; int t = 60 + k * 12; for (int x = 0; x < W; x++) { b[yk * W + x] = wmix(b[yk * W + x], 0x0022D3EEu, t); if (yk + 1 < H) b[(yk + 1) * W + x] = wmix(b[(yk + 1) * W + x], 0x0022D3EEu, t / 3); } }
+    for (int i = -30; i <= 30; i++) { int xb = W / 2 + i * W / 9; for (int y = hz; y < H; y++) { int x = W / 2 + (xb - W / 2) * (y - hz) / (H - hz); if (x < 0 || x >= W) continue; int t = (y - hz) * 230 / (H - hz) + 20; b[y * W + x] = wmix(b[y * W + x], 0x00A855F7u, t); } }
+}
+static int wand_bereit(void) {                                           /* 1 = Hintergrundbild im Speicher passend zur Wahl */
+    if (hg_nr < 4) return 0;
+    if (!wand) { uint32_t s = ((uint32_t)W * (uint32_t)H * 4 + 4095) / 4096; if (pmm_get_free_pages() < s + 8192) return 0; wand = (uint32_t*)pmm_alloc_pages(s); if (!wand) return 0; }
+    if (wand_art == hg_nr && (hg_nr == 4 || ueq(wand_name, hg_datei))) return 1;
+    if (hg_nr == 5) { if (wand_bild(hg_datei, wand) != 0) { kprint("[DESKTOP] Hintergrundbild nicht lesbar: "); kprint(hg_datei); kprint("\n"); hg_nr = 4; } else { scopy(wand_name, hg_datei, 32); wand_art = 5; kprint("[DESKTOP] Hintergrundbild: "); kprint(hg_datei); kprint("\n"); return 1; } }
+    wand_futur(wand); wand_art = 4; kprint("[DESKTOP] Futuristischer Hintergrund berechnet\n");
+    return 1;
+}
 static void hg(int x, int y, int w, int h) {
     if (x < 0) { w += x; x = 0; } if (y < 0) { h += y; y = 0; } if (x + w > W) w = W - x; if (y + h > H) h = H - y;
     if (w <= 0 || h <= 0) return;
     gfx_begin();
     if (hg_nr == 3) { gfx_rect(x, y, w, h, th_hg1); gfx_end(); return; }
+    if (hg_nr >= 4 && wand_bereit()) { gfx_bild(x, y, w, h, wand + y * W + x, W, 0, H); gfx_end(); return; }
     for (int r = y; r < y + h; ) {
         int t = r * 256 / H, e = r + 1; while (e < y + h && e * 256 / H == t) e++;
         uint32_t c = mix(th_hg1, th_hg2, t);
@@ -1096,8 +1164,8 @@ static void fenster_oeffnen(int typ) {
     if (flaeche != 0) flaeche_wechsel(0);
     if (i < 0) {
         if (nfen >= 6) { reply1(TR("Es sind schon 6 Fenster offen.", "6 windows are already open.")); return; }
-        int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 640 : typ == FT_CHATS ? 720 : typ == FT_GED ? 700 : 480;
-        int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 530 : typ == FT_CHATS ? 470 : typ == FT_GED ? 480 : 250;
+        int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 660 : typ == FT_CHATS ? 720 : typ == FT_GED ? 700 : 480;
+        int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 600 : typ == FT_CHATS ? 470 : typ == FT_GED ? 480 : 250;
         if (typ == FT_WEB && w < 640) w = W - 40;
         if (typ == FT_EDIT || typ == FT_TAB || typ == FT_PRAES || typ == FT_BOARD || typ == FT_WEB || typ == FT_MAL) { w = W - 60 < 1500 ? W - 60 : 1500; h = H - 70 < 900 ? H - 70 : 900; }
         int x = 60 + nfen * 36, y = 56 + nfen * 30;
@@ -1624,6 +1692,27 @@ static void ext_pruefen(void) {                          /* Verbindung zum gewae
     kprint("[DESKTOP] KI-Test: "); kprint(ek_meldung); kprint("\n");
     busy_ende();
 }
+static int aufl_wahl = -2;                                                 /* -1 = automatisch, sonst Index in g_boot.modi */
+static int aufl_speichern(void) {                                          /* Wunsch in Sektor 20 der EFI-Partition (FAT32-Reservebereich) */
+    struct block_dev* d = block_get(); if (!d || !d->name) return -1;
+    char esp[24]; scopy(esp, d->name, 24); int n = slen(esp);
+    if (n < 3 || esp[n - 2] != 'p' || esp[n - 1] != '2') return -1;
+    esp[n - 1] = '1';
+    static uint8_t b[512];
+    if (block_dev_read(esp, 0, b, 1) < 0 || (b[14] | b[15] << 8) < 24 || b[510] != 0x55 || b[511] != 0xAA) return -2;
+    for (int i = 0; i < 512; i++) b[i] = 0;
+    if (aufl_wahl >= 0) { const char* m = "ZXAUFL1"; for (int i = 0; i < 7; i++) b[i] = (uint8_t)m[i]; uint32_t w = g_boot.modi[aufl_wahl][0], h = g_boot.modi[aufl_wahl][1]; for (int i = 0; i < 4; i++) { b[8 + i] = (uint8_t)(w >> (8 * i)); b[12 + i] = (uint8_t)(h >> (8 * i)); } }
+    if (block_dev_write(esp, 20, b, 1) < 0) return -3;
+    return 0;
+}
+static void aufl_text(char* t) { if (aufl_wahl < 0) { scopy(t, TR("Automatisch", "Automatic"), 40); return; } char a[12]; dec(a, g_boot.modi[aufl_wahl][0]); scopy(t, a, 40); cat(t, " x ", 40); dec(a, g_boot.modi[aufl_wahl][1]); cat(t, a, 40); }
+static void aufl_init(void) { if (aufl_wahl != -2) return; aufl_wahl = -1; for (uint32_t i = 0; i < g_boot.nmodi; i++) if ((int)g_boot.modi[i][0] == W && (int)g_boot.modi[i][1] == H) aufl_wahl = (int)i; }
+static void aufl_uebernehmen(void) {
+    int r = aufl_speichern(); char t[40]; aufl_text(t);
+    if (r == 0) { scopy(ek_meldung, TR("Gespeichert: ", "Saved: "), 100); cat(ek_meldung, t, 100); cat(ek_meldung, TR(" - gilt ab dem naechsten Neustart.", " - takes effect after the next restart."), 100); ek_ok = 1; }
+    else { scopy(ek_meldung, r == -1 ? TR("Nur auf dem installierten System moeglich.", "Only possible on the installed system.") : TR("EFI-Partition nicht beschreibbar.", "EFI partition not writable."), 100); ek_ok = 0; }
+    kprint("[DESKTOP] Aufloesung gespeichert: "); kprint(t); kprint(r ? " (Fehler)\n" : "\n");
+}
 static void einst_klick(int id) {
     int k = id - K_EIN0;
     if (k >= K_ETAB && k < K_ETAB + 3) { einst_tab = k - K_ETAB; ek_feld = 0; ek_meldung[0] = 0; kprint("[DESKTOP] Einstellungen: Reiter "); kprint_dec((uint32_t)einst_tab); kprint("\n"); }
@@ -1639,10 +1728,18 @@ static void einst_klick(int id) {
     else if (k == K_EKEYDEL && ext_quelle()) { ext_schluessel_setze(ext_quelle(), ""); ek_feld = 0; scopy(ek_meldung, TR("Schluessel geloescht.", "Key deleted."), 100); ek_ok = 0; }
     else if ((k == K_EMOD_V || k == K_EMOD_N) && ext_quelle()) { modell_wechsel(k == K_EMOD_N); ek_feld = 0; ek_meldung[0] = 0; }
     else if (k == K_EMOD_EIGEN && ext_quelle()) ek_start(2);
+    else if (k == 51 || k == 52) { aufl_init(); int n = (int)g_boot.nmodi; aufl_wahl += k == 52 ? 1 : -1; if (aufl_wahl >= n) aufl_wahl = -1; if (aufl_wahl < -1) aufl_wahl = n - 1; ek_meldung[0] = 0; }
+    else if (k == 53) { aufl_init(); aufl_uebernehmen(); }
     else if (k == 50) { if (benutzer_rolle() != ROLLE_ADMIN) scopy(ek_meldung, TR("Nur ein Administrator kann verschluesseln.", "Only an administrator can encrypt."), 100); else { ek_start(3); scopy(ek_meldung, TR("Neues Plattenpasswort (mind. 8 Zeichen), dann Enter. Ohne Passwort KEIN Zugriff mehr!", "New disk password (min. 8 chars), then Enter. Without it there is NO access!"), 100); } }
     else if (k == K_ETEST) { ek_feld = 0; scopy(ek_meldung, TR("Pruefe ...", "Checking ..."), 100); zeichne_einst(); ext_pruefen(); }
     else if (k >= K_ETHEMA && k < K_ETHEMA + 6) { th_nr = k - K_ETHEMA; th_speichern(); }
-    else if (k >= K_EHG && k < K_EHG + 4) { hg_nr = k - K_EHG; th_speichern(); }
+    else if (k >= K_EHG && k < K_EHG + 5) { hg_nr = k - K_EHG; th_speichern(); }
+    else if (k == K_EHG + 5) {                                              /* eigenes Bild: naechste Bilddatei */
+        static const char* const END[] = { ".png", ".jpg", ".jpeg", ".gif", 0 }; char nm[32]; int i = 0, gef = -1;
+        while (synfs_nte_datei(i, END, nm, 32)) { if (ueq(nm, hg_datei)) gef = i; i++; }
+        if (!i) { scopy(ek_meldung, TR("Keine Bilder gefunden. Speichere eines in Zeichnen oder im Browser (Rechtsklick auf ein Bild).", "No images found. Save one in Draw or in the browser (right-click an image)."), 100); }
+        else { synfs_nte_datei(hg_nr == 5 ? (gef + 1) % i : (gef >= 0 ? gef : 0), END, nm, 32); scopy(hg_datei, nm, 32); zdb_put("ui.hgbild", hg_datei); hg_nr = 5; th_speichern(); }
+    }
     zeichne_desktop();
 }
 static char ek_pw1[64];
@@ -1685,9 +1782,10 @@ static void einst_kurztaste(uint8_t k, int shift, int altgr) {            /* Tas
     if (k == 0x2B) { einst_tab = (einst_tab + 1) % 3; ek_feld = 0; ek_meldung[0] = 0; kprint("[DESKTOP] Einstellungen: Reiter "); kprint_dec((uint32_t)einst_tab); kprint("\n"); zeichne_desktop(); return; }
     char c = usb_key_char(k, shift, altgr);
     if (einst_tab == 0 && (c == 'v' || c == 'V')) { einst_klick(K_EIN0 + 50); return; }       /* v = Platte verschluesseln */
+    if (einst_tab == 0 && (c == 'a' || c == 'A')) { aufl_init(); aufl_wahl = (int)g_boot.nmodi - 1; aufl_uebernehmen(); zeichne_desktop(); return; }   /* a = groesste Aufloesung waehlen */
     if (einst_tab == 2) {
         if (c >= '1' && c <= '6') { th_nr = c - '1'; th_speichern(); zeichne_desktop(); }
-        else if (c == 'h' || c == 'H') { hg_nr = (hg_nr + 1) & 3; th_speichern(); zeichne_desktop(); }
+        else if (c == 'h' || c == 'H') { hg_nr = (hg_nr + 1) % 5; th_speichern(); zeichne_desktop(); }
     } else if (einst_tab == 1) {
         if (c >= '0' && c <= '3') einst_klick(K_EIN0 + 10 + (c - '0'));
         else if ((c == 'm' || c == 'M') && ext_quelle()) { modell_wechsel(1); zeichne_einst(); }
@@ -1715,6 +1813,10 @@ static void zeichne_einst(void) {
         y += 78;
         { int c = usb_get_layout(); char t[60]; scopy(t, T5("Tastatur: ", "Keyboard: ", "Clavier : ", "Tastiera: ", "Teclado: "), 60); cat(t, kbd_layouts[c].code, 60); cat(t, " (", 60); cat(t, kbd_layouts[c].name, 60); cat(t, ")", 60); gtxt(x, y + 9, t, C_TEXT, 1); }
         knopf(K_EIN0 + 5, "<", f->x + f->w - 100, y, 36, 0); knopf(K_EIN0 + 6, ">", f->x + f->w - 56, y, 36, 0);
+        y += 52; aufl_init();
+        { char t[60], a[40]; aufl_text(a); scopy(t, T5("Bildschirm: ", "Screen: ", "Ecran : ", "Schermo: ", "Pantalla: "), 60); cat(t, a, 60); gtxt(x, y + 9, t, C_TEXT, 1);
+          knopf(K_EIN0 + 51, "<", f->x + f->w - 236, y, 36, 0); knopf(K_EIN0 + 52, ">", f->x + f->w - 194, y, 36, 0); knopf(K_EIN0 + 53, TR("Uebernehmen", "Apply"), f->x + f->w - 152, y, 128, 0);
+          if (g_boot.nmodi <= 1) gfx_text_f(x, y + 34, l1(TR("Die Firmware bietet nur diese Aufloesung an (Hyper-V: Set-VMVideo am Host).", "The firmware offers only this resolution (Hyper-V: Set-VMVideo on the host).")), C_MUTED, 12); }
         y += 56; gtxt(x, y, "Firewall", C_MUTED, 1);
         { int m = fw_modus_get(); knopf(K_EIN0 + 7, T5("Aus", "Off", "Desactive", "Spento", "Apagado"), x, y + 22, 120, m == 0); knopf(K_EIN0 + 8, "Normal", x + 128, y + 22, 120, m == 1); knopf(K_EIN0 + 9, T5("Streng", "Strict", "Strict", "Rigido", "Estricto"), x + 256, y + 22, 120, m == 2); }
         y += 82;
@@ -1770,8 +1872,10 @@ static void zeichne_einst(void) {
         }
         y += 24 + 2 * 78 + 6;
         gtxt(x, y, T5("Hintergrund", "Background", "Arriere-plan", "Sfondo", "Fondo"), C_MUTED, 1);
-        { static const char* const hn[4][2] = { { "Verlauf", "Gradient" }, { "Aurora", "Aurora" }, { "Raster", "Grid" }, { "Einfarbig", "Solid" } };
-          int w4 = (bw - 3 * 8) / 4; for (int i = 0; i < 4; i++) knopf(K_EIN0 + K_EHG + i, hn[i][lang == 0 ? 0 : 1], x + i * (w4 + 8), y + 22, w4, i == hg_nr); }
+        { static const char* const hn[6][2] = { { "Verlauf", "Gradient" }, { "Aurora", "Aurora" }, { "Raster", "Grid" }, { "Einfarbig", "Solid" }, { "Futuristisch", "Futuristic" }, { "Eigenes Bild", "Own image" } };
+          int w3 = (bw - 2 * 8) / 3; for (int i = 0; i < 6; i++) knopf(K_EIN0 + K_EHG + i, hn[i][lang == 0 ? 0 : 1], x + (i % 3) * (w3 + 8), y + 22 + (i / 3) * 42, w3, i == hg_nr);
+          y += 42; if (hg_nr == 5) { char t[60]; scopy(t, TR("Bild: ", "Image: "), 60); cat(t, hg_datei, 60); cat(t, TR("  (nochmals klicken = naechstes)", "  (click again = next)"), 60); gfx_text_f(x, y + 70, t, C_MUTED, 12); }
+          if (ek_meldung[0] && einst_tab == 2) gfx_text_f(x, y + 88, l1(ek_meldung), 0x00F59E0Bu, 12); }
         gtxt(x, y + 70, TR("Die Aenderung ist sofort hinter dem Fenster zu sehen.", "The change is visible right away behind the window."), C_MUTED, 1);
     }
     gfx_end();

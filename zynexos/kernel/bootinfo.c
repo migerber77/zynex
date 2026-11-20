@@ -40,6 +40,9 @@ void bootinfo_parse(uint32_t mbi_addr) {
             g_boot.fb_type   = f->fb_type;
         } else if (t->type == MB2_TAG_ZYNEX) {
             g_boot.flags = *(const uint32_t*)(p + 8);
+        } else if (t->type == 0x7A5A) {
+            uint32_t n = *(const uint32_t*)(p + 8); if (n > 32) n = 32; g_boot.nmodi = n;
+            for (uint32_t k = 0; k < n; k++) { g_boot.modi[k][0] = *(const uint32_t*)(p + 16 + k * 8); g_boot.modi[k][1] = *(const uint32_t*)(p + 20 + k * 8); }
         } else if (t->type == 0x7A59) {
             g_boot.model_addr = *(const uint64_t*)(p + 8); g_boot.model_size = *(const uint64_t*)(p + 16);
         } else if (t->type == MB2_TAG_MODULE && g_boot.mod_size == 0) {

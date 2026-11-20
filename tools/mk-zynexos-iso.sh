@@ -15,15 +15,18 @@ T="$W/iso"; mkdir -p "$T/EFI/BOOT" "$T/boot"
 printf '%s\n' "$CMD" > "$W/zynex.cfg"
 cp "$L" "$T/EFI/BOOT/BOOTX64.EFI"; cp "$K" "$T/boot/kernel.bin"; cp "$SIG" "$T/boot/kernel.sig"; cp "$W/zynex.cfg" "$T/boot/zynex.cfg"
 [ -n "$PACK" ] && cp "$PACK" "$T/boot/zynex-install.pack"
-[ -n "$MODELL" ] && cp "$MODELL" "$T/boot/modell.gguf"
+# Das Sprachmodell liegt nur in der EFI-Partition (sonst waere die ISO doppelt so gross): Stick mit balenaEtcher oder Rufus im DD-Modus schreiben
+[ -n "$MODELL" ] && printf 'Diese ISO enthaelt ein Sprachmodell in der EFI-Partition.\r\nRufus: beim Schreiben "DD-Image" waehlen (nicht ISO-Modus), sonst fehlt das Modell.\r\nbalenaEtcher: einfach schreiben.\r\n' > "$T/LIESMICH-SPRACHMODELL.txt"
 if [ -n "${ZYNEX_SB_CER:-}" ] && [ -f "$ZYNEX_SB_CER" ]; then mkdir -p "$T/EFI/ZYNEX"; cp "$ZYNEX_SB_CER" "$T/EFI/ZYNEX/zynex-sb.cer"; fi   # Zertifikat zum Einspielen (Secure Boot)
 # FAT-Abbild der EFI-Systempartition mit denselben Dateien
 SZ=$(du -sb "$T" | cut -f1)
+[ -n "$MODELL" ] && SZ=$(( SZ + $(stat -c %s "$MODELL") ))
 MB=$(( SZ / 1048576 + 8 )); [ $MB -lt 34 ] && MB=34
 truncate -s ${MB}M "$W/efi.img"
 mkfs.vfat -F 32 -n ZYNEXEFI "$W/efi.img" >/dev/null 2>&1 || mkfs.vfat -n ZYNEXEFI "$W/efi.img" >/dev/null
 export MTOOLS_SKIP_CHECK=1
 mcopy -s -i "$W/efi.img" "$T/EFI" "$T/boot" ::/
+[ -n "$MODELL" ] && mcopy -i "$W/efi.img" "$MODELL" ::/boot/modell.gguf
 mdir -i "$W/efi.img" -/ ::/ | tail -14
 xorriso -as mkisofs -iso-level 3 -r -J -joliet-long -V ZYNEXOS \
   -partition_offset 16 \

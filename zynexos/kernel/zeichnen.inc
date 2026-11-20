@@ -4,6 +4,7 @@
 #include "font_aa.h"
 #include "bilder.h"
 enum { K_M0 = 800 };
+static void mal_als_hintergrund(void);
 static uint32_t *mz, *mz_ziel, *mz_undo[5], *mz_ag; static int mz_w, mz_h, mz_nu, mz_uk;
 static int m_werkz, m_gr = 6, m_gef, m_geaendert, m_zieh, m_x0, m_y0, m_lx, m_ly, m_tipp, m_tx, m_ty, m_tlen; static uint32_t m_farbe = 0x00202124u;
 static char mname[28], m_text[100];
@@ -225,6 +226,7 @@ static void zeichne_mal(void) {
         rb_knopf(K_M0 + 20, TR("Zynie zeichnet ...", "Zynie draws ..."), 0, OC_MAL); rb_knopf(K_M0 + 21, TR("Ergaenzen ...", "Add to it ..."), 0, OC_MAL); rb_knopf(K_M0 + 22, TR("Bildideen", "Ideas"), 0, OC_MAL); rb_gruppe(TR("Zynie malt mit", "Zynie paints"));
         rb_knopf(K_M0 + 23, TR("Graustufen", "Grayscale"), 0, OC_MAL); rb_knopf(K_M0 + 24, TR("Invertieren", "Invert"), 0, OC_MAL); rb_knopf(K_M0 + 25, TR("Weichzeichnen", "Blur"), 0, OC_MAL); rb_gruppe(TR("Effekte", "Effects"));
         rb_knopf(K_M0 + 26, TR("Bild-Agent", "Image agent"), 0, OC_MAL); rb_gruppe(TR("Agenten", "Agents"));
+        rb_knopf(K_M0 + 27, TR("Als Hintergrund", "As background"), 0, OC_MAL); rb_gruppe(TR("Desktop", "Desktop"));
     }
     int ax = oa_x, ay = oa_y, aw = oa_w, ah = oa_h, sw = 96;
     gfx_rect(ax, ay, sw, ah, O_RIB); gfx_rect(ax + sw, ay, 1, ah, O_RAND);
@@ -292,6 +294,7 @@ static void mal_klick(int id) {
     else if (k == 22) { static char out[1500]; int n = ob_ki(TR("Gib 5 kurze, konkrete Ideen fuer einfache Zeichnungen (je eine Zeile).", "Give 5 short, concrete ideas for simple drawings (one per line)."), 0, out, sizeof(out)); (void)n; kp_zeige(FT_MAL, out, KA_KEINE); }
     else if (k >= 23 && k <= 25) m_effekt(k - 23);
     else if (k == 26) { if (m_geaendert) mal_speichern(); ag_start(8); flaeche_wechsel(2); return; }
+    else if (k == 27) { mal_als_hintergrund(); return; }
     else if (k >= 30 && k < 54) { m_farbe = MPAL[k - 30]; if (m_werkz == 1 || m_werkz == 7) m_werkz = 0; }
     zeichne_mal();
 }
@@ -339,4 +342,19 @@ static void ag_bild_frei(void) {
     m_merken(); for (int i = 0; i < mz_w * mz_h; i++) mz[i] = mz_ag[i];
     ob_name_neu("bild-", ".png", mname); mal_speichern();
     char z[100]; scopy(z, TR("Freigegeben: gespeichert als ", "Approved: saved as "), 100); cat(z, mname, 100); al(z);
+}
+/* Hintergrundbild: Datei laden und den Bildschirm fuellend skalieren (Seitenverhaeltnis bleibt, Rand wird abgeschnitten) */
+static int wand_bild(const char* name, uint32_t* ziel) {
+    if (!name[0] || m_puffer()) return -1;
+    int r = synfs_read(name, m_ladepuffer, 2048u * 4096u); if (r <= 0) return -2;
+    int w, h; if (bild_dekodieren(m_ladepuffer, (uint32_t)r, m_bild, 2048u * 1024u, m_arb, 3072u * 4096u, &w, &h) != 0) return -3;
+    int sx, sy, sw, sh;                                                 /* Ausschnitt der Quelle mit dem Seitenverhaeltnis des Bildschirms */
+    if ((int64_t)w * H > (int64_t)h * W) { sh = h; sw = (int)((int64_t)h * W / H); sx = (w - sw) / 2; sy = 0; } else { sw = w; sh = (int)((int64_t)w * H / W); sx = 0; sy = (h - sh) / 2; }
+    for (int y = 0; y < H; y++) { int qy = sy + y * sh / H; const uint32_t* zq = m_bild + (uint32_t)qy * (uint32_t)w; for (int x = 0; x < W; x++) ziel[y * W + x] = zq[sx + x * sw / W]; }
+    return 0;
+}
+static void mal_als_hintergrund(void) {
+    if (m_geaendert || !mname[0]) mal_speichern();
+    scopy(hg_datei, mname, 32); zdb_put("ui.hgbild", hg_datei); hg_nr = 5; th_speichern(); wand_art = -1;
+    scopy(ob_meld, TR("Als Hintergrund gesetzt", "Set as background"), 100); zeichne_desktop();
 }

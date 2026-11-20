@@ -28,6 +28,20 @@ static void stop(const char* msg) { say("[LOADER] FEHLER: "); say(msg); say("\n[
 static EFI_GUID G_LOADED = { 0x5B1B31A1, 0x9562, 0x11d2, { 0x8E, 0x3F, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } };
 static EFI_GUID G_SFS = { 0x964e5b22, 0x6459, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
 static EFI_GUID G_GLOBAL = { 0x8BE4DF61, 0x93CA, 0x11d2, { 0xAA, 0x0D, 0x00, 0xE0, 0x98, 0x03, 0x2B, 0x8C } };
+static EFI_GUID G_BLOCKIO = { 0x964e5b21, 0x6459, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
+typedef struct { UINT32 MediaId; UINT8 Removable, Present, LogicalPartition, ReadOnly, WriteCaching, p1, p2, p3; UINT32 BlockSize, IoAlign; UINT64 LastBlock; } ZX_BLOCK_MEDIA;
+typedef struct ZX_BLOCK_IO { UINT64 Revision; ZX_BLOCK_MEDIA* Media; void* Reset; EFI_STATUS (EFIAPI *ReadBlocks)(struct ZX_BLOCK_IO*, UINT32, UINT64, UINTN, void*); } ZX_BLOCK_IO;
+/* Gewuenschte Aufloesung: Sektor 20 der EFI-Partition (FAT32-Reservebereich), vom Kernel geschrieben: "ZXAUFL1\0" + Breite + Hoehe */
+static void wunsch_lesen(EFI_HANDLE dev, unsigned* w, unsigned* h) {
+    ZX_BLOCK_IO* bio = 0; *w = *h = 0;
+    if (BS->HandleProtocol(dev, &G_BLOCKIO, (void**)&bio) != 0 || !bio || !bio->Media || bio->Media->BlockSize != 512) return;
+    static unsigned char b[512];
+    if (bio->ReadBlocks(bio, bio->Media->MediaId, 0, 512, b) != 0) return;
+    if ((b[14] | b[15] << 8) < 24 || b[510] != 0x55 || b[511] != 0xAA) return;          /* nur FAT mit genug Reservesektoren */
+    if (bio->ReadBlocks(bio, bio->Media->MediaId, 20, 512, b) != 0) return;
+    if (memcmp(b, "ZXAUFL1", 8) != 0) return;
+    *w = b[8] | b[9] << 8 | b[10] << 16 | (unsigned)b[11] << 24; *h = b[12] | b[13] << 8 | b[14] << 16 | (unsigned)b[15] << 24;
+}
 static EFI_GUID G_GOP = { 0x9042a9de, 0x23dc, 0x4a38, { 0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a } };
 
 static EFI_FILE_PROTOCOL* root;
@@ -154,19 +168,28 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
     if (!entry) stop("Kernel hat keinen UEFI-Einstieg (ZXEFIENT)");
     say("[LOADER] Kernel geladen, Einstieg 0x"); { const char* hx = "0123456789abcdef"; char b[17]; for (int i = 0; i < 16; i++) b[i] = hx[(entry >> (60 - 4 * i)) & 15]; b[16] = 0; say(b); } say("\n");
 
-    /* Grafik: groesster Modus bis 2560x1440 im Format RGB/BGR 8 Bit */
+    /* Grafik: gewuenschte Aufloesung (Einstellungen), sonst groesster Modus bis 2560x1440 im Format RGB/BGR 8 Bit */
     EFI_GRAPHICS_OUTPUT_PROTOCOL* gop = 0; int have_fb = 0;
     UINT64 fb_addr = 0; unsigned fb_pitch = 0, fb_w = 0, fb_h = 0;
+    static unsigned modi[32][2]; unsigned nmodi = 0, ww = 0, wh = 0;
+    wunsch_lesen(li->DeviceHandle, &ww, &wh);
     if (BS->LocateProtocol(&G_GOP, 0, (void**)&gop) == 0 && gop) {
-        UINT32 best = gop->Mode->Mode; UINT64 bestarea = 0;
+        UINT32 best = gop->Mode->Mode; UINT64 bestarea = 0; int wunsch = -1;
         for (UINT32 m = 0; m < gop->Mode->MaxMode; m++) {
             UINTN sz; EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* mi;
             if (gop->QueryMode(gop, m, &sz, &mi) != 0) continue;
-            if ((mi->PixelFormat == 0 || mi->PixelFormat == 1) && mi->HorizontalResolution <= 2560 && mi->VerticalResolution <= 1440) {
-                UINT64 a = (UINT64)mi->HorizontalResolution * mi->VerticalResolution;
+            if (mi->PixelFormat != 0 && mi->PixelFormat != 1) continue;
+            unsigned w = mi->HorizontalResolution, h = mi->VerticalResolution, neu = 1;
+            for (unsigned k = 0; k < nmodi; k++) if (modi[k][0] == w && modi[k][1] == h) neu = 0;
+            if (neu && nmodi < 32 && w >= 640 && h >= 480) { modi[nmodi][0] = w; modi[nmodi][1] = h; nmodi++; }
+            if (w == ww && h == wh) wunsch = (int)m;
+            if (w <= 2560 && h <= 1440) {
+                UINT64 a = (UINT64)w * h;
                 if (a > bestarea) { bestarea = a; best = m; }
             }
         }
+        if (ww) { say("[LOADER] Gewuenschte Aufloesung "); say_dec(ww); say("x"); say_dec(wh); say(wunsch >= 0 ? " wird eingestellt\n" : " gibt es hier nicht\n"); }
+        if (wunsch >= 0) { best = (UINT32)wunsch; bestarea = 1; }
         if (bestarea && best != gop->Mode->Mode) gop->SetMode(gop, best);
         EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* mi = gop->Mode->Info;
         if (mi->PixelFormat == 0 || mi->PixelFormat == 1) {
@@ -183,6 +206,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
     unsigned o = 8;
     put32(info + o, 1); put32(info + o + 4, 8 + (unsigned)cl + 1); memcpy(info + o + 8, cmd, (unsigned long long)cl); o = (o + 8 + (unsigned)cl + 1 + 7) & ~7u;       /* Kommandozeile */
     if (pack) { put32(info + o, 3); put32(info + o + 4, 16 + 8); put32(info + o + 8, (unsigned)(UINTN)pack); put32(info + o + 12, (unsigned)((UINTN)pack + pn)); memcpy(info + o + 16, "pack", 5); o += 24; }
+    if (nmodi) { put32(info + o, 0x7A5A); put32(info + o + 4, 16 + nmodi * 8); put32(info + o + 8, nmodi); put32(info + o + 12, 0); for (unsigned k = 0; k < nmodi; k++) { put32(info + o + 16 + k * 8, modi[k][0]); put32(info + o + 20 + k * 8, modi[k][1]); } o = (o + 16 + nmodi * 8 + 7) & ~7u; }   /* verfuegbare Bildschirmmodi */
     if (modell) { put32(info + o, 0x7A59); put32(info + o + 4, 24); put64(info + o + 8, (unsigned long long)(UINTN)modell); put64(info + o + 16, mn); o += 24; }   /* Sprachmodell (64 Bit) */
     if (have_fb) { put32(info + o, 8); put32(info + o + 4, 32); put64(info + o + 8, fb_addr); put32(info + o + 16, fb_pitch); put32(info + o + 20, fb_w); put32(info + o + 24, fb_h); info[o + 28] = 32; info[o + 29] = 1; o += 32; }
     put32(info + o, 0x7A58); put32(info + o + 4, 16); put32(info + o + 8, flags); o += 16;                                         /* Zynex-Marke: Bit0 Signatur geprueft, Bit1 RGB */

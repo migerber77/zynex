@@ -131,6 +131,7 @@ int  synfs_delete(const char* name);
 int  synfs_tag(const char* name, const char* tag);
 int  synfs_find_tag(const char* tag, char* out_name, uint32_t out_len);
 void synfs_list(void);
+int  synfs_nte_datei(int n, const char* const* endungen, char* out, int max);   /* Dateiauswahl nach Endung */
 void synfs_info(void);
 int  synfs_is_mounted(void);
 

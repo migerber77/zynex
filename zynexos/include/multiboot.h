@@ -56,6 +56,7 @@ struct boot_info {
     uint32_t flags;                 /* BOOT_* */
     uint64_t model_addr, model_size; /* Sprachmodell (GGUF) im RAM, 0 = keins */
     uint64_t mod_addr, mod_size;    /* erstes Multiboot-Modul (Installationspaket), 0 = keins */
+    uint32_t nmodi, modi[32][2];    /* Bildschirmmodi der Firmware (Breite, Hoehe) */
 };
 
 extern struct boot_info g_boot;

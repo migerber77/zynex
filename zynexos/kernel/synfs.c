@@ -517,6 +517,19 @@ int synfs_find_tag(const char* tag, char* out_name, uint32_t out_len) {
     return -1;
 }
 
+/* n-te Datei (Name), deren Name auf eine der Endungen endet; 0 = keine (fuer Dateiauswahl) */
+int synfs_nte_datei(int n, const char* const* endungen, char* out, int max) {
+    if (!mounted) return 0;
+    for (uint32_t i = 0; i < sb.inode_count; i++) {
+        if (inode_cache[i].magic != INODE_MAGIC) continue;
+        const char* nm = inode_cache[i].name; int l = 0; while (nm[l]) l++;
+        int passt = 0;
+        for (int e = 0; endungen[e] && !passt; e++) { int el = 0; while (endungen[e][el]) el++; if (l >= el) { passt = 1; for (int k = 0; k < el; k++) { char a = nm[l - el + k], b = endungen[e][k]; if (a >= 'A' && a <= 'Z') a = (char)(a + 32); if (a != b) { passt = 0; break; } } } }
+        if (!passt) continue;
+        if (n-- == 0) { int k = 0; while (nm[k] && k < max - 1) { out[k] = nm[k]; k++; } out[k] = 0; return 1; }
+    }
+    return 0;
+}
 void synfs_list(void) {
     if (!mounted) {
         kprint("[SynFS] Not mounted\n");
