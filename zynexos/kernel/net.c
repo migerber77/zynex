@@ -698,8 +698,8 @@ int net_post_tls(const char* host, const char* path, const char* hdr, const char
     __asm__ volatile ("sti");
     if (!net_up()) { kprint("Kein Netz\n"); return -1; }
     uint32_t ip; if (net_dns(host, &ip) != 0) { kprint("Name nicht aufloesbar\n"); return -2; }
-    static char rq[2600]; int n = 0;
-    #define ADD(t) do { for (const char* c_ = (t); *c_ && n < 2590; c_++) rq[n++] = *c_; } while (0)
+    static char rq[4800]; int n = 0;
+    #define ADD(t) do { for (const char* c_ = (t); *c_ && n < 4790; c_++) rq[n++] = *c_; } while (0)
     int bl = 0; while (body[bl]) bl++;
     char cl[12]; int k = 0; { int v = bl; char t[12]; int c = 0; do { t[c++] = (char)('0' + v % 10); v /= 10; } while (v); while (c) cl[k++] = t[--c]; cl[k] = 0; }
     ADD("POST "); ADD(path); ADD(" HTTP/1.0\r\nHost: "); ADD(host); ADD("\r\nUser-Agent: ZynexOS\r\nContent-Type: application/json\r\nContent-Length: "); ADD(cl); ADD("\r\nConnection: close\r\n"); ADD(hdr); ADD("\r\n"); ADD(body);

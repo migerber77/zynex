@@ -65,21 +65,21 @@ int ext_frage(const char* frage, char* out, int max) {
     if (!q) return -1;
     char k[48]; schl(k, q, "key"); static char kbuf[360]; const char* key = zdb_get_text(k, kbuf, sizeof(kbuf)) > 0 ? kbuf : zdb_get(k);
     if (!key || !key[0]) { kat(out, "Kein Schluessel fuer ", max); kat(out, ANZ[q], max); kat(out, " (Shell: kiextern einrichten ", max); kat(out, KENN[q], max); kat(out, ")", max); return -2; }
-    static char esc[900], body[1300], path[200], hdr[400];
+    static char esc[3400], body[3800], path[200], hdr[400];
     escape(frage, esc, sizeof(esc));
     const char* host; const char* modell = ext_modell(q);
     body[0] = path[0] = hdr[0] = 0;
     if (q == 1) {
         host = "api.openai.com"; kat(path, "/v1/chat/completions", 200);
         kat(hdr, "Authorization: Bearer ", 400); kat(hdr, key, 400); kat(hdr, "\r\n", 400);
-        kat(body, "{\"model\":\"", 1300); kat(body, modell, 1300); kat(body, "\",\"max_tokens\":400,\"messages\":[{\"role\":\"user\",\"content\":\"", 1300); kat(body, esc, 1300); kat(body, "\"}]}", 1300);
+        kat(body, "{\"model\":\"", 3800); kat(body, modell, 3800); kat(body, "\",\"max_tokens\":1200,\"messages\":[{\"role\":\"user\",\"content\":\"", 3800); kat(body, esc, 3800); kat(body, "\"}]}", 3800);
     } else if (q == 2) {
         host = "api.anthropic.com"; kat(path, "/v1/messages", 200);
         kat(hdr, "x-api-key: ", 400); kat(hdr, key, 400); kat(hdr, "\r\nanthropic-version: 2023-06-01\r\n", 400);
-        kat(body, "{\"model\":\"", 1300); kat(body, modell, 1300); kat(body, "\",\"max_tokens\":400,\"messages\":[{\"role\":\"user\",\"content\":\"", 1300); kat(body, esc, 1300); kat(body, "\"}]}", 1300);
+        kat(body, "{\"model\":\"", 3800); kat(body, modell, 3800); kat(body, "\",\"max_tokens\":1200,\"messages\":[{\"role\":\"user\",\"content\":\"", 3800); kat(body, esc, 3800); kat(body, "\"}]}", 3800);
     } else {
         host = "generativelanguage.googleapis.com"; kat(path, "/v1beta/models/", 200); kat(path, modell, 200); kat(path, ":generateContent?key=", 200); kat(path, key, 200);
-        kat(body, "{\"contents\":[{\"parts\":[{\"text\":\"", 1300); kat(body, esc, 1300); kat(body, "\"}]}]}", 1300);
+        kat(body, "{\"contents\":[{\"parts\":[{\"text\":\"", 3800); kat(body, esc, 3800); kat(body, "\"}]}]}", 3800);
     }
     const char* ant; uint32_t al, st;
     int r = net_post_tls(host, path, hdr, body, &ant, &al, &st);

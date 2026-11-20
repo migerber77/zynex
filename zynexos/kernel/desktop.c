@@ -315,24 +315,25 @@ void desktop_splash_ende(void) {
 }
 
 /* ---------- Zustand ---------- */
-enum { Z_LOGIN, Z_DESK, Z_EDIT, Z_WEB, Z_RECH, Z_INFO };
+enum { Z_LOGIN, Z_DESK, Z_EDIT, Z_WEB, Z_RECH, Z_INFO, Z_OFF };
 static int zustand;
 static char fname[16], fpw[40]; static int ffocus, fmsg;
 static char eingabe[96]; static int einlen;
 static char antwort[6][100]; static int nantwort;
 #define QN 32
 static uint16_t kq[QN]; static unsigned qh, qt; static int was_down;
-static struct { int x, y, w, h, id, owner; } knoepfe[120]; static int nkn;
+static struct { int x, y, w, h, id, owner; } knoepfe[320]; static int nkn;
 static uint32_t robot_phase;
 static uint32_t sprech_bis, letzte_eingabe;               /* Ticks (100 pro Sekunde) */
 
 /* Textverarbeitung */
-#define DOK_MAX 4000
+#define DOK_MAX 16000
+#define ED_ZMAX 2000
 static char dok[DOK_MAX + 1]; static int doklen, dokcur, dokscroll, dokgeaendert; static char dokname[24];
 static int ed_x, ed_y, ed_w, ed_h, ed_cols, ed_rows, ed_s;
 
 static int kn_owner = -1;
-static void kn_reg(int id, int x, int y, int w, int h) { if (nkn < 120) { knoepfe[nkn].owner = kn_owner; knoepfe[nkn].x = x; knoepfe[nkn].y = y; knoepfe[nkn].w = w; knoepfe[nkn].h = h; knoepfe[nkn].id = id; nkn++; } }
+static void kn_reg(int id, int x, int y, int w, int h) { if (nkn < 320) { knoepfe[nkn].owner = kn_owner; knoepfe[nkn].x = x; knoepfe[nkn].y = y; knoepfe[nkn].w = w; knoepfe[nkn].h = h; knoepfe[nkn].id = id; nkn++; } }
 static void knopf(int id, const char* label, int x, int y, int w, int primaer) {
     rrect_rand(x, y, w, 34, 10, primaer ? C_ACC : C_CARD, primaer ? C_ACC : C_BORDER);
     gtxt(x + (w - gtw(label, 1)) / 2, y + 9, label, primaer ? 0x00FFFFFFu : C_TEXT, 1);
@@ -431,7 +432,12 @@ static const char* const chip_text[6] = { "text erstellen", "rechne 12*7", "syst
 static int bar_x, bar_y, bar_w;
 
 /* ---------- Fenster und Widgets (verschiebbar, schliessbar, mehrere gleichzeitig) ---------- */
-enum { FT_EDIT = 1, FT_WEB, FT_RECH, FT_INFO, FT_EINST, FT_CHATS, FT_GED };
+enum { FT_EDIT = 1, FT_WEB, FT_RECH, FT_INFO, FT_EINST, FT_CHATS, FT_GED, FT_TAB, FT_PRAES, FT_BOARD };
+static void zeichne_tabelle(void); static void zeichne_praes(void); static void zeichne_board(void);
+static int ob_vollbild;                                     /* Praesentation laeuft im Vollbild */
+static void praes_vollbild_zeichnen(void);
+static uint32_t ob_farbe(int typ);                          /* Programmfarbe (Titelleiste) */
+static void ag_office(int i); static void ag_office_frei(int p); static void office_init(int typ); static void office_schliessen(int typ);
 enum { WG_UHR = 1, WG_SYS, WG_AUF, WG_AGENT };
 #define WT_H 30
 struct fenster { int typ, x, y, w, h; };
@@ -451,7 +457,7 @@ static int nsug, sugsel = -1;
 static int flaeche;
 static char alog[10][100]; static int nalog, alauf = -1, pend;
 static void aufg_laden(void); static int aufg_zeile(int n, char* out, int max); static int aufg_zahl(void);
-static const char* const ag_name[4][2] = { { "Morgen-Briefing", "Morning briefing" }, { "Sicherheits-Agent", "Security agent" }, { "Wartungs-Agent", "Maintenance agent" }, { "Aufgaben-Agent", "Task agent" } };
+static const char* const ag_name[8][2] = { { "Morgen-Briefing", "Morning briefing" }, { "Sicherheits-Agent", "Security agent" }, { "Wartungs-Agent", "Maintenance agent" }, { "Aufgaben-Agent", "Task agent" }, { "Dokument-Agent", "Document agent" }, { "Tabellen-Agent", "Sheet agent" }, { "Folien-Agent", "Slides agent" }, { "Ablauf-Agent (SmartBoard)", "Flow agent (SmartBoard)" } };
 static void zeichne_einst(void); static void zeichne_chats(void); static void zeichne_ged(void); static void zeichne_desktop(void); static void zeichne_editor(int voll); static void zeichne_web(int voll); static void zeichne_rechner(void); static void zeichne_info(void);
 static int fenster_idx(int typ) { for (int i = 0; i < nfen; i++) if (fen[i].typ == typ) return i; return -1; }
 static int schneidet(int x, int y, int w, int h, int x2, int y2, int w2, int h2) { return !(x + w <= x2 || x2 + w2 <= x || y + h <= y2 || y2 + h2 <= y); }
@@ -476,20 +482,22 @@ static int rad_modus(void);                                      /* 1 = Befehlsr
 static void rad_weg(void);
 static void busy_tick(void) { uint32_t f = timer_get_ticks() / 5; if (!busy_an || f != busy_f) { busy_an = 1; busy_f = f; lader(W - 70, H - 70, 28, f, C_WALL); } }
 static void busy_ende(void) { if (!busy_an) return; busy_an = 0; gfx_begin(); hg(W - 70 - 40, H - 70 - 40, 80, 80); gfx_end(); zeichne_desktop(); }
-static const char* fenster_titel(int typ) { if (typ == FT_GED) return TR("Gedaechtnis", "Memory"); if (typ == FT_EINST) return TR("Einstellungen", "Settings"); if (typ == FT_CHATS) return "Chats"; return typ == FT_EDIT ? TR("Dokument", "Document") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
+static const char* fenster_titel(int typ) { if (typ == FT_TAB) return TR("Zynex Tabelle", "Zynex Sheets"); if (typ == FT_PRAES) return TR("Zynex Praesentation", "Zynex Slides"); if (typ == FT_BOARD) return "SmartBoard"; if (typ == FT_GED) return TR("Gedaechtnis", "Memory"); if (typ == FT_EINST) return TR("Einstellungen", "Settings"); if (typ == FT_CHATS) return "Chats"; return typ == FT_EDIT ? TR("Zynex Text", "Zynex Text") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
 static void fenster_zeichnen(int i) {
     struct fenster* f = &fen[i]; int top = (i == nfen - 1 && fok);
     gfx_begin();
     { uint32_t w0 = hg_zeile(f->y + f->h / 2), sc = th_nr == 5 ? 0x00203050u : 0x00000000u; int st = th_nr == 5 ? 40 : 100;      /* weicher Schatten */
       rrect(f->x - 3, f->y + 3, f->w + 6, f->h + 8, 18, mix(w0, sc, st / 2)); rrect(f->x - 1, f->y + 5, f->w + 2, f->h + 3, 15, mix(w0, sc, st)); }
     rrect_rand(f->x, f->y, f->w, f->h, 14, C_BG, top ? C_ACC : C_BORDER);
+    if (ob_farbe(f->typ)) { uint32_t oc = ob_farbe(f->typ); rrect(f->x + 2, f->y + 2, f->w - 4, WT_H - 2, 12, top ? oc : mix(oc, 0x00808080u, 120)); gfx_rect(f->x + 2, f->y + WT_H - 8, f->w - 4, 8, top ? oc : mix(oc, 0x00808080u, 120)); }
+    else {
     rrect(f->x + 2, f->y + 2, f->w - 4, WT_H - 2, 12, top ? mix(C_CARD, C_ACC, 70) : C_CARD);
-    gfx_rect(f->x + 3, f->y + WT_H - 3, f->w - 6, 2, top ? C_ACC : C_BORDER);
+    gfx_rect(f->x + 3, f->y + WT_H - 3, f->w - 6, 2, top ? C_ACC : C_BORDER); }
     rrect(f->x + 14, f->y + 10, 10, 10, 5, top ? C_ACC2 : C_OFF);
-    gtxt(f->x + 32, f->y + 8, fenster_titel(f->typ), top ? C_TEXT : C_MUTED, 1);
+    gtxt(f->x + 32, f->y + 8, fenster_titel(f->typ), ob_farbe(f->typ) ? 0x00FFFFFFu : top ? C_TEXT : C_MUTED, 1);
     rrect(f->x + f->w - 32, f->y + 5, 22, 20, 10, top ? 0x00EF4444u : C_OFF); gtxt(f->x + f->w - 25, f->y + 7, "x", 0x00FFFFFFu, 1);
     kn_owner = i;
-    if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else if (f->typ == FT_EINST) zeichne_einst(); else if (f->typ == FT_CHATS) zeichne_chats(); else if (f->typ == FT_GED) zeichne_ged(); else zeichne_info();
+    if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else if (f->typ == FT_EINST) zeichne_einst(); else if (f->typ == FT_CHATS) zeichne_chats(); else if (f->typ == FT_GED) zeichne_ged(); else if (f->typ == FT_TAB) zeichne_tabelle(); else if (f->typ == FT_PRAES) zeichne_praes(); else if (f->typ == FT_BOARD) zeichne_board(); else zeichne_info();
     kn_owner = -1;
     gfx_end();
 }
@@ -526,7 +534,7 @@ static void wid_zeichnen(int j) {
     gfx_end();
 }
 static void szene_oben(void) { for (int j = 0; j < nwid; j++) wid_zeichnen(j); for (int i = 0; i < nfen; i++) fenster_zeichnen(i); }
-static int zustand_fuer(int typ) { return typ == FT_EDIT ? Z_EDIT : typ == FT_WEB ? Z_WEB : typ == FT_RECH ? Z_RECH : Z_INFO; }   /* Info und Einstellungen teilen sich Z_INFO */
+static int zustand_fuer(int typ) { return (typ == FT_TAB || typ == FT_PRAES || typ == FT_BOARD) ? Z_OFF : typ == FT_EDIT ? Z_EDIT : typ == FT_WEB ? Z_WEB : typ == FT_RECH ? Z_RECH : Z_INFO; }   /* Info und Einstellungen teilen sich Z_INFO */
 static void fenster_hoch(int i) { struct fenster t = fen[i]; for (int j = i; j < nfen - 1; j++) fen[j] = fen[j + 1]; fen[nfen - 1] = t; }
 static void fokus_nach_schliessen(void) { if (nfen > 0) { fok = 1; zustand = zustand_fuer(fen[nfen - 1].typ); } else { fok = 0; zustand = Z_DESK; } }
 static void fenster_schliessen_typ(int typ) {
@@ -572,7 +580,9 @@ static void zeichne_antwort(void) {
 /* ---------- Autovorschlaege (ab dem ersten Buchstaben) ---------- */
 typedef struct { const char* de; const char* en; int typ; } sug_e;       /* typ 0 Befehl, 1 Frage an Zynie, 2 Verlauf */
 static const sug_e katalog[] = {
-    { "text erstellen", "write a text", 0 }, { "browser", "browser", 0 }, { "rechner", "calculator", 0 }, { "systeminfo", "system info", 0 }, { "einstellungen", "settings", 0 }, { "sprache englisch", "language german", 0 }, { "widget uhr", "widget clock", 0 }, { "widget system", "widget system", 0 }, { "widget aufgaben", "widget tasks", 0 }, { "widget agenten", "widget agents", 0 }, { "alle fenster schliessen", "close all windows", 0 }, { "browser de.wikipedia.org", "browser en.wikipedia.org", 0 }, { "suche ", "search ", 0 }, { "rechne 12*7", "calc 12*7", 0 }, { "system", "system status", 0 }, { "dateien", "files", 0 },
+    { "text erstellen", "write a text", 0 }, { "tabelle erstellen", "new spreadsheet", 0 }, { "praesentation erstellen", "new presentation", 0 }, { "smartboard", "smartboard", 0 },
+    { "word", "word", 0 }, { "excel", "excel", 0 }, { "powerpoint", "powerpoint", 0 }, { "tabelle", "spreadsheet", 0 }, { "agent dokument", "agent document", 0 }, { "agent tabelle", "agent sheet", 0 }, { "agent folien", "agent slides", 0 }, { "agent ablauf", "agent flow", 0 },
+    { "browser", "browser", 0 }, { "rechner", "calculator", 0 }, { "systeminfo", "system info", 0 }, { "einstellungen", "settings", 0 }, { "sprache englisch", "language german", 0 }, { "widget uhr", "widget clock", 0 }, { "widget system", "widget system", 0 }, { "widget aufgaben", "widget tasks", 0 }, { "widget agenten", "widget agents", 0 }, { "alle fenster schliessen", "close all windows", 0 }, { "browser de.wikipedia.org", "browser en.wikipedia.org", 0 }, { "suche ", "search ", 0 }, { "rechne 12*7", "calc 12*7", 0 }, { "system", "system status", 0 }, { "dateien", "files", 0 },
     { "quanten", "quantum demo", 0 }, { "sicherheit", "security", 0 }, { "firewall", "firewall", 0 }, { "agenten", "agents", 0 }, { "briefing", "briefing", 0 },
     { "agent sicherheit", "agent security", 0 }, { "agent wartung", "agent maintenance", 0 }, { "agent aufgaben", "agent tasks", 0 },
     { "aufgabe ", "task ", 0 }, { "arbeitsflaeche system", "workspace system", 0 }, { "arbeitsflaeche agenten", "workspace agents", 0 },
@@ -646,12 +656,16 @@ static int doks_liste(char (*namen)[24], int max) {
 }
 
 /* ---------- Agenten (lokal im Kernel, Wirkung nach aussen nur nach Freigabe) ---------- */
-#define NAG 4
+#define NAG 8
 static const char* const ag_desc[NAG][2] = {
     { "Prueft Zeit, Speicher, Netzwerk, Dokumente und Aufgaben und fasst alles zusammen.", "Checks time, memory, network, documents and tasks and sums it up." },
     { "Prueft Startkette, Signatur, Benutzerrolle und Netzwerk.", "Checks boot chain, signature, user role and network." },
     { "Prueft den Speicher und schlaegt vor, das Dateisystem zu sichern (Freigabe noetig).", "Checks memory and proposes to sync the file system (needs approval)." },
     { "Liest deine Aufgaben und schlaegt vor, erledigte zu entfernen (Freigabe noetig).", "Reads your tasks and proposes to clear them (needs approval)." },
+    { "Liest das Dokument, fasst es zusammen und legt die Zusammenfassung als neues Dokument an (Freigabe).", "Reads the document, summarises it and saves the summary as a new document (approval)." },
+    { "Findet Zahlenspalten in der Tabelle und fuegt Summenzeilen ein (Freigabe).", "Finds number columns in the sheet and adds sum rows (approval)." },
+    { "Macht aus dem Dokument eine Praesentation (Freigabe).", "Turns the document into a presentation (approval)." },
+    { "Liest den Ablauf auf dem SmartBoard und legt die Schritte als Aufgaben an (Freigabe).", "Reads the flow on the SmartBoard and creates the steps as tasks (approval)." },
 };
 static void al(const char* s) {
     if (nalog < 10) { scopy(alog[nalog], s, 100); nalog++; }
@@ -683,6 +697,7 @@ static void ag_start(int i) {
         al(fr * 10 > to ? TR("Speicher ist ausreichend.", "Memory is sufficient.") : TR("Speicher wird knapp.", "Memory is getting low."));
         al(TR("Vorschlag: Dateisystem jetzt sichern (SynFS sync).", "Proposal: sync the file system now (SynFS sync)."));
         pend = 1; al(TR("Wartet auf deine Freigabe.", "Waiting for your approval.")); kprint("[AGENT] Freigabe angefragt: Dateisystem sichern\n");
+    } else if (i >= 4) { ag_office(i);
     } else {
         aufg_laden(); int na = aufg_zahl(); scopy(z, TR("Offene Aufgaben: ", "Open tasks: "), 100); dec(a, (uint32_t)na); cat(z, a, 100); al(z);
         for (int n = 0; n < na && n < 5; n++) { char t[90]; if (aufg_zeile(n, t, 90)) { scopy(z, "- ", 100); cat(z, t, 100); al(z); } }
@@ -694,6 +709,7 @@ static void ag_entscheid(int ja) {
     if (!pend) return;
     if (ja) {
         if (pend == 1) { synfs_sync(); al(TR("Freigegeben: Dateisystem gesichert.", "Approved: file system synced.")); }
+        else if (pend >= 3) ag_office_frei(pend);
         else { aufg_leeren(); al(TR("Freigegeben: Aufgaben entfernt.", "Approved: tasks removed.")); }
         kprint("[AGENT] Freigabe erteilt\n");
     } else { al(TR("Abgelehnt: es wurde nichts veraendert.", "Rejected: nothing was changed.")); kprint("[AGENT] Freigabe abgelehnt\n"); }
@@ -701,7 +717,7 @@ static void ag_entscheid(int ja) {
 }
 
 /* ---------- Design: Karten ---------- */
-enum { K_CHIP0 = 1, K_SUG0 = 8, K_DOT0 = 14, K_PREV = 18, K_NEXT = 19, K_SPEICHERN = 20, K_NEU, K_SCHLIESSEN, K_AG0 = 30, K_FREI = 34, K_ABL, K_NEUDOK, K_AUFLEER };
+enum { K_CHIP0 = 1, K_SUG0 = 8, K_DOT0 = 14, K_PREV = 18, K_NEXT = 19, K_SPEICHERN = 20, K_NEU, K_SCHLIESSEN, K_AG0 = 240, K_FREI = 34, K_ABL, K_NEUDOK, K_AUFLEER };
 static const char* const fl_name[4][2] = { { "Zynie", "Zynie" }, { "System", "System" }, { "Agenten", "Agents" }, { "Aufgaben", "Tasks" } };
 static void kn_loesche(int lo, int hi) { int k = 0; for (int i = 0; i < nkn; i++) if (knoepfe[i].id < lo || knoepfe[i].id > hi) knoepfe[k++] = knoepfe[i]; nkn = k; }
 static void karte(int x, int y, int w, int h, const char* titel) {
@@ -853,6 +869,7 @@ static void zeichne_f_aufgaben(void) {
 }
 
 static void zeichne_desktop(void) {
+    if (ob_vollbild) { praes_vollbild_zeichnen(); return; }
     desk_gen++;
     thema_anwenden(th_nr);
     gfx_begin(); hg(0, 0, W, H); gfx_end();
@@ -942,6 +959,7 @@ static void fenster_oeffnen(int typ) {
         int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 640 : typ == FT_CHATS ? 720 : typ == FT_GED ? 700 : 480;
         int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 530 : typ == FT_CHATS ? 470 : typ == FT_GED ? 480 : 250;
         if (typ == FT_WEB && w < 640) w = W - 40;
+        if (typ == FT_EDIT || typ == FT_TAB || typ == FT_PRAES || typ == FT_BOARD) { w = W - 60 < 1500 ? W - 60 : 1500; h = H - 70 < 900 ? H - 70 : 900; }
         int x = 60 + nfen * 36, y = 56 + nfen * 30;
         if (x + w > W - 8) x = W - w - 8; if (x < 4) x = 4; if (y + h > H - 8) y = H - h - 8; if (y < 44) y = 44;
         {   /* nicht unter Zynie oeffnen: wenn das Fenster den Roboter verdeckt, rechts neben ihn schieben (sonst unter ihn) */
@@ -953,6 +971,7 @@ static void fenster_oeffnen(int typ) {
         }
         fen[nfen].typ = typ; fen[nfen].x = x; fen[nfen].y = y; fen[nfen].w = w; fen[nfen].h = h; nfen++;
         if (typ == FT_RECH) rech_zuruecksetzen();
+        office_init(typ);
     } else if (i != nfen - 1) fenster_hoch(i);
     fok = 1; zustand = zustand_fuer(typ); nsug = 0; sugsel = -1;
     zeichne_desktop();
@@ -968,44 +987,9 @@ static int ed_zeilen(int* start, int max) {                 /* Zeilenanfaenge (m
     }
     return n;
 }
-static int ed_start[600];
-static void zeichne_editor(int voll) {
-    int wi = fenster_idx(FT_EDIT); if (wi < 0) return;
-    gfx_begin();
-    if (voll) {
-        int ko = kn_owner; kn_owner = wi; kn_loesche_owner(wi);
-        ed_s = 1; ed_x = fen[wi].x; ed_y = fen[wi].y + WT_H; ed_w = fen[wi].w; ed_h = fen[wi].h - WT_H;
-        ed_cols = (ed_w - 60) / (8 * ed_s); ed_rows = (ed_h - 150) / (20 * ed_s);
-        rrect_rand(ed_x, ed_y, ed_w, ed_h, 16, C_CARD, C_BORDER);
-        char t[60]; scopy(t, TR("Dokument  -  ", "Document  -  "), 60); cat(t, dokname, 60);
-        gtxt(ed_x + 24, ed_y + 18, t, C_TEXT, 1);
-        knopf(K_SPEICHERN, TR("Speichern", "Save"), ed_x + ed_w - 3 * 130 - 16, ed_y + 10, 120, 1);
-        knopf(K_NEU, TR("Neu", "New"), ed_x + ed_w - 2 * 130 - 16, ed_y + 10, 120, 0);
-        knopf(K_SCHLIESSEN, TR("Schliessen", "Close"), ed_x + ed_w - 130 - 16, ed_y + 10, 120, 0);
-        gfx_rect(ed_x + 20, ed_y + 56, ed_w - 40, 1, C_BORDER);
-        kn_owner = ko;
-    }
-    int px = ed_x + 30, py = ed_y + 76, lh = 20 * ed_s;
-    rrect(ed_x + 24, py - 10, ed_w - 48, ed_rows * lh + 20, 8, 0x00F4F7FBu);
-    int n = ed_zeilen(ed_start, 600), cl = 0, cc = 0;
-    for (int i = 0; i < n; i++) if (ed_start[i] <= dokcur) cl = i;
-    cc = dokcur - ed_start[cl];
-    if (cl < dokscroll) dokscroll = cl;
-    if (cl >= dokscroll + ed_rows) dokscroll = cl - ed_rows + 1;
-    for (int r = 0; r < ed_rows && dokscroll + r < n; r++) {
-        int a = ed_start[dokscroll + r], b = dokscroll + r + 1 < n ? ed_start[dokscroll + r + 1] : doklen;
-        char z[130]; int k = 0; for (int i = a; i < b && k < 126; i++) if (dok[i] != '\n') z[k++] = dok[i];
-        z[k] = 0; gfx_text(px, py + r * lh, z, 0x00101828u, ed_s);
-    }
-    int cy = cl - dokscroll; if (cy >= 0 && cy < ed_rows) gfx_rect(px + cc * 8 * ed_s, py + cy * lh, 2, 16 * ed_s, C_ACC);
-    char st[100]; char a[12]; st[0] = 0;
-    dec(a, (uint32_t)doklen); cat(st, a, 100); cat(st, TR(" Zeichen   |   Zeile ", " characters   |   line "), 100); dec(a, (uint32_t)cl + 1); cat(st, a, 100);
-    cat(st, dokgeaendert ? TR("   |   nicht gespeichert", "   |   unsaved") : TR("   |   gespeichert", "   |   saved"), 100);
-    rrect(ed_x + 24, ed_y + ed_h - 44, ed_w - 48, 28, 8, C_CARD);
-    gtxt(ed_x + 34, ed_y + ed_h - 38, st, C_MUTED, 1);
-    gtxt(ed_x + 24, ed_y + ed_h + 12, TR("Esc: speichern und schliessen", "Esc: save and close"), C_MUTED, 1);
-    gfx_end();
-}
+static int ed_start[ED_ZMAX];
+static void ob_word(int voll);
+static void zeichne_editor(int voll) { ob_word(voll); }
 static void dok_speichern(void) {
     synfs_create(dokname, SYNFS_FILE);
     int r = synfs_write(dokname, dok, (uint32_t)doklen);
@@ -1028,7 +1012,7 @@ static void editor_schliessen(void) {
 }
 static void editor_taste(uint8_t k, int shift, int altgr) {
     if (k == 0x29) { editor_schliessen(); return; }
-    int n = ed_zeilen(ed_start, 600), cl = 0;
+    int n = ed_zeilen(ed_start, ED_ZMAX), cl = 0;
     for (int i = 0; i < n; i++) if (ed_start[i] <= dokcur) cl = i;
     int cc = dokcur - ed_start[cl];
     if (k == 0x2A) { if (dokcur > 0) { for (int i = dokcur - 1; i < doklen; i++) dok[i] = dok[i + 1]; dokcur--; doklen--; dokgeaendert = 1; } }
@@ -1432,6 +1416,12 @@ static int erkenne(const char* s) {
         if (enthaelt(s, "spanisch") || enthaelt(s, "spanish") || enthaelt(s, "espanol") || enthaelt(s, "espagnol")) { in_par = 24; return I_FENSTER; }
         in_par = 3; return I_FENSTER;
     }
+    if (!enthaelt(s, "agent")) {
+        if (enthaelt(s, "tabelle") || enthaelt(s, "excel") || enthaelt(s, "spreadsheet") || enthaelt(s, "kalkulation")) { in_par = 40; return I_FENSTER; }
+        if (enthaelt(s, "praesentation") || enthaelt(s, "powerpoint") || enthaelt(s, "folien") || enthaelt(s, "presentation") || enthaelt(s, "slides")) { in_par = 41; return I_FENSTER; }
+        if (enthaelt(s, "smartboard") || enthaelt(s, "whiteboard") || enthaelt(s, "zeichenflaeche") || enthaelt(s, "flussdiagramm") || enthaelt(s, "diagramm zeichnen")) { in_par = 42; return I_FENSTER; }
+        if ((s[0] == 'w' && s[1] == 'o' && s[2] == 'r' && s[3] == 'd' && !s[4]) || enthaelt(s, "textverarbeitung")) return I_TEXT;
+    }
     if (enthaelt(s, "rechner") || enthaelt(s, "calculator")) { in_par = 1; return I_FENSTER; }
     if (enthaelt(s, "systeminfo") || enthaelt(s, "system-info") || enthaelt(s, "system info") || enthaelt(s, "fenster info")) { in_par = 2; return I_FENSTER; }
     if (enthaelt(s, "arbeitsfl") || enthaelt(s, "workspace") || enthaelt(s, "wuerfel") || enthaelt(s, "cube")) {
@@ -1443,6 +1433,8 @@ static int erkenne(const char* s) {
     if (enthaelt(s, "agent") || enthaelt(s, "briefing")) {
         in_par = -1;
         if (enthaelt(s, "briefing")) in_par = 0; else if (enthaelt(s, "sicher") || enthaelt(s, "secur")) in_par = 1;
+        else if (enthaelt(s, "dokument") || enthaelt(s, "document") || enthaelt(s, "text")) in_par = 4; else if (enthaelt(s, "tabell") || enthaelt(s, "sheet") || enthaelt(s, "excel")) in_par = 5;
+        else if (enthaelt(s, "folie") || enthaelt(s, "slide") || enthaelt(s, "praesent") || enthaelt(s, "present")) in_par = 6; else if (enthaelt(s, "ablauf") || enthaelt(s, "board") || enthaelt(s, "flow")) in_par = 7;
         else if (enthaelt(s, "wartung") || enthaelt(s, "mainten")) in_par = 2; else if (enthaelt(s, "aufgab") || enthaelt(s, "task")) in_par = 3;
         return I_AGENT;
     }
@@ -2073,6 +2065,9 @@ static void ausfuehren_roh(void) {
         if (in_par == 31) { if (chat_aktiv()) { chat_pin_umschalten(chat_aktiv()); reply1(chat_gepinnt(chat_aktiv()) ? TR("Chat angepinnt.", "Chat pinned.") : TR("Chat nicht mehr angepinnt.", "Chat unpinned.")); } else reply1(TR("Es gibt noch keinen aktiven Chat.", "There is no active chat yet.")); break; }
         if (in_par == 32) { if (chat_aktiv()) { chat_projekt_setze(chat_aktiv(), roh + (in_text - s)); reply1(TR("Chat dem Projekt zugeordnet.", "Chat assigned to the project.")); } else reply1(TR("Es gibt noch keinen aktiven Chat.", "There is no active chat yet.")); break; }
         if (in_par == 33) { if (chat_aktiv()) { chat_loeschen(chat_aktiv()); reply1(TR("Chat geloescht.", "Chat deleted.")); } else reply1(TR("Es gibt keinen aktiven Chat.", "There is no active chat.")); break; }
+        if (in_par == 40) { fenster_oeffnen(FT_TAB); return; }
+        if (in_par == 41) { fenster_oeffnen(FT_PRAES); return; }
+        if (in_par == 42) { fenster_oeffnen(FT_BOARD); return; }
         if (in_par == 3) fenster_oeffnen(FT_EINST);
         else if (in_par == 1) fenster_oeffnen(FT_RECH);
         else if (in_par == 2) fenster_oeffnen(FT_INFO);
@@ -2136,6 +2131,8 @@ static void entsperren_versuch(void) {
     else { zustand = Z_DESK; einlen = 0; eingabe[0] = 0; reply1(TR("Festplatte entsperrt. Was moechtest du tun?", "Disk unlocked. What would you like to do?")); zeichne_desktop(); }
 }
 
+#include "office.inc"
+
 static void taste_roh(uint8_t k, int shift, int altgr) {
     if (menu.offen) { if (k == 0x29) menu_schliessen(); return; }
     if (zustand != Z_LOGIN && k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }
@@ -2143,7 +2140,9 @@ static void taste_roh(uint8_t k, int shift, int altgr) {
     if (zustand == Z_INFO && ek_feld && fenster_idx(FT_EINST) >= 0) { einst_taste(k, shift, altgr); return; }
     if (zustand == Z_INFO && nfen && fen[nfen - 1].typ == FT_EINST && k != 0x29) { einst_kurztaste(k, shift, altgr); return; }
     if (zustand == Z_INFO) { if (k == 0x29 && nfen) fenster_schliessen_typ(fen[nfen - 1].typ); return; }
-    if (zustand == Z_EDIT) { if (cur_ctrl && strg_taste(k)) return; editor_taste(k, shift, altgr); return; }
+    if (zustand == Z_OFF) { office_taste(k, shift, altgr); return; }
+    if (zustand == Z_EDIT && kp_fokus == FT_EDIT) { kp_taste(k, shift, altgr); return; }
+    if (zustand == Z_EDIT) { if (cur_ctrl && k == 0x16) { dok_speichern(); zeichne_editor(1); return; } if (cur_ctrl && strg_taste(k)) return; editor_taste(k, shift, altgr); return; }
     if (zustand == Z_WEB) { web_taste(k, shift, altgr); return; }
     if (zustand == Z_LOGIN && entsperr) {
         int n = slen(fpw);
@@ -2326,6 +2325,7 @@ static int rad_taste(uint8_t k) {
     return 0;
 }
 static void taste(uint8_t k, int shift, int altgr) {
+    if (ob_vollbild) { praes_vollbild_taste(k); return; }
     int desk = zustand == Z_DESK && flaeche == 0 && !menu.offen;
     if (desk && rad_taste(k)) return;
     rad_weg();
@@ -2338,6 +2338,7 @@ static void klick(int x, int y, int owner) {
         if (knoepfe[i].owner != owner) continue;
         if (x < knoepfe[i].x || x >= knoepfe[i].x + knoepfe[i].w || y < knoepfe[i].y || y >= knoepfe[i].y + knoepfe[i].h) continue;
         int id = knoepfe[i].id;
+        if (id >= K_OF0 && id < K_OF_END && owner >= 0) { office_klick(id, owner); return; }
         if (zustand == Z_DESK && id >= K_CHIP0 && id < K_CHIP0 + 6) { scopy(eingabe, chip_text[id - K_CHIP0], 96); einlen = slen(eingabe); ausfuehren(); }
         else if (zustand == Z_DESK && id >= K_SUG0 && id < K_SUG0 + 5 && id - K_SUG0 < nsug) {
             scopy(eingabe, sug[id - K_SUG0], 96); einlen = slen(eingabe);
@@ -2390,9 +2391,10 @@ static void maus_runter(int x, int y) {
         if (!war_oben) zeichne_desktop();
         struct fenster* f = &fen[h];
         if (y < f->y + WT_H) {
-            if (x >= f->x + f->w - 34) { if (f->typ == FT_EDIT) editor_schliessen(); else if (f->typ == FT_WEB) web_schliessen(); else fenster_schliessen_typ(f->typ); return; }
+            if (x >= f->x + f->w - 34) { if (f->typ == FT_EDIT) editor_schliessen(); else if (f->typ == FT_WEB) web_schliessen(); else if (ob_farbe(f->typ)) office_schliessen(f->typ); else fenster_schliessen_typ(f->typ); return; }
             fdrag = 1; fobj = h; fdx = x - f->x; fdy = y - f->y; fox = f->x; foy = f->y; fdw = f->w; fdh = f->h; fdgezeichnet = 0; return;
         }
+        if (office_maus(f->typ, x, y)) return;
         klick(x, y, h); return;
     }
     if (flaeche == 0) for (int j = nwid - 1; j >= 0; j--) {
@@ -2429,7 +2431,10 @@ static void tick(void) {
             was_down = down; return;
         }
         if (down && !was_down && rad.offen) { int i = rad_treffer(p->x, p->y); if (i >= 0) { rad.sel = i; rad_einfuegen(1); was_down = down; return; } rad_weg(); }
+        if (ob_vollbild) { if (down && !was_down) praes_vollbild_taste(0x4F); was_down = down; return; }
         if (down && !was_down && zustand != Z_LOGIN) maus_runter(p->x, p->y);
+        if (down && ob_maus) office_zug(p->x, p->y);
+        if (!down && ob_maus) office_los(p->x, p->y);
         if (down && fdrag) {                                                      /* Fenster/Widget ziehen: Umriss folgt der Maus */
             int nx = p->x - fdx, ny = p->y - fdy;
             if (nx < 60 - fdw) nx = 60 - fdw; if (nx > W - 60) nx = W - 60; if (ny < 42) ny = 42; if (ny > H - 40) ny = H - 40;

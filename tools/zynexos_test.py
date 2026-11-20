@@ -10,7 +10,7 @@ import re
 SZEN = sys.argv[3:] or ["basis", "platte", "sata", "usb", "layout", "netz"]
 QMP = "/tmp/zynexos.qmp"
 LOG, SOCK, PPM = "/tmp/zynexos.log", "/tmp/zynexos.mon", "/tmp/zynexos.ppm"
-TASTEN = {" ": "spc", "-": "minus", ".": "dot", "/": "slash", ":": "shift-semicolon", "*": "shift-8", "+": "shift-equal", "(": "shift-9", ")": "shift-0"}
+TASTEN = {"=": "equal", ",": "comma", "?": "shift-slash", " ": "spc", "-": "minus", ".": "dot", "/": "slash", ":": "shift-semicolon", "*": "shift-8", "+": "shift-equal", "(": "shift-9", ")": "shift-0"}
 
 
 class VM:
@@ -315,6 +315,29 @@ def installieren():
     vm.tippe("que sabes de mi", 2.0)
     vm.tippe("gedaechtnis", 3.0)
     vm.mon("sendkey esc"); time.sleep(2.0)
+    # Office: Tabelle, Praesentation, SmartBoard, Agenten
+    vm.tippe("tabelle erstellen", 3.0)
+    for b in ["5", "7", "=A1+A2", "=summe(A1:A3)/3"]:
+        vm.tippe(b, 1.0)
+    vm.mon("sendkey esc"); time.sleep(2.0)
+    vm.tippe("agent tabelle", 3.0)
+    vm.tippe("praesentation erstellen", 3.0)
+    vm.tippe("Mein Thema", 1.0)
+    vm.tippe("Punkt eins", 1.0)
+    vm.mon("sendkey esc"); time.sleep(0.5)
+    vm.mon("sendkey f5"); time.sleep(2.0)
+    vm.mon("sendkey right"); time.sleep(1.0)
+    vm.mon("sendkey esc"); time.sleep(2.0)
+    vm.mon("sendkey esc"); time.sleep(2.0)
+    vm.tippe("smartboard", 3.0)
+    vm.mon("sendkey 1", 0.8); vm.mon("sendkey ret", 0.8)
+    vm.mon("sendkey 2", 0.8); vm.tippe("Bestellung pruefen", 1.0)
+    vm.mon("sendkey 3", 0.8); vm.tippe("ok", 1.0)
+    vm.mon("sendkey 2", 0.8); vm.tippe("Versand", 1.0)
+    vm.mon("sendkey f", 1.5)
+    vm.mon("sendkey esc", 0.8); vm.mon("sendkey esc", 2.0)
+    vm.tippe("agent ablauf", 3.0)
+    hell_o = vm.hell()
     vm.tippe("kauderwelsch", 2.0)
     hell_d = vm.hell()
     vm.tippe("wartung", 2.0)
@@ -352,6 +375,15 @@ def installieren():
     pruefe("Desktop: Einstellungen, Reiter KI-Modelle: Schluessel eingegeben und gespeichert", "[DESKTOP] Einstellungen: Reiter 1" in out2 and "[DESKTOP] KI-Schluessel gespeichert (15 Zeichen)" in out2)
     pruefe("Desktop: Einstellungen: Modell wechseln", "[DESKTOP] KI-Modell: claude-sonnet-5-5" in out2)
     pruefe("Desktop: Einstellungen, Reiter Aussehen: Farbschema und Hintergrund", "[DESKTOP] Einstellungen: Reiter 2" in out2 and "Farbschema Light, Hintergrund 0" in out2 and "Farbschema Light, Hintergrund 1" in out2 and "Farbschema Night, Hintergrund 1" in out2)
+    pruefe("Tabelle: Formeln (=A1+A2, =SUMME(...)/3)", "[TABELLE] A3 = 12" in out2 and "[TABELLE] A4 = 8" in out2)
+    pruefe("Tabelle: beim Schliessen gespeichert", "[OFFICE] Gespeichert: tabelle-1.csv" in out2)
+    pruefe("Tabellen-Agent schlaegt Summenzeile vor", "[AGENT] Freigabe angefragt: Summenzeile einfuegen" in out2)
+    pruefe("Praesentation: oeffnet, Vorfuehrung, gespeichert", "Fenster geoeffnet: Zynex Praesentation" in out2 and "[OFFICE] Vorfuehrung gestartet" in out2 and "[OFFICE] Vorfuehrung beendet" in out2 and "[OFFICE] Gespeichert: praesentation-1.zpr" in out2)
+    pruefe("SmartBoard: Symbole verbunden", all(("[BOARD] Verbindung %d -> %d" % (a, a + 1)) in out2 for a in (1, 2, 3)))
+    pruefe("SmartBoard: Flow-Check findet 3 Hinweise", "[BOARD] Flow-Check: 3 Hinweise" in out2)
+    pruefe("SmartBoard: gespeichert", "[OFFICE] Gespeichert: board-1.zbd" in out2)
+    pruefe("Ablauf-Agent liest das Board", "[AGENT] Freigabe angefragt: Ablauf als Aufgaben" in out2)
+    pruefe("Office: Bildschirm belegt (%d helle Pixel)" % hell_o, hell_o > 300)
     pruefe("Desktop: Chats-Fenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Chats" in out2)
     pruefe("Desktop: 'merk dir' wird vom Gedaechtnis verstanden", "[DESKTOP] Gedaechtnis" in out2)
     pruefe("Desktop: Gedaechtnis-Befehle auch auf Italienisch/Spanisch", out2.count("[DESKTOP] Gedaechtnis\n") >= 3)
