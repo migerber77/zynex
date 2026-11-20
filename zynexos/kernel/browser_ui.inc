@@ -274,6 +274,23 @@ static int web_link_bei(int x, int y) {                          /* Link unter d
     for (int i = 0; i < wd_nel; i++) { struct wel* e = &wd_el[i]; if (e->link >= 0 && px >= e->x && px < e->x + e->w && py >= e->y && py < e->y + e->h) return e->link; }
     return -1;
 }
+static int web_bild_bei(int x, int y) {                          /* geladenes Bild unter der Maus oder -1 */
+    if (!wok) return -1; int px = x - wx0 - wlinks, py = y - wy0 + wscroll - 6;
+    for (int i = 0; i < wd_nel; i++) { struct wel* e = &wd_el[i]; if (e->typ == WE_BILD && px >= e->x && px < e->x + e->w && py >= e->y && py < e->y + e->h) return e->ref; }
+    return -1;
+}
+static void web_bild_hintergrund(int b) {                         /* Originalbild holen, speichern, als Hintergrund setzen */
+    if (b < 0 || b >= wd_nbild) return;
+    const char *kopf, *body; uint32_t kl, bl, st;
+    if (net_seite(wd_bild[b].url, &kopf, &kl, &body, &bl, &st) != 0 || st != 200 || bl < 8) { scopy(meldung, TR("Bild konnte nicht geladen werden.", "Could not load the image."), 100); return; }
+    const uint8_t* d = (const uint8_t*)body; const char* nm = d[0] == 0x89 ? "hintergrund-web.png" : d[0] == 0xFF ? "hintergrund-web.jpg" : d[0] == 'G' ? "hintergrund-web.gif" : 0;
+    if (!nm) { scopy(meldung, TR("Bildformat nicht unterstuetzt (nur PNG, JPEG, GIF).", "Image format not supported (PNG, JPEG, GIF only)."), 100); return; }
+    synfs_create(nm, SYNFS_FILE); synfs_write(nm, body, bl); synfs_sync();
+    scopy(hg_datei, nm, 32); zdb_put("ui.hgbild", hg_datei); hg_nr = 5; wand_art = -1;
+    { char a[12]; dec(a, 5); zdb_put("ui.hintergrund", a); }
+    kprint("[WEB] Bild als Hintergrund: "); kprint(nm); kprint("\n");
+    scopy(meldung, TR("Als Hintergrund gesetzt.", "Set as background."), 100);
+}
 static int web_feld_bei(int x, int y) {
     if (!wok) return -1; int px = x - wx0 - wlinks, py = y - wy0 + wscroll - 6;
     for (int i = 0; i < wd_nel; i++) { struct wel* e = &wd_el[i]; if (e->typ == WE_FELD && px >= e->x && px < e->x + e->w && py >= e->y && py < e->y + e->h) return e->ref; }
