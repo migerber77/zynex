@@ -16,13 +16,13 @@ extern void kprint(const char* s);
 static int shift_pressed = 0, caps_lock = 0, altgr = 0, ext = 0, mouse_ok = 0;
 
 /* Scancode-Satz 1 (Make-Code) -> USB-HID-Tastennummer (damit dieselbe Layout-Tabelle gilt) */
-static const uint8_t sc2hid[0x58] = {
+static const uint8_t sc2hid[0x59] = {
     0, 0x29, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2D, 0x2E, 0x2A, 0x2B,      /* 00-0F */
     0x14, 0x1A, 0x08, 0x15, 0x17, 0x1C, 0x18, 0x0C, 0x12, 0x13, 0x2F, 0x30, 0x28, 0, 0x04, 0x16,      /* 10-1F */
     0x07, 0x09, 0x0A, 0x0B, 0x0D, 0x0E, 0x0F, 0x33, 0x34, 0x35, 0, 0x31, 0x1D, 0x1B, 0x06, 0x19,      /* 20-2F */
-    0x05, 0x11, 0x10, 0x36, 0x37, 0x38, 0, 0, 0, 0x2C, 0, 0, 0, 0, 0, 0,                              /* 30-3F */
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                                                    /* 40-4F */
-    0, 0, 0, 0, 0, 0, 0x64, 0,                                                                         /* 50-57 */
+    0x05, 0x11, 0x10, 0x36, 0x37, 0x38, 0, 0, 0, 0x2C, 0, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,               /* 30-3F (3B-3F: F1-F5) */
+    0x3F, 0x40, 0x41, 0x42, 0x43, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                                     /* 40-4F (F6-F10) */
+    0, 0, 0, 0, 0, 0, 0x64, 0x44, 0x45,                                                                /* 50-58 (F11, F12) */
 };
 
 static inline uint8_t inb(uint16_t port) { uint8_t r; __asm__ volatile ("inb %1, %0" : "=a"(r) : "Nd"(port)); return r; }
@@ -35,9 +35,14 @@ void keyboard_irq_handler(void) {
     if (sc == 0xE1 || sc == 0xFA || sc == 0xFE) return;           /* Pause-Praefix, ACK, Wiederholung (0xAA ist die Loslassen-Meldung der linken Umschalttaste) */
     int release = (sc & 0x80) != 0;
     uint8_t make = sc & 0x7F;
-    if (ext) {                                                                  /* erweiterte Tasten: nur AltGr (rechtes Alt) */
+    if (ext) {                                                                  /* erweiterte Tasten: AltGr, rechte Strg, Pfeile, Pos1/Ende, Bild auf/ab, Einfg/Entf, Enter (Ziffernblock) */
         ext = 0;
-        if (make == 0x38) altgr = !release;
+        if (make == 0x38) { altgr = !release; return; }
+        if (make == 0x1D) { usb_ctrl = !release; return; }
+        if (release || make == 0x2A || make == 0x36) return;                    /* Schatten-Umschalttasten ignorieren */
+        uint8_t k = make == 0x48 ? 0x52 : make == 0x50 ? 0x51 : make == 0x4B ? 0x50 : make == 0x4D ? 0x4F : make == 0x47 ? 0x4A : make == 0x4F ? 0x4D
+                  : make == 0x49 ? 0x4B : make == 0x51 ? 0x4E : make == 0x52 ? 0x49 : make == 0x53 ? 0x4C : make == 0x1C ? 0x58 : 0;
+        if (k) usb_key_event(k, shift_pressed, altgr);
         return;
     }
     if (make == 0x2A || make == 0x36) { shift_pressed = !release; return; }
