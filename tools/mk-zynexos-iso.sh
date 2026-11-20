@@ -5,6 +5,9 @@
 #   - dieselben Dateien in einer FAT-Partition (EFI-Systempartition), als Partition 2 in einer GPT angehaengt
 #     (balenaEtcher, Rufus im DD-Modus, dd: der Stick hat dann eine echte EFI-Partition)
 #   - El-Torito-Eintrag auf dieselbe FAT-Partition (DVD, Hyper-V, VirtualBox)
+#   - --mbr-force-bootable: setzt im Protective-MBR das Boot-Flag. Ohne das weigert sich
+#     echte Firmware (z. B. manche HP/Lenovo-Notebooks) oft, vom Stick zu booten, obwohl
+#     QEMU/OVMF keinen Unterschied macht (bekanntes xorriso/GPT-Problem, siehe Ubuntu-Bug 1899308).
 # Aufruf: tools/mk-zynexos-iso.sh <kernel.bin> <BOOTX64.EFI> <kernel.sig> <cfg-Textzeile> <ziel.iso> [installationspaket] [modell.gguf]
 #   cfg-Textzeile = Kernel-Kommandozeile, z. B. "modus=live"; sie ist mitsigniert (tools/pqsign.py bootsign).
 # Benoetigt: xorriso mtools dosfstools
@@ -29,7 +32,7 @@ mcopy -s -i "$W/efi.img" "$T/EFI" "$T/boot" ::/
 [ -n "$MODELL" ] && mcopy -i "$W/efi.img" "$MODELL" ::/boot/modell.gguf
 mdir -i "$W/efi.img" -/ ::/ | tail -14
 xorriso -as mkisofs -iso-level 3 -r -J -joliet-long -V ZYNEXOS \
-  -partition_offset 16 \
+  -partition_offset 16 --mbr-force-bootable \
   -append_partition 2 0xef "$W/efi.img" -appended_part_as_gpt \
   -e --interval:appended_partition_2:all:: -no-emul-boot \
   -o "$OUT" "$T" 2>&1 | tail -3

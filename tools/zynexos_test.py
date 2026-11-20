@@ -924,6 +924,12 @@ def stick():
     r = subprocess.run(["sgdisk", "-p", ISO], capture_output=True, text=True)
     print(r.stdout)
     pruefe("GPT mit EFI-Systempartition (EF00)", "EF00" in r.stdout)
+    # QEMU/OVMF bootet auch ohne "boot"-Flag im Protective MBR, echte Firmware (HP, Lenovo etc.)
+    # verweigert ohne dieses Flag oft den Bootvorgang vom USB-Stick (--mbr-force-bootable).
+    r = subprocess.run(["fdisk", "-l", ISO], capture_output=True, text=True)
+    print(r.stdout)
+    zeile = next((z for z in r.stdout.splitlines() if re.match(r"\S+\s+\*", z)), "")
+    pruefe("Protective MBR als bootfaehig markiert (--mbr-force-bootable)", bool(zeile))
 
 
 def boot():
