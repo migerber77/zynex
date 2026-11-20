@@ -384,6 +384,9 @@ def installieren():
     pruefe("Desktop: Agent fragt Freigabe an", "[AGENT] Freigabe angefragt: Dateisystem sichern" in out2)
     pruefe("Desktop: Aufgabe gespeichert", "[DESKTOP] Aufgabe gespeichert: milch kaufen" in out2)
     pruefe("Desktop: Arbeitsflaeche dreht sich", "[DESKTOP] Arbeitsflaeche 2: System" in out2)
+    # Regression: Aufgaben/Dokumente-Karten duerfen nie auf dem normalen Desktop (Flaeche 1) gemalt werden
+    _i = out2.find("[DESKTOP] Aufgaben-Flaeche gezeichnet"); _j = out2.find("[DESKTOP] Arbeitsflaeche 4: Tasks")
+    pruefe("Desktop: Aufgaben/Dokumente-Karten nur auf Arbeitsflaeche 4", _i < 0 or (_j >= 0 and _j < _i))
     pruefe("Desktop: Browser oeffnet sich", "[DESKTOP] Browser geoeffnet" in out2)
     pruefe("Desktop: Widget wird hinzugefuegt", "[DESKTOP] Widget hinzugefuegt: 1" in out2)
     pruefe("Desktop: Einstellungsfenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Einstellungen" in out2)

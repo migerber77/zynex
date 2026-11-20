@@ -958,6 +958,7 @@ static void zeichne_f_agenten(void) {
 
 /* Arbeitsflaeche 3: Dokumente und Aufgaben */
 static void zeichne_f_aufgaben(void) {
+    kprint("[DESKTOP] Aufgaben-Flaeche gezeichnet\n");
     int pad = 40, cw = (W - 3 * pad) / 2, ch = H - 62 - 50;
     char nm[8][24]; int nd = doks_liste(nm, 8);
     karte(pad, 62, cw, ch, TR("Deine Dokumente", "Your documents"));
@@ -1083,7 +1084,7 @@ static void zeichne_desktop(void) {
     nkn = 0; lbw = 0; in_szene = 1; zeichne_leiste();
     if (flaeche == 0) { zeichne_robot(); zeichne_antwort(); zeichne_eingabe(); zeichne_dock(); szene_oben(); }
     if (orb_auf && flaeche == 0) { in_szene = 0; gfx_begin(); orb_sichern(); gfx_end(); zeichne_orbit(100); }
-    else { gfx_begin(); if (flaeche == 1) zeichne_f_system(); else if (flaeche == 2) zeichne_f_agenten(); else zeichne_f_aufgaben(); gfx_end(); }
+    else if (flaeche != 0) { gfx_begin(); if (flaeche == 1) zeichne_f_system(); else if (flaeche == 2) zeichne_f_agenten(); else zeichne_f_aufgaben(); gfx_end(); }
     in_szene = 0;
 }
 
