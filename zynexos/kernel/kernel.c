@@ -2,6 +2,7 @@
  * Zynex OS - Kernel Entry
  */
 
+#include "font_aa.h"
 #include "fw.h"
 #include "zyndb.h"
 #include "gedaechtnis.h"
@@ -159,8 +160,25 @@ static const uint8_t* glyph_of(unsigned char u){
     return font8x16[u-32];
 }
 int gfx_text_w(const char* s,int scale){ int n=0; while(*s++) n++; return n*8*scale; }
+/* geglaettete Schrift: Deckung je Pixel, mit dem vorhandenen Bild gemischt */
+static void aa_glyph_zeichnen(int x,int y,const struct aa_glyph* g,uint32_t c){
+    const uint8_t* a=aa_daten+g->off; int gx=x+g->x0, gy=y+g->y0;
+    for(int j=0;j<g->h;j++){
+        int yy=gy+j; if(yy<0||yy>=(int)fb_h) continue;
+        uint32_t* row=(uint32_t*)(fb+(uint64_t)yy*fb_pitch);
+        for(int i=0;i<g->w;i++){
+            int xx=gx+i, al=a[j*g->w+i]; if(!al||xx<0||xx>=(int)fb_w) continue;
+            if(al>=250){ row[xx]=c; continue; }
+            uint32_t d=row[xx], r=0;
+            for(int sh=0;sh<=16;sh+=8){ int dv=(int)((d>>sh)&255), cv=(int)((c>>sh)&255); r|=(uint32_t)(dv+(cv-dv)*al/255)<<sh; }
+            row[xx]=r;
+        }
+    }
+}
+static int aa_schrift(int basis,int scale){ if(scale<1) scale=1; if(scale>4) scale=4; return basis+scale-1; }
 void gfx_text(int x,int y,const char* s,uint32_t fg,int scale){
     if(mode!=1) return;
+    if(scale>=1&&scale<=4){ const struct aa_glyph* f=aa_glyphen+aa_schrift(0,scale)*AA_ZEICHEN; uint32_t c=pc(fg); for(;*s;s++,x+=8*scale) aa_glyph_zeichnen(x,y,f+aa_index((unsigned char)*s),c); return; }
     for(;*s;s++,x+=8*scale){
         const uint8_t* g=glyph_of((unsigned char)*s);
         for(int gy=0;gy<16;gy++) for(int gx=0;gx<8;gx++)
@@ -168,6 +186,22 @@ void gfx_text(int x,int y,const char* s,uint32_t fg,int scale){
     }
 }
 
+/* proportionale Schrift (Inter) fuer die Oberflaeche */
+int gfx_text_pw(const char* s,int scale){ const struct aa_glyph* f=aa_glyphen+aa_schrift(4,scale)*AA_ZEICHEN; int w=0; for(;*s;s++) w+=f[aa_index((unsigned char)*s)].adv; return w; }
+void gfx_text_p(int x,int y,const char* s,uint32_t fg,int scale){
+    if(mode!=1) return;
+    const struct aa_glyph* f=aa_glyphen+aa_schrift(4,scale)*AA_ZEICHEN; uint32_t c=pc(fg);
+    for(;*s;s++){ const struct aa_glyph* g=f+aa_index((unsigned char)*s); aa_glyph_zeichnen(x,y,g,c); x+=g->adv; }
+}
+/* einen Pixel mit Deckung a (0-255) mischen (Kantenglaettung) */
+void gfx_blend(int x,int y,uint32_t fg,int a){
+    if(mode!=1||x<0||y<0||x>=(int)fb_w||y>=(int)fb_h||a<=0) return;
+    uint32_t* p=(uint32_t*)(fb+(uint64_t)y*fb_pitch)+x, c=pc(fg);
+    if(a>=255){ *p=c; return; }
+    uint32_t d=*p, r=0;
+    for(int sh=0;sh<=16;sh+=8){ int dv=(int)((d>>sh)&255), cv=(int)((c>>sh)&255); r|=(uint32_t)(dv+(cv-dv)*a/255)<<sh; }
+    *p=r;
+}
 void fb_cursor_move(int x,int y){ cursor_xor(cur_x,cur_y); cur_x=x; cur_y=y; cursor_xor(cur_x,cur_y); }
 void fb_get_size(int* w,int* h){ *w=mode==1?(int)fb_w:1024; *h=mode==1?(int)fb_h:768; }
 

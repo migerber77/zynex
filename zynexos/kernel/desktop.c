@@ -160,17 +160,40 @@ static const char* l1(const char* s) {
     }
     o[n] = 0; return o;
 }
-static void gtxt(int x, int y, const char* s, uint32_t c, int sc) { gfx_text(x, y, l1(s), c, sc); }
-static int gtw(const char* s, int sc) { return gfx_text_w(l1(s), sc); }
+extern void gfx_text_p(int x, int y, const char* s, uint32_t fg, int scale);
+extern int  gfx_text_pw(const char* s, int scale);
+extern void gfx_blend(int x, int y, uint32_t c, int a);
+static void gtxt(int x, int y, const char* s, uint32_t c, int sc) { gfx_text_p(x, y, l1(s), c, sc); }       /* geglaettete Inter-Schrift */
+static int gtw(const char* s, int sc) { return gfx_text_pw(l1(s), sc); }
 
-static void rrect(int x, int y, int w, int h, int r, uint32_t c) {
+static void rrect(int x, int y, int w, int h, int r, uint32_t c) {         /* abgerundetes Rechteck mit geglaetteten Ecken (4x4 Abtastung) */
     if (w <= 0 || h <= 0) return;
     if (r * 2 > h) r = h / 2;
     if (r * 2 > w) r = w / 2;
+    if (r < 2) { gfx_rect(x, y, w, h, c); return; }
     gfx_rect(x, y + r, w, h - 2 * r, c);
+    gfx_rect(x + r, y, w - 2 * r, r, c); gfx_rect(x + r, y + h - r, w - 2 * r, r, c);
+    int R = 8 * r, R2 = R * R;
     for (int j = 0; j < r; j++) {
-        int dy = r - j, in = r - isq(r * r - dy * dy + 1); if (in < 0) in = 0;
-        gfx_rect(x + in, y + j, w - 2 * in, 1, c); gfx_rect(x + in, y + h - 1 - j, w - 2 * in, 1, c);
+        int voll = r;                                                      /* ab dieser Spalte ist die Zeile ganz gedeckt */
+        for (int i = r - 1; i >= 0; i--) {
+            int n = 0;
+            for (int t = 0; t < 4; t++) { int Y = 8 * j + 2 * t + 1 - R; for (int u = 0; u < 4; u++) { int X = 8 * i + 2 * u + 1 - R; if (X * X + Y * Y <= R2) n++; } }
+            if (n == 16) { voll = i; continue; }
+            if (!n) break;
+            int al = n * 255 / 16;
+            gfx_blend(x + i, y + j, c, al); gfx_blend(x + w - 1 - i, y + j, c, al); gfx_blend(x + i, y + h - 1 - j, c, al); gfx_blend(x + w - 1 - i, y + h - 1 - j, c, al);
+        }
+        if (voll < r) { gfx_rect(x + voll, y + j, r - voll, 1, c); gfx_rect(x + w - r, y + j, r - voll, 1, c); gfx_rect(x + voll, y + h - 1 - j, r - voll, 1, c); gfx_rect(x + w - r, y + h - 1 - j, r - voll, 1, c); }
+    }
+}
+/* Glas: der Hintergrund scheint getoent durch (abgerundet) */
+static void glas(int x0, int y0, int w, int h, int rr, uint32_t tint, int a) {
+    if (w <= 0 || h <= 0) return; if (rr * 2 > h) rr = h / 2;
+    for (int y = 0; y < h; y++) {
+        int ix = 0, dy = y < rr ? rr - y : y >= h - rr ? y - (h - rr - 1) : -1;
+        if (dy >= 0) { ix = rr - isq(rr * rr - dy * dy); if (ix < 0) ix = 0; }
+        for (int x = ix; x < w - ix; x++) gfx_blend(x0 + x, y0 + y, tint, a);
     }
 }
 static void rrect_rand(int x, int y, int w, int h, int r, uint32_t fill, uint32_t rand) { rrect(x, y, w, h, r, rand); rrect(x + 1, y + 1, w - 2, h - 2, r - 1 > 0 ? r - 1 : 0, fill); }
@@ -564,15 +587,24 @@ static int absatz(int x, int y, int w, const char* text, uint32_t c) {
     }
     return lines;
 }
+static void antwort_ort(int* cx, int* ay, int* cw) {          /* Platz der Antwortkarte: dort, wo Zynie nicht steht */
+    *cx = bar_x; *cw = bar_w; *ay = H / 5 < 70 ? 70 : H / 5;
+    int zx0 = zr_x() - 14, zx1 = zr_x() + zr_w() + 14, zy0 = zr_y() - 14, zy1 = zr_y() + zr_h() + 14, hoch = bar_y - *ay - 20;
+    if (!(zx0 < *cx + *cw && zx1 > *cx && zy0 < *ay + hoch && zy1 > *ay)) return;
+    if (W - 30 - zx1 >= 380) { *cx = zx1 > bar_x ? zx1 : bar_x; *cw = W - 30 - *cx < bar_w ? W - 30 - *cx : bar_w; return; }      /* rechts neben Zynie */
+    if (zx0 - 30 >= 380) { *cw = zx0 - 30 < bar_w ? zx0 - 30 : bar_w; *cx = zx0 - *cw; return; }                                     /* links daneben */
+    if (bar_y - 30 - zy1 >= 110) { *ay = zy1; return; }                                                                                  /* darunter */
+}
 static void zeichne_antwort(void) {
-    int cw = bar_w, cx = bar_x, ay = H / 5;
+    int cw, cx, ay; antwort_ort(&cx, &ay, &cw);
     if (!in_szene && deckt(cx - 10, ay - 6, cw + 20, bar_y - ay - 20)) { zeichne_desktop(); return; }
     gfx_begin();
     hg(cx - 10, ay - 6, cw + 20, bar_y - ay - 20);
     if (nantwort > 0) {
-        int hh = 24; for (int i = 0; i < nantwort; i++) hh += 22;
-        rrect_rand(cx, ay, cw, hh + 8, 16, C_CARD, C_BORDER);
-        int y = ay + 14;
+        int hh = 24, mc = (cw - 46) / 8; if (mc < 8) mc = 8; for (int i = 0; i < nantwort; i++) { int l = slen(antwort[i]), n = (l + mc - 1) / mc + (l > mc ? 1 : 0); hh += 22 * (n ? n : 1); }
+        glas(cx, ay, cw, hh + 8, 20, C_CARD, 200); gfx_rect(cx + 20, ay + 1, cw - 40, 1, mix(C_CARD, 0x00FFFFFFu, 60));
+        rrect(cx + 18, ay + 14, 6, 18, 3, C_ACC);
+        int y = ay + 14; cx += 10; cw -= 10;
         for (int i = 0; i < nantwort; i++) { int n = absatz(cx + 18, y, cw - 36, antwort[i], i == 0 ? C_TEXT : C_MUTED); y += 22 * (n ? n : 1); }
     }
     gfx_end();
@@ -731,14 +763,16 @@ static void zeichne_eingabe(void) {
     gfx_begin();
     kn_loesche(K_CHIP0, K_SUG0 + 5);
     hg(bar_x - 10, bar_y - 6, bar_w + 20, 215);
-    rrect_rand(bar_x, bar_y, bar_w, 52, 18, C_FIELD, C_ACC);
-    rrect(bar_x + 14, bar_y + 20, 12, 12, 6, C_OK);
-    if (einlen == 0) gtxt(bar_x + 40, bar_y + 18, TR("Frag mich alles - schon der erste Buchstabe zeigt Vorschlaege ...", "Ask me anything - the first letter already shows suggestions ..."), 0x00647488u, 1);
-    else gfx_text(bar_x + 40, bar_y + 18, eingabe, C_TEXT, 1);
-    gfx_rect(bar_x + 40 + einlen * 8, bar_y + 14, 2, 24, C_TEXT);
+    rrect(bar_x - 4, bar_y - 4, bar_w + 8, 60, 30, mix(hg_zeile(bar_y), C_ACC, 70));
+    rrect(bar_x - 2, bar_y - 2, bar_w + 4, 56, 28, mix(hg_zeile(bar_y), C_ACC, 150));
+    rrect(bar_x, bar_y, bar_w, 52, 26, C_FIELD);
+    rrect(bar_x + 14, bar_y + 14, 24, 24, 12, mix(C_FIELD, C_ACC, 90)); rrect(bar_x + 21, bar_y + 21, 10, 10, 5, C_ACC2);
+    if (einlen == 0) gtxt(bar_x + 50, bar_y + 18, TR("Frag mich alles - schon der erste Buchstabe zeigt Vorschlaege ...", "Ask me anything - the first letter already shows suggestions ..."), C_MUTED, 1);
+    else gtxt(bar_x + 50, bar_y + 18, eingabe, C_TEXT, 1);
+    gfx_rect(bar_x + 50 + (einlen ? gtw(eingabe, 1) : 0), bar_y + 15, 2, 22, C_ACC2);
     if (nsug > 0 && !rad_modus()) {
         int y0 = bar_y + 60;
-        rrect_rand(bar_x, y0, bar_w, nsug * 30 + 12, 14, C_CARD, C_BORDER);
+        glas(bar_x, y0, bar_w, nsug * 30 + 12, 16, C_CARD, 225);
         for (int i = 0; i < nsug; i++) {
             int ry = y0 + 6 + i * 30;
             if (i == sugsel) rrect(bar_x + 6, ry, bar_w - 12, 28, 10, mix(C_CARD, C_ACC, 120));
@@ -754,7 +788,7 @@ static void zeichne_eingabe(void) {
         int x = bar_x;
         for (int i = 0; i < 6; i++) {
             int w = gtw(chip_text[i], 1) + 24;
-            rrect_rand(x, bar_y + 66, w, 30, 15, C_CARD, C_BORDER);
+            glas(x, bar_y + 66, w, 30, 15, C_CARD, 170);
             gtxt(x + 12, bar_y + 73, chip_text[i], C_MUTED, 1);
             kn_reg(K_CHIP0 + i, x, bar_y + 66, w, 30);
             x += w + 8;
@@ -767,8 +801,8 @@ static void zeichne_eingabe(void) {
 static void zeichne_leiste(void) {
     gfx_begin();
     kn_loesche(K_DOT0, K_NEXT);
-    gfx_rect(0, 0, W, 40, C_CARD);
-    gfx_rect(0, 38, W, 2, mix(C_BORDER, C_ACC, 110));
+    hg(0, 0, W, 40); glas(0, 0, W, 40, 0, C_CARD, 170);
+    gfx_rect(0, 39, W, 1, mix(C_BORDER, C_ACC, 60));
     gtxt(16, 12, "Zynex OS Quantum", C_ACC2, 1);
     char r[48]; scopy(r, benutzer_name(), 20); cat(r, " (", 48); cat(r, benutzer_rollentext(benutzer_rolle()), 48); cat(r, ")", 48);
     uint32_t ymd, hm; char zt[12] = "";
@@ -782,7 +816,7 @@ static void zeichne_leiste(void) {
     gtxt(sx, 12, "<", C_MUTED, 1); kn_reg(K_PREV, sx - 8, 4, 28, 32);
     for (int i = 0; i < 4; i++) {
         int cx = sx + 30 + i * 26;
-        if (i == flaeche) rrect(cx, 14, 12, 12, 6, C_ACC2); else rrect_rand(cx, 14, 12, 12, 6, C_CARD, C_OFF);
+        if (i == flaeche) rrect(cx, 14, 12, 12, 6, C_ACC2); else rrect(cx + 2, 16, 8, 8, 4, C_OFF);
         kn_reg(K_DOT0 + i, cx - 6, 4, 24, 32);
     }
     gtxt(sx + 30 + 4 * 26 + 4, 12, ">", C_MUTED, 1); kn_reg(K_NEXT, sx + 30 + 4 * 26 - 4, 4, 28, 32);
@@ -868,13 +902,48 @@ static void zeichne_f_aufgaben(void) {
     knopf(K_AUFLEER, TR("Alle erledigt", "All done"), rx + 18, 62 + ch - 52, 180, 0);
 }
 
+/* ---------- Dock: Programme unten in der Mitte (Glas, Symbole, Punkt = offen) ---------- */
+enum { K_DOCK0 = 260, NDOCK = 9 };
+static const int dock_typ[NDOCK] = { FT_EDIT, FT_TAB, FT_PRAES, FT_BOARD, FT_WEB, FT_RECH, FT_CHATS, FT_GED, FT_EINST };
+static const uint32_t dock_f[NDOCK][2] = { { 0x004F86E8u, 0x002B579Au }, { 0x0033A86Bu, 0x00217346u }, { 0x00F0703Cu, 0x00C43E1Cu }, { 0x009B4BE0u, 0x007719AAu }, { 0x0038BDF8u, 0x000284C7u },
+                                          { 0x0094A3B8u, 0x00475569u }, { 0x002DD4BFu, 0x000F9488u }, { 0x00F472B6u, 0x00BE185Du }, { 0x0094A3B8u, 0x0064748Bu } };
+static const char* const dock_n[NDOCK][2] = { { "Text", "Text" }, { "Tabelle", "Sheets" }, { "Praesentation", "Slides" }, { "SmartBoard", "SmartBoard" }, { "Browser", "Browser" },
+                                              { "Rechner", "Calculator" }, { "Chats", "Chats" }, { "Gedaechtnis", "Memory" }, { "Einstellungen", "Settings" } };
+static void dock_symbol(int i, int x, int y, int s) {
+    rrect(x, y, s, s, s / 4, dock_f[i][1]);
+    rrect(x, y, s, s * 3 / 5, s / 4, dock_f[i][0]); gfx_rect(x, y + s * 2 / 5, s, s / 5, mix(dock_f[i][0], dock_f[i][1], 128));
+    uint32_t w = 0x00FFFFFFu; int c = x + s / 2, m = y + s / 2, u = s / 12;
+    if (i == 0) { for (int k = 0; k < 4; k++) rrect(x + 3 * u, y + 3 * u + k * 2 * u + u / 2, k == 3 ? 4 * u : 6 * u, u, u / 2, w); }
+    else if (i == 1) { rrect(x + 3 * u, y + 3 * u, 6 * u, 6 * u, u, w); for (int k = 1; k < 3; k++) { gfx_rect(x + 3 * u + k * 2 * u, y + 3 * u, 1 + u / 3, 6 * u, dock_f[i][1]); gfx_rect(x + 3 * u, y + 3 * u + k * 2 * u, 6 * u, 1 + u / 3, dock_f[i][1]); } }
+    else if (i == 2) { rrect(x + 2 * u, y + 3 * u, 8 * u, 5 * u, u, w); gfx_rect(c - u / 2, y + 8 * u, u, 2 * u, w); rrect(x + 3 * u + u / 2, y + 4 * u + u / 2, 3 * u, u, u / 2, dock_f[i][1]); }
+    else if (i == 3) { rrect(x + 2 * u, y + 3 * u, 3 * u, 3 * u, u / 2, w); rrect(x + 7 * u, y + 6 * u, 3 * u, 3 * u, u / 2, w); for (int k = 0; k <= 3 * u; k++) gfx_rect(x + 4 * u + k, y + 5 * u + k * 2 / 3, 2, 2, w); }
+    else if (i == 4) { rrect(c - 3 * u, m - 3 * u, 6 * u, 6 * u, 3 * u, w); rrect(c - 2 * u, m - 2 * u, 4 * u, 4 * u, 2 * u, dock_f[i][1]); gfx_rect(c - 3 * u, m - u / 3, 6 * u, 1 + u / 2, w); gfx_rect(c - u / 3, m - 3 * u, 1 + u / 2, 6 * u, w); }
+    else if (i == 5) { for (int k = 0; k < 4; k++) rrect(x + 3 * u + (k % 2) * 3 * u + u / 2, y + 3 * u + (k / 2) * 3 * u + u / 2, 2 * u, 2 * u, u / 2, k == 3 ? 0x00FBBF24u : w); }
+    else if (i == 6) { rrect(x + 2 * u, y + 3 * u, 8 * u, 5 * u, 2 * u, w); for (int k = 0; k < u * 2; k++) gfx_rect(x + 4 * u - k / 2, y + 8 * u + k / 2, u, 1, w); }
+    else if (i == 7) { int px[4] = { 3, 8, 5, 9 }, py[4] = { 4, 3, 8, 8 }; for (int a = 0; a < 3; a++) for (int k = 0; k <= 8; k++) gfx_rect(x + (px[a] * u * (8 - k) + px[a + 1] * u * k) / 8, y + (py[a] * u * (8 - k) + py[a + 1] * u * k) / 8, 2, 2, w);
+                       for (int a = 0; a < 4; a++) rrect(x + px[a] * u - u, y + py[a] * u - u, 2 * u, 2 * u, u, w); }
+    else { rrect(c - 3 * u, m - 3 * u, 6 * u, 6 * u, 3 * u, w); for (int k = 0; k < 8; k++) rrect(c + 3 * u * icos(k * 45) / 1024 - u, m + 3 * u * isin(k * 45) / 1024 - u, 2 * u, 2 * u, u / 2, w); rrect(c - 3 * u / 2, m - 3 * u / 2, 3 * u, 3 * u, 3 * u / 2, dock_f[i][1]); }
+}
+static int dock_y(void) { return H - 84; }
+static void zeichne_dock(void) {
+    int s = 48, p = 12, dw = NDOCK * (s + p) + p, dx = (W - dw) / 2, dy = dock_y();
+    glas(dx, dy, dw, s + 24, 22, C_CARD, 170);
+    gfx_rect(dx + 22, dy + 1, dw - 44, 1, mix(C_CARD, 0x00FFFFFFu, 70));
+    for (int i = 0; i < NDOCK; i++) {
+        int x = dx + p + i * (s + p), y = dy + 8;
+        dock_symbol(i, x, y, s);
+        if (fenster_idx(dock_typ[i]) >= 0) rrect(x + s / 2 - 3, y + s + 6, 6, 6, 3, C_ACC2);
+        kn_reg(K_DOCK0 + i, x - 4, y - 4, s + 8, s + 12);
+    }
+}
+
 static void zeichne_desktop(void) {
     if (ob_vollbild) { praes_vollbild_zeichnen(); return; }
     desk_gen++;
     thema_anwenden(th_nr);
     gfx_begin(); hg(0, 0, W, H); gfx_end();
     nkn = 0; lbw = 0; in_szene = 1; zeichne_leiste();
-    if (flaeche == 0) { zeichne_robot(); zeichne_antwort(); zeichne_eingabe(); szene_oben(); }
+    if (flaeche == 0) { zeichne_robot(); zeichne_antwort(); zeichne_eingabe(); zeichne_dock(); szene_oben(); }
     else { gfx_begin(); if (flaeche == 1) zeichne_f_system(); else if (flaeche == 2) zeichne_f_agenten(); else zeichne_f_aufgaben(); gfx_end(); }
     in_szene = 0;
 }
@@ -1155,7 +1224,7 @@ static void zeichne_web(int voll) {
         knopf(K_WB, "<", wox + 12, ty, 36, 0); knopf(K_WV, ">", wox + 54, ty, 36, 0); knopf(K_WR, "R", wox + 96, ty, 36, 0);
         rrect_rand(fx, ty, fw, 34, 12, C_FIELD, C_ACC);
         { char a[200]; scopy(a, adr, 200); int mc = (fw - 24) / 8; if (slen(a) > mc) { for (int i = 0; i < mc - 1; i++) a[i] = adr[slen(adr) - (mc - 1) + i]; a[mc - 1] = 0; }
-          if (sel1 && adrlen) rrect(fx + 8, ty + 5, gtw(a, 1) + 8, 24, 6, mix(C_FIELD, C_ACC, 140));
+          if (sel1 && adrlen) rrect(fx + 8, ty + 5, slen(a) * 8 + 8, 24, 6, mix(C_FIELD, C_ACC, 140));
           if (!adrlen) gtxt(fx + 14, ty + 9, TR("Adresse oder Suchbegriff ...", "Address or search ..."), 0x00647488u, 1); else gfx_text(fx + 14, ty + 9, a, C_TEXT, 1);
           gfx_rect(fx + 14 + slen(a) * 8, ty + 6, 2, 22, C_TEXT); }
         knopf(K_WS, TR("Merken", "Save"), fx + fw + 8, ty, 82, 0);
@@ -1642,14 +1711,36 @@ static void einst_klick(int id) {
     else if (k == K_EKEYDEL && ext_quelle()) { ext_schluessel_setze(ext_quelle(), ""); ek_feld = 0; scopy(ek_meldung, TR("Schluessel geloescht.", "Key deleted."), 100); ek_ok = 0; }
     else if ((k == K_EMOD_V || k == K_EMOD_N) && ext_quelle()) { modell_wechsel(k == K_EMOD_N); ek_feld = 0; ek_meldung[0] = 0; }
     else if (k == K_EMOD_EIGEN && ext_quelle()) ek_start(2);
+    else if (k == 50) { if (benutzer_rolle() != ROLLE_ADMIN) scopy(ek_meldung, TR("Nur ein Administrator kann verschluesseln.", "Only an administrator can encrypt."), 100); else { ek_start(3); scopy(ek_meldung, TR("Neues Plattenpasswort (mind. 8 Zeichen), dann Enter. Ohne Passwort KEIN Zugriff mehr!", "New disk password (min. 8 chars), then Enter. Without it there is NO access!"), 100); } }
     else if (k == K_ETEST) { ek_feld = 0; scopy(ek_meldung, TR("Pruefe ...", "Checking ..."), 100); zeichne_einst(); ext_pruefen(); }
     else if (k >= K_ETHEMA && k < K_ETHEMA + 6) { th_nr = k - K_ETHEMA; th_speichern(); }
     else if (k >= K_EHG && k < K_EHG + 4) { hg_nr = k - K_EHG; th_speichern(); }
     zeichne_desktop();
 }
-static void einst_taste(uint8_t k, int shift, int altgr) {                  /* Eingabe in das Schluessel- oder Modellfeld */
+static char ek_pw1[64];
+static void ek_wische(char* b, int n) { for (int i = 0; i < n; i++) ((volatile char*)b)[i] = 0; }
+static void krypto_aus_einst(void) {                                       /* Plattenverschluesselung aus den Einstellungen */
+    if (!synfs_is_mounted()) { scopy(ek_meldung, TR("Nur auf dem installierten System moeglich (Live-System: keine Platte eingebunden).", "Only on the installed system (live system: no disk mounted)."), 100); return; }
+    scopy(ek_meldung, TR("Verschluessele ... nicht ausschalten!", "Encrypting ... do not switch off!"), 100); zeichne_einst(); busy_tick();
+    kprint("[DESKTOP] Plattenverschluesselung startet\n");
+    int r = krypto_einrichten(ek_pw1);
+    busy_ende(); ek_wische(ek_pw1, sizeof(ek_pw1));
+    ek_ok = r == 0;
+    if (r == 0) { scopy(ek_meldung, TR("Fertig: die Platte ist verschluesselt. Beim Start wird das Passwort abgefragt.", "Done: the disk is encrypted. The password is asked at boot."), 100); }
+    else if (r == -1) scopy(ek_meldung, TR("SynFS ist nicht eingebunden.", "SynFS is not mounted."), 100);
+    else if (r == -2) scopy(ek_meldung, TR("Die Platte ist schon verschluesselt.", "The disk is already encrypted."), 100);
+    else if (r == -3) scopy(ek_meldung, TR("Passwort zu kurz (mindestens 8 Zeichen).", "Password too short (at least 8 characters)."), 100);
+    else { char a[12]; scopy(ek_meldung, TR("Fehlgeschlagen (Code ", "Failed (code "), 100); dec(a, (uint32_t)(-r)); cat(ek_meldung, "-", 100); cat(ek_meldung, a, 100); cat(ek_meldung, TR("). Shell: krypto fortsetzen", "). Shell: krypto fortsetzen"), 100); }
+    kprint("[DESKTOP] Plattenverschluesselung: "); kprint(ek_meldung); kprint("\n");
+}
+static void einst_taste(uint8_t k, int shift, int altgr) {                  /* Eingabe in das Schluessel-, Modell- oder Passwortfeld */
     int q = ext_quelle();
-    if (k == 0x29) { ek_feld = 0; ek_len = 0; ek_buf[0] = 0; }
+    if (k == 0x29) { ek_feld = 0; ek_len = 0; ek_buf[0] = 0; ek_wische(ek_pw1, sizeof(ek_pw1)); }
+    else if ((k == 0x28 || k == 0x58) && ek_feld >= 3) {
+        if (ek_feld == 3) { if (ek_len < 8) scopy(ek_meldung, TR("Mindestens 8 Zeichen.", "At least 8 characters."), 100); else { scopy(ek_pw1, ek_buf, 64); ek_feld = 4; scopy(ek_meldung, TR("Passwort wiederholen, dann Enter.", "Repeat the password, then Enter."), 100); } }
+        else { int gl = ueq(ek_buf, ek_pw1); ek_feld = 0; if (!gl) { scopy(ek_meldung, TR("Die Passwoerter sind verschieden.", "The passwords differ."), 100); ek_wische(ek_pw1, sizeof(ek_pw1)); } else { ek_wische(ek_buf, sizeof(ek_buf)); ek_len = 0; krypto_aus_einst(); } }
+        ek_wische(ek_buf, sizeof(ek_buf)); ek_len = 0;
+    }
     else if (k == 0x28 || k == 0x58) {
         if (ek_len && q) {
             if (ek_feld == 1) { ext_schluessel_setze(q, ek_buf); ek_ok = 0; kprint("[DESKTOP] KI-Schluessel gespeichert ("); kprint_dec((uint32_t)ek_len); kprint(" Zeichen)\n"); scopy(ek_meldung, TR("Schluessel gespeichert. Mit \"Verbindung testen\" pruefen.", "Key saved. Check it with \"Test connection\"."), 100); }
@@ -1665,6 +1756,7 @@ static void einst_taste(uint8_t k, int shift, int altgr) {                  /* E
 static void einst_kurztaste(uint8_t k, int shift, int altgr) {            /* Tastatur: Tab = Reiter wechseln; Aussehen: 1-6 Farbschema, H Hintergrund; KI: 0-3 Anbieter, M Modell */
     if (k == 0x2B) { einst_tab = (einst_tab + 1) % 3; ek_feld = 0; ek_meldung[0] = 0; kprint("[DESKTOP] Einstellungen: Reiter "); kprint_dec((uint32_t)einst_tab); kprint("\n"); zeichne_desktop(); return; }
     char c = usb_key_char(k, shift, altgr);
+    if (einst_tab == 0 && (c == 'v' || c == 'V')) { einst_klick(K_EIN0 + 50); return; }       /* v = Platte verschluesseln */
     if (einst_tab == 2) {
         if (c >= '1' && c <= '6') { th_nr = c - '1'; th_speichern(); zeichne_desktop(); }
         else if (c == 'h' || c == 'H') { hg_nr = (hg_nr + 1) & 3; th_speichern(); zeichne_desktop(); }
@@ -1677,8 +1769,8 @@ static void einst_feld(int x, int y, int w, int aktiv, const char* text, int mas
     rrect_rand(x, y, w, 30, 8, C_FIELD, aktiv ? C_ACC : C_BORDER);
     char t[64]; int n = slen(text), mc = (w - 24) / 8; if (mc > 62) mc = 62;
     int von = n > mc ? n - mc : 0, o = 0;
-    for (int i = von; i < n && o < 62; i++) t[o++] = (maske && i < n - 4) ? '*' : text[i];
-    t[o] = 0; gtxt(x + 10, y + 7, t, C_TEXT, 1);
+    for (int i = von; i < n && o < 62; i++) t[o++] = (maske == 2 || (maske && i < n - 4)) ? '*' : text[i];
+    t[o] = 0; gfx_text(x + 10, y + 7, t, C_TEXT, 1);
     if (aktiv) gfx_rect(x + 10 + o * 8, y + 5, 2, 20, C_TEXT);
 }
 static void zeichne_einst(void) {
@@ -1698,8 +1790,15 @@ static void zeichne_einst(void) {
         y += 56; gtxt(x, y, "Firewall", C_MUTED, 1);
         { int m = fw_modus_get(); knopf(K_EIN0 + 7, T5("Aus", "Off", "Desactive", "Spento", "Apagado"), x, y + 22, 120, m == 0); knopf(K_EIN0 + 8, "Normal", x + 128, y + 22, 120, m == 1); knopf(K_EIN0 + 9, T5("Streng", "Strict", "Strict", "Rigido", "Estricto"), x + 256, y + 22, 120, m == 2); }
         y += 82;
-        gtxt(x, y, (synfs_is_mounted() && synfs_krypto_hdr()->magic == SYNFS_KRY_MAGIC) ? TR("Festplatte: verschluesselt (256-Bit)", "Disk: encrypted (256-bit)") : TR("Festplatte: nicht verschluesselt (Shell: krypto aktivieren)", "Disk: not encrypted (shell: krypto aktivieren)"), C_TEXT, 1);
-        gtxt(x, y + 26, zdb_offen() ? TR("Alles wird in ZynDB gespeichert (verschluesselt)", "Everything is stored in ZynDB (encrypted)") : TR("ZynDB nicht verfuegbar", "ZynDB unavailable"), C_MUTED, 1);
+        { int ver = synfs_is_mounted() && synfs_krypto_hdr()->magic == SYNFS_KRY_MAGIC;
+          gtxt(x, y, T5("Festplatte", "Disk", "Disque", "Disco", "Disco"), C_MUTED, 1);
+          rrect(x, y + 26, 14, 14, 7, ver ? C_OK : 0x00F59E0Bu);
+          gtxt(x + 22, y + 24, ver ? TR("verschluesselt (256 Bit)", "encrypted (256-bit)") : synfs_is_mounted() ? TR("nicht verschluesselt", "not encrypted") : TR("Live-System (keine Platte eingebunden)", "live system (no disk mounted)"), C_TEXT, 1);
+          if (!ver && ek_feld < 3) knopf(K_EIN0 + 50, TR("Jetzt verschluesseln", "Encrypt now"), x + bw - 200, y + 16, 200, 1);
+          if (ek_feld >= 3) einst_feld(x, y + 52, bw, 1, ek_buf, 2);
+          if (ek_meldung[0] && ek_feld != 1 && ek_feld != 2) gtxt(x, y + (ek_feld >= 3 ? 90 : 56), ek_meldung, ek_ok ? C_OK : 0x00F59E0Bu, 1);
+          y += ek_feld >= 3 ? 70 : 40; }
+        gtxt(x, y + 26 + 30, zdb_offen() ? TR("Alles wird in ZynDB gespeichert (verschluesselt)", "Everything is stored in ZynDB (encrypted)") : TR("ZynDB nicht verfuegbar", "ZynDB unavailable"), C_MUTED, 1);
     } else if (einst_tab == 1) {
         int qa = ext_quelle();
         gtxt(x, y, T5("Sprachmodell (KI)", "Language model (AI)", "Modele de langage (IA)", "Modello linguistico (IA)", "Modelo de lenguaje (IA)"), C_MUTED, 1);
@@ -2333,12 +2432,17 @@ static void taste(uint8_t k, int shift, int altgr) {
     if (zustand == Z_DESK && flaeche == 0 && !menu.offen) rad_neu();
 }
 
+static void dock_oeffnen(int i) {
+    kprint("[DESKTOP] Dock: "); kprint(dock_n[i][1]); kprint("\n");
+    if (dock_typ[i] == FT_EDIT) editor_oeffnen(); else if (dock_typ[i] == FT_WEB) web_oeffnen(""); else fenster_oeffnen(dock_typ[i]);
+}
 static void klick(int x, int y, int owner) {
     for (int i = 0; i < nkn; i++) {
         if (knoepfe[i].owner != owner) continue;
         if (x < knoepfe[i].x || x >= knoepfe[i].x + knoepfe[i].w || y < knoepfe[i].y || y >= knoepfe[i].y + knoepfe[i].h) continue;
         int id = knoepfe[i].id;
         if (id >= K_OF0 && id < K_OF_END && owner >= 0) { office_klick(id, owner); return; }
+        if (zustand == Z_DESK && id >= K_DOCK0 && id < K_DOCK0 + NDOCK) { dock_oeffnen(id - K_DOCK0); return; }
         if (zustand == Z_DESK && id >= K_CHIP0 && id < K_CHIP0 + 6) { scopy(eingabe, chip_text[id - K_CHIP0], 96); einlen = slen(eingabe); ausfuehren(); }
         else if (zustand == Z_DESK && id >= K_SUG0 && id < K_SUG0 + 5 && id - K_SUG0 < nsug) {
             scopy(eingabe, sug[id - K_SUG0], 96); einlen = slen(eingabe);
@@ -2471,7 +2575,7 @@ int desktop_start(void) {
     th_laden();
     { const char* sp = zdb_get("system.sprache"); if (sp) { for (int i = 0; i < 5; i++) if (ueq(sp, LCODE[i])) lang = i; } else r = synfs_read("sys.config", cfg, sizeof(cfg) - 1); }
     if (r > 0) { cfg[r] = 0; for (int i = 0; cfg[i]; i++) if (cfg[i] == 'l' && cfg[i + 1] == 'a' && cfg[i + 2] == 'n' && cfg[i + 3] == 'g' && cfg[i + 4] == '=') { lang = (cfg[i + 5] == 'd' ? 0 : 1); break; } }
-    bar_w = W - 80 < 760 ? W - 80 : 760; bar_x = (W - bar_w) / 2; bar_y = H - 230;
+    bar_w = W - 80 < 760 ? W - 80 : 760; bar_x = (W - bar_w) / 2; bar_y = H - 310;
     fname[0] = fpw[0] = 0; ffocus = 0; fmsg = 0; einlen = 0; eingabe[0] = 0; nsug = 0; sugsel = -1; flaeche = 0; alauf = -1; nalog = 0; pend = 0; nfen = 0; nwid = 0; fok = 0; fdrag = 0; fdgezeichnet = 0; menu.offen = 0; nantwort = 0; qh = qt = 0; was_down = 0;
     zx = 24 + 90; zy = 56 + 108; zs = 100; lbw = 0; zdrag = 0; letzte_eingabe = timer_get_ticks();
     gfx_console(0);

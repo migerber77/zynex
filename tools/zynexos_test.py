@@ -340,6 +340,13 @@ def installieren():
     hell_o = vm.hell()
     vm.tippe("kauderwelsch", 2.0)
     hell_d = vm.hell()
+    vm.tippe("einstellungen", 3.0)
+    vm.mon("sendkey tab", 1.0)                            # vom Reiter Aussehen zurueck auf Allgemein
+    vm.mon("sendkey v", 1.0)
+    vm.tippe("geheimnis1", 1.0)
+    vm.tippe("geheimnis1", 1.0)
+    vm.warte("[DESKTOP] Plattenverschluesselung: ", 120)
+    vm.mon("sendkey esc"); time.sleep(2.0)
     vm.tippe("wartung", 2.0)
     for b in ["whoami", "block", "synls", "syninfo", "synrun hallo.synbin", "benutzer liste", "install sata0 x ja"]:
         vm.tippe(b, 2.0)
@@ -375,6 +382,8 @@ def installieren():
     pruefe("Desktop: Einstellungen, Reiter KI-Modelle: Schluessel eingegeben und gespeichert", "[DESKTOP] Einstellungen: Reiter 1" in out2 and "[DESKTOP] KI-Schluessel gespeichert (15 Zeichen)" in out2)
     pruefe("Desktop: Einstellungen: Modell wechseln", "[DESKTOP] KI-Modell: claude-sonnet-5-5" in out2)
     pruefe("Desktop: Einstellungen, Reiter Aussehen: Farbschema und Hintergrund", "[DESKTOP] Einstellungen: Reiter 2" in out2 and "Farbschema Light, Hintergrund 0" in out2 and "Farbschema Light, Hintergrund 1" in out2 and "Farbschema Night, Hintergrund 1" in out2)
+    pruefe("Einstellungen: Platte verschluesselt", "[DESKTOP] Plattenverschluesselung: Fertig" in out2)
+    pruefe("Desktop: Dock gezeichnet, geglaettete Schrift", "[DESKTOP] Zynex OS Quantum Desktop" in out2)
     pruefe("Tabelle: Formeln (=A1+A2, =SUMME(...)/3)", "[TABELLE] A3 = 12" in out2 and "[TABELLE] A4 = 8" in out2)
     pruefe("Tabelle: beim Schliessen gespeichert", "[OFFICE] Gespeichert: tabelle-1.csv" in out2)
     pruefe("Tabellen-Agent schlaegt Summenzeile vor", "[AGENT] Freigabe angefragt: Summenzeile einfuegen" in out2)
@@ -845,6 +854,24 @@ def usbnet():
     pruefe("Hot-Plug: HTTP-Download nach dem Einstecken", "Hallo-vom-Server" in hot_log.split("zynex> http", 1)[-1])
 
 
+def stick():
+    """Die ISO wie mit balenaEtcher / Rufus (DD) auf einen USB-Stick geschrieben: Start ueber die EFI-Partition der GPT, ohne DVD."""
+    print("\n===== Szenario stick (ISO als USB-Stick, GPT mit EFI-Partition) =====")
+    import shutil
+    shutil.copy(ISO, "/tmp/stick.img")
+    vm = VM(["-drive", "file=/tmp/stick.img,if=none,id=stick,format=raw", "-device", "qemu-xhci", "-device", "usb-storage,drive=stick,removable=on"], cd=False)
+    ok = vm.warte("All systems online", 150)
+    out = vm.log(); vm.ende()
+    print(out[:3000])
+    pruefe("USB-Stick (DD): Lader startet von der EFI-Partition", "[LOADER] Zynex OS Lader (UEFI)" in out)
+    pruefe("USB-Stick (DD): Signatur gueltig, Kernel laeuft", "[LOADER] Signatur gueltig" in out and ok)
+    r = subprocess.run(["xorriso", "-indev", ISO, "-find", "/EFI/BOOT", "-name", "BOOTX64.EFI"], capture_output=True, text=True)
+    pruefe("ISO-Dateisystem enthaelt EFI/BOOT/BOOTX64.EFI (Rufus ISO-Modus)", "BOOTX64.EFI" in r.stdout)
+    r = subprocess.run(["sgdisk", "-p", ISO], capture_output=True, text=True)
+    print(r.stdout)
+    pruefe("GPT mit EFI-Systempartition (EF00)", "EF00" in r.stdout)
+
+
 def boot():
     print("\n===== Szenario boot (eigener Lader, Signatur) =====")
     vm = starten()
@@ -1036,6 +1063,6 @@ def manip():
 
 
 for s in SZEN:
-    {"kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "sicherboot": sicherboot, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
+    {"stick": stick, "kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "sicherboot": sicherboot, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
 
 sys.exit(0 if all(ergebnis) else 1)

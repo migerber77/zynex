@@ -31,6 +31,7 @@ jobs:
       - name: Test Lader und Signatur (schnell)
         run: |
           python3 tools/zynexos_test.py zynexos-test.iso uefi boot
+          python3 tools/zynexos_test.py zynexos-os.iso uefi stick
           python3 tools/zynexos_test.py zynexos-manip.iso uefi manip
       - name: Test UEFI Secure Boot
         run: python3 tools/zynexos_test.py zynexos-test.iso uefi sicherboot

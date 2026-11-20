@@ -1,0 +1,6 @@
+Die Datei font_aa.c enthaelt gerasterte Glyphen (erzeugt mit tools/mkfont.py) aus:
+
+- Inter (Medium), Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter),
+  lizenziert unter der SIL Open Font License, Version 1.1 (https://openfontlicense.org).
+- DejaVu Sans Mono, Copyright (c) 2003 Bitstream, Inc. / DejaVu-Aenderungen gemeinfrei,
+  Bitstream-Vera-Lizenz (https://dejavu-fonts.github.io/License.html).
