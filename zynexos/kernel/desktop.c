@@ -421,6 +421,51 @@ static uint32_t sprech_bis, letzte_eingabe;               /* Ticks (100 pro Seku
 #define DOK_MAX 16000
 #define ED_ZMAX 2000
 static char dok[DOK_MAX + 1]; static int doklen, dokcur, dokscroll, dokgeaendert; static char dokname[24];
+/* Rich Text: je Zeichen ein Stilbyte. Bit0 fett, Bit1 kursiv, Bit2 unterstrichen, Bit3 Schreibmaschinenschrift (Mono), Bit4-6 Groessenrang 0..4 (13, 15, 27, 40, 54 px) */
+#define ST_STD 0x10
+#define ST_FETT 1
+#define ST_KURSIV 2
+#define ST_UNTER 4
+#define ST_MONO 8
+extern int gfx_font_box(int font);
+extern int gfx_zeichen_adv(unsigned char ch, int font, int stil);
+extern int gfx_zeichen_stil(int x, int y, unsigned char ch, uint32_t fg, int font, int stil);
+static uint8_t dokst[DOK_MAX + 1]; static int doksel = -1; static uint8_t dok_cst = ST_STD;
+static int ed_pxw = 600; static int ed_zh[ED_ZMAX], ed_za[ED_ZMAX];
+static const int st_px[5] = { 13, 15, 27, 40, 54 };
+static int st_font(uint8_t st) { int r = (st >> 4) & 7; if (r > 4) r = 4; static const uint8_t sans[5] = { 12, 4, 5, 6, 7 }, mono[5] = { 0, 0, 1, 2, 3 }; return (st & ST_MONO) ? mono[r] : sans[r]; }
+static int st_adv(unsigned char c, uint8_t st) { return gfx_zeichen_adv(c, st_font(st), st & 3); }
+static int st_asc(uint8_t st) { return (gfx_font_box(st_font(st)) * 77 + 50) / 100; }
+static int st_desc(uint8_t st) { return gfx_font_box(st_font(st)) - st_asc(st); }
+static int ed_selbereich(int* a, int* b) { if (doksel < 0 || doksel == dokcur) return 0; *a = doksel < dokcur ? doksel : dokcur; *b = doksel < dokcur ? dokcur : doksel; return 1; }
+static void dok_loesche(int a, int b) {
+    if (a < 0) a = 0; if (b > doklen) b = doklen; if (b <= a) return;
+    int n = b - a; for (int i = a; i <= doklen - n; i++) { dok[i] = dok[i + n]; dokst[i] = dokst[i + n]; }
+    doklen -= n; if (dokcur > b) dokcur -= n; else if (dokcur > a) dokcur = a; dok[doklen] = 0; dokgeaendert = 1;
+}
+static int dok_einf(int pos, unsigned char c, uint8_t st) {
+    if (doklen >= DOK_MAX || pos < 0 || pos > doklen) return 0;
+    for (int k = doklen; k > pos; k--) { dok[k] = dok[k - 1]; dokst[k] = dokst[k - 1]; }
+    dok[pos] = (char)c; dokst[pos] = st; doklen++; dok[doklen] = 0; dokgeaendert = 1; return 1;
+}
+static void dok_sel_loeschen(void) { int a, b; if (ed_selbereich(&a, &b)) { dok_loesche(a, b); dokcur = a; } doksel = -1; }
+static void dok_leeren(void) { doklen = 0; dokcur = 0; dok[0] = 0; doksel = -1; dok_cst = ST_STD; dokgeaendert = 1; }
+static void ed_stil_sync(void) { dok_cst = dokcur > 0 ? dokst[dokcur - 1] : ST_STD; }
+static uint8_t ed_stil_jetzt(void) { int a, b; if (ed_selbereich(&a, &b)) return dokst[a]; return dok_cst; }
+static void ed_stil_toggle(int bit) {
+    int a, b;
+    if (ed_selbereich(&a, &b)) { int alle = 1; for (int i = a; i < b; i++) if (!(dokst[i] & bit)) alle = 0; for (int i = a; i < b; i++) { if (alle) dokst[i] &= (uint8_t)~bit; else dokst[i] |= (uint8_t)bit; } dokgeaendert = 1; }
+    else dok_cst ^= (uint8_t)bit;
+}
+static void ed_stil_groesse(int d) {
+    int a, b; uint8_t s0 = ed_stil_jetzt(); int r = ((s0 >> 4) & 7) + d; if (r < 0) r = 0; if (r > 4) r = 4;
+    if (ed_selbereich(&a, &b)) { for (int i = a; i < b; i++) dokst[i] = (uint8_t)((dokst[i] & 0x8F) | (r << 4)); dokgeaendert = 1; }
+    else dok_cst = (uint8_t)((dok_cst & 0x8F) | (r << 4));
+}
+static void ed_stil_art(void) { ed_stil_toggle(ST_MONO); }
+static void ed_stil_setze(uint8_t st) {
+    int a, b; if (ed_selbereich(&a, &b)) { for (int i = a; i < b; i++) dokst[i] = st; dokgeaendert = 1; } else dok_cst = st;
+}
 static int ed_x, ed_y, ed_w, ed_h, ed_cols, ed_rows, ed_s;
 
 static int kn_owner = -1;
@@ -529,15 +574,21 @@ static int ob_vollbild;                                     /* Praesentation lae
 static void praes_vollbild_zeichnen(void);
 static uint32_t ob_farbe(int typ);                          /* Programmfarbe (Titelleiste) */
 static void ag_office(int i); static void ag_office_frei(int p); static void office_init(int typ); static void office_schliessen(int typ);
-enum { WG_UHR = 1, WG_SYS, WG_AUF, WG_AGENT };
+enum { WG_UHR = 1, WG_SYS, WG_AUF, WG_AGENT, WG_NOTIZ };
 #define WT_H 30
 struct fenster { int typ, x, y, w, h; };
 static struct fenster fen[6]; static int nfen, fok;          /* Reihenfolge = Tiefe (das letzte liegt oben); fok: das oberste Fenster hat den Tastaturfokus */
-struct widget { int typ, x, y, w, h; };
-static struct widget wid[6]; static int nwid;
+#define NWID_MAX 10
+#define NZ_N 8                                           /* Notizzettel */
+#define NZ_T 300
+struct widget { int typ, x, y, w, h, id; };
+static struct widget wid[NWID_MAX]; static int nwid;
+static char nz[NZ_N][NZ_T + 1]; static int nz_len[NZ_N], nz_used[NZ_N]; static int notiz_fok = -1; static char nz_meld[48];
+static int ob_ki(const char* auftrag, const char* daten, char* out, int max);
+static int notiz_taste(uint8_t k, int shift, int altgr);
 static void layout_speichern(void) {
-    char b[100], a[12]; b[0] = 0;
-    for (int j = 0; j < nwid; j++) { dec(a, (uint32_t)wid[j].typ); cat(b, a, 100); cat(b, ",", 100); dec(a, (uint32_t)(wid[j].x + 2000)); cat(b, a, 100); cat(b, ",", 100); dec(a, (uint32_t)(wid[j].y + 2000)); cat(b, a, 100); cat(b, ";", 100); }
+    char b[220], a[12]; b[0] = 0;
+    for (int j = 0; j < nwid; j++) { dec(a, (uint32_t)(wid[j].typ == WG_NOTIZ ? 10 + wid[j].id : wid[j].typ)); cat(b, a, 220); cat(b, ",", 220); dec(a, (uint32_t)(wid[j].x + 2000)); cat(b, a, 220); cat(b, ",", 220); dec(a, (uint32_t)(wid[j].y + 2000)); cat(b, a, 220); cat(b, ";", 220); }
     zdb_put("desktop.widgets", b);
     b[0] = 0; dec(a, (uint32_t)zx); cat(b, a, 100); cat(b, " ", 100); dec(a, (uint32_t)zy); cat(b, a, 100); cat(b, " ", 100); dec(a, (uint32_t)zs); cat(b, a, 100);
     zdb_put("desktop.zynie", b);
@@ -595,9 +646,53 @@ static void fenster_zeichnen(int i) {
 static void kn_loesche_owner(int o) { int k = 0; for (int i = 0; i < nkn; i++) if (knoepfe[i].owner != o) knoepfe[k++] = knoepfe[i]; nkn = k; }
 
 /* Widgets */
-static void wid_groesse(int typ, int* w, int* h) { *w = typ == WG_UHR ? 230 : 260; *h = typ == WG_UHR ? 110 : typ == WG_SYS ? 120 : 150; }
+static void wid_groesse(int typ, int* w, int* h) { *w = typ == WG_NOTIZ ? 280 : typ == WG_UHR ? 230 : 260; *h = typ == WG_NOTIZ ? 230 : typ == WG_UHR ? 110 : typ == WG_SYS ? 120 : 150; }
+static void notiz_speichern(void) {
+    static char b[NZ_N * (NZ_T + 4) + 8]; int o = 0;
+    for (int i = 0; i < NZ_N; i++) if (nz_used[i]) { b[o++] = (char)('0' + i); b[o++] = 0x1F; for (int k = 0; k < nz_len[i]; k++) b[o++] = nz[i][k]; b[o++] = 0x1E; }
+    b[o] = 0; zdb_put_text("desktop.notizen", b, o);
+}
+static void notiz_laden(void) {
+    static char b[NZ_N * (NZ_T + 4) + 8]; int r = zdb_get_text("desktop.notizen", b, sizeof(b) - 1); if (r <= 0) return; b[r] = 0;
+    int i = 0; while (i < r) {
+        int id = b[i] - '0'; if (id < 0 || id >= NZ_N || b[i + 1] != 0x1F) break;
+        i += 2; int n = 0; while (i < r && b[i] != 0x1E && n < NZ_T) nz[id][n++] = b[i++];
+        nz[id][n] = 0; nz_len[id] = n; while (i < r && b[i] != 0x1E) i++; i++;
+    }
+}
+static void notiz_zeichnen(int j) {
+    struct widget* g = &wid[j]; int id = g->id; uint32_t gelb = 0x00FFF2A8u, kopf = 0x00F6DE6Fu, tx = 0x003B3300u;
+    gfx_begin();
+    rrect_rand(g->x, g->y, g->w, g->h, 10, gelb, 0x00D9BE3Cu);
+    rrect(g->x + 1, g->y + 1, g->w - 2, 26, 9, kopf); gfx_rect(g->x + 1, g->y + 16, g->w - 2, 11, kopf);
+    gtxt(g->x + 12, g->y + 5, nz_meld[0] && notiz_fok == j ? nz_meld : TR("Notiz", "Note"), tx, 1);
+    gtxt(g->x + g->w - 22, g->y + 5, "x", tx, 1);
+    int px = g->x + 12, cols = g->w - 24, ly = g->y + 36, lh = 18, bottom = g->y + g->h - 40; char z[100]; int zl = 0, fx = px, fy = ly;
+    for (int i = 0; i <= nz_len[id]; i++) {
+        int ende = i == nz_len[id], c = ende ? 0 : (unsigned char)nz[id][i];
+        if (!ende && c != '\n') {
+            if (zl < 96) { z[zl++] = (char)c; z[zl] = 0; }
+            if (zl > 1 && gtw(z, 1) > cols) {
+                int b = zl - 1; while (b > 0 && z[b] != ' ') b--;
+                if (b > 0) { z[b] = 0; if (ly + lh <= bottom) gtxt(px, ly, z, tx, 1); ly += lh; int r = zl - b - 1; for (int k = 0; k < r; k++) z[k] = z[b + 1 + k]; z[r] = 0; zl = r; }
+                else { char l = z[zl - 1]; z[zl - 1] = 0; if (ly + lh <= bottom) gtxt(px, ly, z, tx, 1); ly += lh; z[0] = l; z[1] = 0; zl = 1; }
+            }
+            continue;
+        }
+        if (ly + lh <= bottom) gtxt(px, ly, z, tx, 1);
+        if (ende) { fx = px + gtw(z, 1); fy = ly; } else ly += lh;
+        zl = 0; z[0] = 0;
+    }
+    if (!nz_len[id] && notiz_fok != j) gtxt(px, g->y + 36, TR("Klicken und schreiben ...", "Click and type ..."), 0x00907A1Au, 1);
+    if (notiz_fok == j && fy + lh <= bottom + 4) gfx_rect(fx + 1, fy, 2, 16, tx);
+    static const char* const bn[3][2] = { { "Besser", "Improve" }, { "Aufgaben", "Tasks" }, { "Weiter", "Continue" } };
+    int zb = (g->w - 24) / 3;
+    for (int k = 0; k < 3; k++) { int bx = g->x + 12 + k * zb; rrect_rand(bx, g->y + g->h - 34, zb - 6, 26, 8, 0x00FFF9D6u, 0x00D9BE3Cu); const char* t = TR(bn[k][0], bn[k][1]); gtxt(bx + (zb - 6 - gtw(t, 1)) / 2, g->y + g->h - 30, t, tx, 1); }
+    gfx_end();
+}
 static void wid_zeichnen(int j) {
     struct widget* g = &wid[j]; char z[100], a[12];
+    if (g->typ == WG_NOTIZ) { notiz_zeichnen(j); return; }
     gfx_begin();
     rrect_rand(g->x, g->y, g->w, g->h, 14, C_CARD, C_BORDER); gfx_rect(g->x + 16, g->y + 1, g->w - 32, 2, C_ACC);
     gtxt(g->x + g->w - 22, g->y + 8, "x", C_MUTED, 1);
@@ -1150,13 +1245,25 @@ static void flaeche_wechsel(int nach) {
     wuerfel_dreh(nach);
     kprint("[DESKTOP] Arbeitsflaeche "); kprint_dec((uint32_t)nach + 1); kprint(": "); kprint(fl_name[nach][1]); kprint("\n");
 }
+static void widget_weg(int j) {
+    if (j < 0 || j >= nwid) return;
+    if (wid[j].typ == WG_NOTIZ) { int id = wid[j].id; nz_used[id] = 0; nz_len[id] = 0; nz[id][0] = 0; notiz_speichern(); }
+    if (notiz_fok == j) notiz_fok = -1; else if (notiz_fok > j) notiz_fok--;
+    for (int q = j; q < nwid - 1; q++) wid[q] = wid[q + 1];
+    nwid--; layout_speichern();
+}
 static void widget_neu(int typ) {
     if (flaeche != 0) flaeche_wechsel(0);
-    if (nwid >= 6) { reply1(TR("Es sind schon 6 Widgets da.", "6 widgets are already there.")); zeichne_antwort(); return; }
-    struct widget* g = &wid[nwid]; g->typ = typ; wid_groesse(typ, &g->w, &g->h);
+    if (nwid >= NWID_MAX) { reply1(TR("Es sind schon 10 Widgets da.", "10 widgets are already there.")); zeichne_antwort(); return; }
+    struct widget* g = &wid[nwid]; g->typ = typ; g->id = 0; wid_groesse(typ, &g->w, &g->h);
+    if (typ == WG_NOTIZ) {
+        int f = -1; for (int i = 0; i < NZ_N; i++) if (!nz_used[i]) { f = i; break; }
+        if (f < 0) { reply1(TR("Es gibt schon 8 Notizzettel.", "There are already 8 sticky notes.")); zeichne_antwort(); return; }
+        g->id = f; nz_used[f] = 1; nz_len[f] = 0; nz[f][0] = 0;
+    }
     g->x = W - g->w - 30; g->y = 56; for (int j = 0; j < nwid; j++) g->y += wid[j].h + 14;
     if (g->y + g->h > H - 10) { g->x -= 280; g->y = 56; }
-    nwid++; layout_speichern(); zeichne_desktop();
+    nwid++; layout_speichern(); if (typ == WG_NOTIZ) { notiz_fok = nwid - 1; nz_meld[0] = 0; notiz_speichern(); } zeichne_desktop();
     kprint("[DESKTOP] Widget hinzugefuegt: "); kprint_dec((uint32_t)typ); kprint("\n");
 }
 static void rech_zuruecksetzen(void);
@@ -1188,20 +1295,40 @@ static void fenster_oeffnen(int typ) {
 }
 
 /* ---------- Textverarbeitung ---------- */
-static int ed_zeilen(int* start, int max) {                 /* Zeilenanfaenge (mit Umbruch nach ed_cols); liefert Anzahl */
-    int n = 0, col = 0; if (max > 0) start[n++] = 0;
-    for (int i = 0; i < doklen; i++) {
-        if (dok[i] == '\n') { col = 0; if (n < max) start[n++] = i + 1; }
-        else if (++col >= ed_cols) { col = 0; if (n < max) start[n++] = i + 1; }
+static int ed_zeilen(int* start, int max) {                 /* Zeilenanfaenge (Wortumbruch nach Pixelbreite ed_pxw); liefert Anzahl; fuellt ed_za/ed_zh */
+    int n = 0, i = 0; if (max <= 0) return 0;
+    for (;;) {
+        start[n] = i;
+        int x = 0, lastsp = -1, j = i, ende, next = -1;
+        while (j < doklen) {
+            unsigned char c = (unsigned char)dok[j];
+            if (c == '\n') { next = j + 1; break; }
+            int w = st_adv(c, dokst[j]);
+            if (x + w > ed_pxw && j > i) { if (lastsp >= i) next = lastsp + 1; else next = j; break; }
+            x += w; if (c == ' ') lastsp = j;
+            j++;
+        }
+        ende = j; if (next >= 0 && dok[ende] != '\n') ende = next;
+        int asc = 0, desc = 0;
+        for (int k = i; k < ende; k++) { if (dok[k] == '\n') continue; int a = st_asc(dokst[k]), d = st_desc(dokst[k]); if (a > asc) asc = a; if (d > desc) desc = d; }
+        if (!asc) { uint8_t s0 = (i == dokcur) ? dok_cst : (uint8_t)ST_STD; asc = st_asc(s0); desc = st_desc(s0); }
+        ed_za[n] = asc; ed_zh[n] = asc + desc + 4;
+        n++;
+        if (next < 0 || n >= max) break;
+        i = next;
     }
     return n;
 }
 static int ed_start[ED_ZMAX];
 static void ob_word(int voll);
 static void zeichne_editor(int voll) { ob_word(voll); }
+static void dok_fmtname(char* out) { scopy(out, dokname, 24); int n = slen(out); if (n > 4 && out[n - 4] == '.') { out[n - 3] = 'f'; out[n - 2] = 'm'; out[n - 1] = 't'; } }
 static void dok_speichern(void) {
     synfs_create(dokname, SYNFS_FILE);
     int r = synfs_write(dokname, dok, (uint32_t)doklen);
+    { static uint8_t rl[2 * DOK_MAX + 4]; int o = 0, i = 0;                              /* Formatdatei: Lauflaengen (Anzahl, Stil) */
+      while (i < doklen) { int k = i; while (k < doklen && k - i < 255 && dokst[k] == dokst[i]) k++; rl[o++] = (uint8_t)(k - i); rl[o++] = dokst[i]; i = k; }
+      char fn[24]; dok_fmtname(fn); synfs_create(fn, SYNFS_FILE); synfs_write(fn, rl, (uint32_t)o); }
     synfs_sync();
     dokgeaendert = 0;
     kprint("[DESKTOP] Dokument gespeichert: "); kprint(dokname); kprint(" ("); kprint_dec((uint32_t)doklen); kprint(" Bytes)"); if (r < 0) kprint(" FEHLER"); kprint("\n");
@@ -1212,31 +1339,45 @@ static void dok_neu(void) {
         char a[8]; dec(a, (uint32_t)n); scopy(dokname, "dokument-", 24); cat(dokname, a, 24); cat(dokname, ".txt", 24);
         if (synfs_read(dokname, buf, 1) < 0) break;
     }
-    doklen = 0; dokcur = 0; dokscroll = 0; dokgeaendert = 0; dok[0] = 0;
+    dok_leeren(); dokscroll = 0; dokgeaendert = 0;
 }
 static void editor_oeffnen(void) { if (fenster_idx(FT_EDIT) < 0) dok_neu(); fenster_oeffnen(FT_EDIT); }
 static void editor_schliessen(void) {
     if (doklen > 0 && dokgeaendert) dok_speichern();
     fenster_schliessen_typ(FT_EDIT);
 }
+static int ed_zeile_von(int n, int pos) { int cl = 0; for (int i = 0; i < n; i++) if (ed_start[i] <= pos) cl = i; return cl; }
+static int ed_x_von(int zl, int pos) { int x = 0; for (int k = ed_start[zl]; k < pos && k < doklen; k++) if (dok[k] != '\n') x += st_adv((unsigned char)dok[k], dokst[k]); return x; }
+static int ed_pos_x(int n, int zl, int xo) {                 /* Zeichenposition in Zeile zl bei Pixelabstand xo vom Zeilenanfang */
+    int a = ed_start[zl], b = zl + 1 < n ? ed_start[zl + 1] : doklen; if (b > a && b <= doklen && dok[b - 1] == '\n') b--;
+    int x = 0; for (int k = a; k < b; k++) { int w = st_adv((unsigned char)dok[k], dokst[k]); if (xo < x + w / 2) return k; x += w; }
+    return b;
+}
+static void ed_alles_waehlen(void) { doksel = 0; dokcur = doklen; ed_stil_sync(); }
+static int ed_strg(uint8_t k) {                                /* Strg+B / I / U / A im Text */
+    if (k == 0x05) ed_stil_toggle(ST_FETT); else if (k == 0x0C) ed_stil_toggle(ST_KURSIV); else if (k == 0x18) ed_stil_toggle(ST_UNTER);
+    else if (k == 0x04) ed_alles_waehlen(); else return 0;
+    zeichne_editor(1); return 1;
+}
 static void editor_taste(uint8_t k, int shift, int altgr) {
-    if (k == 0x29) { editor_schliessen(); return; }
-    int n = ed_zeilen(ed_start, ED_ZMAX), cl = 0;
-    for (int i = 0; i < n; i++) if (ed_start[i] <= dokcur) cl = i;
-    int cc = dokcur - ed_start[cl];
-    if (k == 0x2A) { if (dokcur > 0) { for (int i = dokcur - 1; i < doklen; i++) dok[i] = dok[i + 1]; dokcur--; doklen--; dokgeaendert = 1; } }
-    else if (k == 0x4C) { if (dokcur < doklen) { for (int i = dokcur; i < doklen; i++) dok[i] = dok[i + 1]; doklen--; dokgeaendert = 1; } }
-    else if (k == 0x50) { if (dokcur > 0) dokcur--; }
-    else if (k == 0x4F) { if (dokcur < doklen) dokcur++; }
-    else if (k == 0x52) { if (cl > 0) { int l = ed_start[cl] - ed_start[cl - 1]; dokcur = ed_start[cl - 1] + (cc < l - 1 ? cc : l - 1 > 0 ? l - 1 : 0); } }
-    else if (k == 0x51) { if (cl + 1 < n) { int e = cl + 2 < n ? ed_start[cl + 2] : doklen + 1; int l = e - ed_start[cl + 1]; dokcur = ed_start[cl + 1] + (cc < l - 1 ? cc : (l - 1 > 0 ? l - 1 : 0)); if (dokcur > doklen) dokcur = doklen; } }
-    else if (k == 0x4A) dokcur = ed_start[cl];
-    else if (k == 0x4D) dokcur = cl + 1 < n ? ed_start[cl + 1] - (dok[ed_start[cl + 1] - 1] == '\n' ? 1 : 0) : doklen;
+    if (k == 0x29) { if (doksel >= 0) { doksel = -1; zeichne_editor(0); return; } editor_schliessen(); return; }
+    int n = ed_zeilen(ed_start, ED_ZMAX), cl = ed_zeile_von(n, dokcur);
+    int bewegt = (k == 0x50 || k == 0x4F || k == 0x52 || k == 0x51 || k == 0x4A || k == 0x4D);
+    if (bewegt && shift && doksel < 0) doksel = dokcur;
+    if (bewegt && !shift) doksel = -1;
+    if (k == 0x2A) { if (doksel >= 0 && doksel != dokcur) dok_sel_loeschen(); else if (dokcur > 0) dok_loesche(dokcur - 1, dokcur); doksel = -1; ed_stil_sync(); }
+    else if (k == 0x4C) { if (doksel >= 0 && doksel != dokcur) dok_sel_loeschen(); else if (dokcur < doklen) dok_loesche(dokcur, dokcur + 1); doksel = -1; ed_stil_sync(); }
+    else if (k == 0x50) { if (dokcur > 0) dokcur--; ed_stil_sync(); }
+    else if (k == 0x4F) { if (dokcur < doklen) dokcur++; ed_stil_sync(); }
+    else if (k == 0x52) { if (cl > 0) dokcur = ed_pos_x(n, cl - 1, ed_x_von(cl, dokcur)); ed_stil_sync(); }
+    else if (k == 0x51) { if (cl + 1 < n) dokcur = ed_pos_x(n, cl + 1, ed_x_von(cl, dokcur)); ed_stil_sync(); }
+    else if (k == 0x4A) { dokcur = ed_start[cl]; ed_stil_sync(); }
+    else if (k == 0x4D) { dokcur = cl + 1 < n ? ed_start[cl + 1] - (dok[ed_start[cl + 1] - 1] == '\n' ? 1 : 0) : doklen; ed_stil_sync(); }
     else {
         char c = (k == 0x28 || k == 0x58) ? '\n' : usb_key_char(k, shift, altgr);
         if ((c == '\n' || (c >= 32 && c < 127) || (unsigned char)c >= 0xA0) && doklen < DOK_MAX) {
-            for (int i = doklen; i > dokcur; i--) dok[i] = dok[i - 1];
-            dok[dokcur++] = c; doklen++; dok[doklen] = 0; dokgeaendert = 1;
+            dok_sel_loeschen();
+            dok_einf(dokcur, (unsigned char)c, dok_cst); dokcur++;
         } else return;
     }
     zeichne_editor(0);
@@ -1307,11 +1448,11 @@ static int pdf_drucken(const char* titel, const char* text) {
 #include "browser_ui.inc"
 
 /* ---------- Rechtsklick-Menue ---------- */
-enum { M_NEUDOK = 30, M_BROWSER, M_RECHNER, M_INFO, M_EINST, M_CHATS, M_GED, M_WUHR, M_WSYS, M_WAUF, M_WAGENT, M_WSCHL, M_FSCHL, M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN, M_BILDHG = 60 };
+enum { M_NEUDOK = 30, M_BROWSER, M_RECHNER, M_INFO, M_EINST, M_CHATS, M_GED, M_WUHR, M_WSYS, M_WAUF, M_WAGENT, M_WNOTIZ, M_WSCHL, M_FSCHL, M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN, M_BILDHG = 60 };
 static int menu_bild = -1;
-static struct { int offen, x, y, w, n, hover, ziel; struct { int id; const char* de; const char* en; } p[12]; } menu;
+static struct { int offen, x, y, w, n, hover, ziel; struct { int id; const char* de; const char* en; } p[16]; } menu;
 static int menu_link, menu_wid;
-static void menu_add(int id, const char* de, const char* en) { if (menu.n < 12) { menu.p[menu.n].id = id; menu.p[menu.n].de = de; menu.p[menu.n].en = en; menu.n++; } }
+static void menu_add(int id, const char* de, const char* en) { if (menu.n < 16) { menu.p[menu.n].id = id; menu.p[menu.n].de = de; menu.p[menu.n].en = en; menu.n++; } }
 static void zeichne_menu(void) {
     if (!menu.offen) return;
     gfx_begin();
@@ -1351,7 +1492,7 @@ static void menu_oeffnen(int x, int y) {
         menu_add(M_AUSSCHN, "Ausschneiden", "Cut"); menu_add(M_KOPIEREN, "Kopieren", "Copy"); menu_add(M_EINFUEGEN, "Einfuegen", "Paste"); menu_add(M_ALLES, "Alles auswaehlen", "Select all"); menu_add(M_LEEREN, "Leeren", "Clear");
     } else if (flaeche == 0) {
         menu_add(M_NEUDOK, "Neues Dokument", "New document"); menu_add(M_BROWSER, "Browser", "Browser"); menu_add(M_RECHNER, "Rechner", "Calculator"); menu_add(M_INFO, "System-Info", "System info");
-        menu_add(M_WUHR, "Widget: Uhr", "Widget: clock"); menu_add(M_WSYS, "Widget: System", "Widget: system"); menu_add(M_WAUF, "Widget: Aufgaben", "Widget: tasks"); menu_add(M_WAGENT, "Widget: Agenten", "Widget: agents");
+        menu_add(M_WUHR, "Widget: Uhr", "Widget: clock"); menu_add(M_WSYS, "Widget: System", "Widget: system"); menu_add(M_WAUF, "Widget: Aufgaben", "Widget: tasks"); menu_add(M_WAGENT, "Widget: Agenten", "Widget: agents"); menu_add(M_WNOTIZ, "Notizzettel", "Sticky note");
         menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_CHATS, "Chats", "Chats"); menu_add(M_GED, "Gedaechtnis", "Memory"); menu_add(M_EINST, "Einstellungen", "Settings");
     } else {
         menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_VORIGE, "Vorherige Arbeitsflaeche", "Previous workspace");
@@ -1360,14 +1501,24 @@ static void menu_oeffnen(int x, int y) {
     zeichne_menu();
 }
 static void ed_einfuegen_text(const char* t, int n) {
-    for (int i = 0; i < n && doklen < DOK_MAX; i++) { unsigned char c = (unsigned char)t[i]; if (c == '\r') continue; if (!(c == '\n' || (c >= 32 && c < 127) || c >= 0xA0)) continue; for (int k = doklen; k > dokcur; k--) dok[k] = dok[k - 1]; dok[dokcur++] = (char)c; doklen++; }
+    if (doksel >= 0) dok_sel_loeschen();
+    int zstart = 1, kopf = 0;                                   /* "# Titel"-Zeilen (KI-Text, alte Dokumente) werden zur Ueberschrift */
+    for (int i = 0; i < n && doklen < DOK_MAX; i++) {
+        unsigned char c = (unsigned char)t[i]; if (c == '\r') continue;
+        if (!(c == '\n' || (c >= 32 && c < 127) || c >= 0xA0)) continue;
+        if (zstart && c == '#') { kopf = 1; while (i + 1 < n && (t[i + 1] == '#' || t[i + 1] == ' ')) i++; zstart = 0; continue; }
+        zstart = 0;
+        uint8_t st = kopf ? (uint8_t)(ST_FETT | (3 << 4)) : dok_cst;
+        dok_einf(dokcur, c, st); dokcur++;
+        if (c == '\n') { zstart = 1; kopf = 0; }
+    }
     dok[doklen] = 0; dokgeaendert = 1;
 }
 /* Aktionen fuer das aktive Eingabeziel: Chat-Leiste, Adressleiste oder Dokument */
 static void ziel_aktion(int id) {
     char* b = zustand == Z_WEB ? adr : eingabe; int* n = zustand == Z_WEB ? &adrlen : &einlen; int mx = zustand == Z_WEB ? 190 : 80;
     if (zustand == Z_EDIT) {
-        if (id == M_KOPIEREN || id == M_AUSSCHN) { clip_setze(dok, doklen); if (id == M_AUSSCHN) { doklen = 0; dokcur = 0; dok[0] = 0; dokgeaendert = 1; } scopy(meldung, TR("Dokument kopiert.", "Document copied."), 100); }
+        if (id == M_KOPIEREN || id == M_AUSSCHN) { { int sa, sb; if (ed_selbereich(&sa, &sb)) clip_setze(dok + sa, sb - sa); else clip_setze(dok, doklen); } if (id == M_AUSSCHN) { int sa, sb; if (ed_selbereich(&sa, &sb)) { dok_sel_loeschen(); } else dok_leeren(); } scopy(meldung, TR("Dokument kopiert.", "Document copied."), 100); }
         else if (id == M_EINFUEGEN) ed_einfuegen_text(clip, cliplen);
         zeichne_editor(1); return;
     }
@@ -1405,8 +1556,8 @@ static void menu_aktion(int id) {
     case M_EINST: fenster_oeffnen(FT_EINST); return;
     case M_CHATS: fenster_oeffnen(FT_CHATS); return;
     case M_GED: fenster_oeffnen(FT_GED); return;
-    case M_WUHR: widget_neu(WG_UHR); return; case M_WSYS: widget_neu(WG_SYS); return; case M_WAUF: widget_neu(WG_AUF); return; case M_WAGENT: widget_neu(WG_AGENT); return;
-    case M_WSCHL: if (menu_wid >= 0 && menu_wid < nwid) { for (int j = menu_wid; j < nwid - 1; j++) wid[j] = wid[j + 1]; nwid--; layout_speichern(); } break;
+    case M_WUHR: widget_neu(WG_UHR); return; case M_WSYS: widget_neu(WG_SYS); return; case M_WAUF: widget_neu(WG_AUF); return; case M_WAGENT: widget_neu(WG_AGENT); return; case M_WNOTIZ: widget_neu(WG_NOTIZ); return;
+    case M_WSCHL: widget_weg(menu_wid); break;
     case M_FSCHL: if (nfen) { fenster_schliessen_typ(fen[nfen - 1].typ); return; } break;
     case M_NAECHSTE: flaeche_wechsel(flaeche + 1); return;
     case M_VORIGE: flaeche_wechsel(flaeche + 3); return;
@@ -2267,6 +2418,7 @@ static void entsperren_versuch(void) {
     else { zustand = Z_DESK; einlen = 0; eingabe[0] = 0; reply1(TR("Festplatte entsperrt. Was moechtest du tun?", "Disk unlocked. What would you like to do?")); zeichne_desktop(); }
 }
 
+#include "autotext.inc"
 #include "office.inc"
 
 static void taste_roh(uint8_t k, int shift, int altgr) {
@@ -2278,7 +2430,7 @@ static void taste_roh(uint8_t k, int shift, int altgr) {
     if (zustand == Z_INFO) { if (k == 0x29 && nfen) fenster_schliessen_typ(fen[nfen - 1].typ); return; }
     if (zustand == Z_OFF) { office_taste(k, shift, altgr); return; }
     if (zustand == Z_EDIT && kp_fokus == FT_EDIT) { kp_taste(k, shift, altgr); return; }
-    if (zustand == Z_EDIT) { if (cur_ctrl && k == 0x16) { dok_speichern(); zeichne_editor(1); return; } if (cur_ctrl && strg_taste(k)) return; editor_taste(k, shift, altgr); return; }
+    if (zustand == Z_EDIT) { if (cur_ctrl && k == 0x16) { dok_speichern(); zeichne_editor(1); return; } if (cur_ctrl && ed_strg(k)) return; if (cur_ctrl && strg_taste(k)) return; editor_taste(k, shift, altgr); return; }
     if (zustand == Z_WEB) { web_taste(k, shift, altgr); return; }
     if (zustand == Z_LOGIN && entsperr) {
         int n = slen(fpw);
@@ -2335,6 +2487,8 @@ static void ausfuehren(void);
 #define RBH 420
 #define RSL 22                                    /* Winkel zwischen zwei Eintraegen */
 static struct { int offen, n, sel, bewegt, gen, cx, cy, dir, bx, by; } rad;
+static int rad_ext;                              /* 1 = Rad zeigt Vorschlaege der Autovervollstaendigung (Programme), 0 = Befehlsrad im Chat */
+static void ac_wahl(int i);
 static char rc[RMAX][96]; static int rtyp[RMAX];
 static int rrx[RMAX], rry[RMAX], rrw[RMAX];       /* Trefferflaechen der sichtbaren Eintraege (-1 = nicht sichtbar) */
 static uint32_t radbuf[RBW * RBH];
@@ -2417,11 +2571,7 @@ static void rad_weg(void) {
     rad.offen = 0;
     if (rad.gen == desk_gen) { gfx_begin(); rad_zurueck(); gfx_end(); }
 }
-static void rad_neu(void) {
-    if (zustand != Z_DESK || flaeche != 0 || menu.offen || sel1 || einlen == 0 || !rad_modus()) return;
-    rad_baue(); if (rad.n == 0) return;
-    const struct usb_pointer* p = usb_pointer_state();
-    int cx = p->x, cy = p->y;
+static void rad_zeige(int cx, int cy) {
     rad.dir = (cx + RBW - 40 <= W) ? 1 : -1;
     if (rad.dir > 0) { if (cx < 40) cx = 40; if (cx > W - RBW + 40) cx = W - RBW + 40; } else { if (cx > W - 40) cx = W - 40; if (cx < RBW - 40) cx = RBW - 40; }
     if (cy < RBH / 2) cy = RBH / 2; if (cy > H - RBH / 2) cy = H - RBH / 2;
@@ -2430,7 +2580,14 @@ static void rad_neu(void) {
     gfx_begin(); rad_sichern(rad.bx, rad.by); gfx_end();
     rad.gen = desk_gen; rad.offen = 1;
     rad_zeichne();
-    if (neu) { kprint("[DESKTOP] Rad: geoeffnet, "); kprint_dec((uint32_t)rad.n); kprint(" Eintraege\n"); }
+    if (neu) { kprint(rad_ext ? "[DESKTOP] Rad (Vorschlaege): geoeffnet, " : "[DESKTOP] Rad: geoeffnet, "); kprint_dec((uint32_t)rad.n); kprint(" Eintraege\n"); }
+}
+static void rad_neu(void) {
+    if (zustand != Z_DESK || flaeche != 0 || menu.offen || sel1 || einlen == 0 || !rad_modus()) return;
+    rad_ext = 0;
+    rad_baue(); if (rad.n == 0) return;
+    const struct usb_pointer* p = usb_pointer_state();
+    rad_zeige(p->x, p->y);
 }
 static void rad_drehen(int d) {
     if (!rad.offen) return;
@@ -2441,6 +2598,7 @@ static void rad_drehen(int d) {
 }
 static void rad_einfuegen(int lauf) {
     if (!rad.offen || rad.sel < 0 || rad.sel >= rad.n) return;
+    if (rad_ext) { ac_wahl(rad.sel); return; }
     char t[96]; scopy(t, rc[rad.sel], 96);
     rad_weg();
     scopy(eingabe, t, 96); einlen = slen(eingabe); sel1 = 0; sug_suche();
@@ -2460,6 +2618,65 @@ static int rad_taste(uint8_t k) {
     if ((k == 0x28 || k == 0x58) && rad.bewegt) { rad_einfuegen(1); return 1; }                /* Enter nach dem Drehen: uebernehmen und ausfuehren */
     return 0;
 }
+/* ---------- Autovervollstaendigung in den Programmen (Text, Zynie-Feld, Tabellenzelle) ---------- */
+static int ac_kontext(char* ctx, int max) {
+    int top = nfen ? fen[nfen - 1].typ : 0; ac_ziel = AZ_NICHTS;
+    if (menu.offen) return 0;
+    if ((zustand == Z_EDIT || zustand == Z_OFF) && kp_fokus && kp_fokus == top && kp_einlen > 1) { scopy(ctx, kp_ein, max); ac_ziel = AZ_KP; return AZ_KP; }
+    if (zustand == Z_EDIT && top == FT_EDIT && !kp_fokus) {
+        int a, b; if (ed_selbereich(&a, &b)) return 0;
+        int s0 = dokcur; while (s0 > 0 && dok[s0 - 1] != '\n' && dokcur - s0 < 90) s0--;
+        if (dokcur - s0 < 2 || dokcur - s0 >= max) return 0;
+        for (int i = s0; i < dokcur; i++) ctx[i - s0] = dok[i]; ctx[dokcur - s0] = 0;
+        ac_ziel = AZ_TEXT; ac_pos = dokcur; ac_len = doklen; return AZ_TEXT;
+    }
+    if (zustand == Z_OFF && top == FT_TAB && t_edit && t_ebuf[0] != '=' && t_elen > 1) { scopy(ctx, t_ebuf, max); ac_ziel = AZ_TAB; return AZ_TAB; }
+    return 0;
+}
+static int ac_lernpos = -1;
+static void ac_satz_lernen(void) {                              /* gerade beendeten Satz merken */
+    if (dokcur < 8 || dokcur == ac_lernpos) return;
+    char c = dok[dokcur - 1]; if (c != '.' && c != '!' && c != '?') return;
+    ac_lernpos = dokcur;
+    int s0 = dokcur - 1; while (s0 > 0 && dok[s0 - 1] != '\n' && !((dok[s0 - 1] == ' ') && s0 >= 2 && (dok[s0 - 2] == '.' || dok[s0 - 2] == '!' || dok[s0 - 2] == '?')) && dokcur - s0 < 90) s0--;
+    char t[96]; int n = 0; for (int i = s0; i < dokcur && n < 94; i++) t[n++] = dok[i]; t[n] = 0;
+    if (t[0] >= 'A' && t[0] <= 'Z') t[0] = (char)(t[0] + 32);                      /* Satzanfang klein speichern: passt dann ueberall */
+    ac_lerne(t);
+}
+static void ac_aktualisieren(void) {
+    char ctx[100]; ac_n = 0;
+    int z = ac_kontext(ctx, 100); if (!z) return;
+    if (z == AZ_TEXT) ac_satz_lernen();
+    ac_baue(ctx, z == AZ_TEXT ? dok : 0, z == AZ_TEXT ? doklen : 0);
+    if (!ac_n) return;
+    if (z == AZ_TEXT) ob_word(0);                                                  /* grauer Vorschlag hinter der Eingabemarke */
+    if (rad_modus()) {
+        rad_ext = 1; rad.n = ac_n; rad.sel = 0; rad.bewegt = 0;
+        for (int i = 0; i < ac_n; i++) { scopy(rc[i], ac_c[i], 96); rtyp[i] = z == AZ_TEXT ? 0 : 1; }
+        const struct usb_pointer* p = usb_pointer_state();
+        if (z == AZ_TEXT && ac_hat) rad_zeige(ac_cx + 24, ac_cy + ac_ch / 2); else rad_zeige(p->x, p->y);
+    } else if (z != AZ_TEXT) { scopy(ob_meld, "Tab: ", 100); cat(ob_meld, ac_c[0], 100); ob_neu_zeichnen(nfen ? fen[nfen - 1].typ : FT_EDIT); }
+}
+static void ac_wahl(int i) {
+    if (i < 0 || i >= ac_n) return;
+    char t[96]; scopy(t, ac_c[i], 96); int er = ac_er[i]; int z = ac_ziel;
+    rad_weg(); ob_meld[0] = 0;
+    if (z == AZ_TEXT) {
+        if (er > dokcur) er = dokcur; dok_loesche(dokcur - er, dokcur);
+        for (int k = 0; t[k]; k++) { dok_einf(dokcur, (unsigned char)t[k], dok_cst); dokcur++; }
+        zeichne_editor(0);
+    } else if (z == AZ_KP) {
+        if (er > kp_einlen) er = kp_einlen; kp_einlen -= er; kp_ein[kp_einlen] = 0;
+        for (int k = 0; t[k] && kp_einlen < 196; k++) kp_ein[kp_einlen++] = t[k]; kp_ein[kp_einlen] = 0;
+        ob_neu_zeichnen(kp_fokus);
+    } else if (z == AZ_TAB) {
+        if (er > t_elen) er = t_elen; t_elen -= er; t_ebuf[t_elen] = 0;
+        for (int k = 0; t[k] && t_elen < 46; k++) t_ebuf[t_elen++] = t[k]; t_ebuf[t_elen] = 0;
+        zeichne_tabelle();
+    } else return;
+    kprint("[DESKTOP] Vorschlag uebernommen: "); kprint(t); kprint("\n");
+    ac_aktualisieren();
+}
 static void taste(uint8_t k, int shift, int altgr) {
     if (ob_vollbild) { praes_vollbild_taste(k); return; }
     if (orb_auf) {                                                                   /* Orbit: Pfeile waehlen, Enter oeffnet, Esc schliesst */
@@ -2471,10 +2688,15 @@ static void taste(uint8_t k, int shift, int altgr) {
     }
     if (cur_ctrl && k == 0x2C && zustand != Z_LOGIN) { if (flaeche != 0) flaeche_wechsel(0); if (nfen && fok) { fok = 0; zustand = Z_DESK; zeichne_desktop(); } orb_oeffnen(); return; }   /* Strg+Leertaste */
     int desk = zustand == Z_DESK && flaeche == 0 && !menu.offen;
+    if (notiz_taste(k, shift, altgr)) return;
     if (desk && rad_taste(k)) return;
+    if (rad.offen && rad_ext && rad_taste(k)) return;
+    if (!rad.offen && ac_n > 0 && k == 0x2B && ac_ziel == AZ_TEXT && ac_pos == dokcur && ac_len == doklen && zustand == Z_EDIT) { ac_wahl(0); return; }
+    if (!rad.offen && ac_n > 0 && k == 0x2B && (ac_ziel == AZ_KP || ac_ziel == AZ_TAB) && (zustand == Z_EDIT || zustand == Z_OFF)) { ac_wahl(0); return; }
     rad_weg();
+    ac_n = 0;
     taste_roh(k, shift, altgr);
-    if (zustand == Z_DESK && flaeche == 0 && !menu.offen) rad_neu();
+    if (zustand == Z_DESK && flaeche == 0 && !menu.offen) rad_neu(); else ac_aktualisieren();
 }
 
 static void dock_oeffnen(int i) {
@@ -2524,6 +2746,49 @@ static void fokus_bei(int x, int y) {
     if (h >= 0) { if (h != nfen - 1) fenster_hoch(h); fok = 1; zustand = zustand_fuer(fen[nfen - 1].typ); zeichne_desktop(); }
     else if (fok) { fok = 0; zustand = Z_DESK; zeichne_desktop(); }
 }
+/* ---------- Notizzettel: Tippen, KI-Knoepfe ---------- */
+static void notiz_ki(int j, int art) {
+    int id = wid[j].id; static char out[900]; static char auf[300];
+    if (!nz_len[id]) { scopy(nz_meld, TR("Erst etwas schreiben", "Write something first"), 48); return; }
+    if (art == 0) scopy(auf, TR("Verbessere den folgenden Notizzettel-Text: korrigiere Rechtschreibung und formuliere klarer. Gib nur den verbesserten Text aus, maximal 280 Zeichen.", "Improve the following note: fix spelling and make it clearer. Output only the improved text, at most 280 characters."), 300);
+    else if (art == 1) scopy(auf, TR("Extrahiere aus dem folgenden Notizzettel-Text alle Aufgaben. Gib pro Zeile genau eine Aufgabe aus, ohne Nummerierung und ohne weiteren Text.", "Extract all tasks from the following note. Output exactly one task per line, no numbering and no other text."), 300);
+    else scopy(auf, TR("Setze den folgenden Notizzettel-Text sinnvoll fort. Gib nur die Fortsetzung aus, maximal 200 Zeichen.", "Continue the following note sensibly. Output only the continuation, at most 200 characters."), 300);
+    nz[id][nz_len[id]] = 0;
+    int n = ob_ki(auf, nz[id], out, (int)sizeof(out));
+    if (n <= 0) { scopy(nz_meld, TR("Keine KI verfuegbar", "No AI available"), 48); return; }
+    if (art == 1) {
+        int cnt = 0, i = 0; while (out[i]) { int e = i; while (out[e] && out[e] != '\n') e++; char t[120]; int tl = 0; for (int k = i; k < e && tl < 119; k++) t[tl++] = out[k]; t[tl] = 0;
+            while (tl && (t[tl - 1] == ' ' || t[tl - 1] == '\r')) t[--tl] = 0; int a = 0; while (t[a] == '-' || t[a] == '*' || t[a] == ' ') a++;
+            if (t[a] && aufg_add(t + a) >= 0) cnt++; i = out[e] ? e + 1 : e; }
+        scopy(nz_meld, cnt ? TR("Aufgaben angelegt", "Tasks added") : TR("Keine Aufgaben", "No tasks"), 48);
+    } else if (art == 0) {
+        int l = 0; while (out[l] && l < NZ_T) { nz[id][l] = out[l]; l++; } nz[id][l] = 0; nz_len[id] = l; scopy(nz_meld, TR("Verbessert", "Improved"), 48);
+    } else {
+        int l = nz_len[id]; if (l < NZ_T) nz[id][l++] = ' '; for (int k = 0; out[k] && l < NZ_T; k++) nz[id][l++] = out[k]; nz[id][l] = 0; nz_len[id] = l; scopy(nz_meld, TR("Fortgesetzt", "Continued"), 48);
+    }
+    notiz_speichern();
+    kprint("[DESKTOP] Notiz-KI ausgefuehrt\n");
+}
+static int notiz_taste(uint8_t k, int shift, int altgr) {
+    if (notiz_fok < 0 || notiz_fok >= nwid || wid[notiz_fok].typ != WG_NOTIZ) return 0;
+    if (zustand != Z_DESK || flaeche != 0 || menu.offen) return 0;
+    int id = wid[notiz_fok].id; nz_meld[0] = 0;
+    if (k == 0x29) { notiz_fok = -1; zeichne_desktop(); return 1; }
+    if (k == 0x2A) { if (nz_len[id] > 0) nz[id][--nz_len[id]] = 0; }
+    else {
+        char c = (k == 0x28 || k == 0x58) ? '\n' : usb_key_char(k, shift, altgr);
+        if (!((c == '\n' || (c >= 32 && c < 127) || (unsigned char)c >= 0xA0) && nz_len[id] < NZ_T)) return 0;
+        nz[id][nz_len[id]++] = c; nz[id][nz_len[id]] = 0;
+    }
+    notiz_speichern(); gfx_begin(); wid_zeichnen(notiz_fok); gfx_end(); return 1;
+}
+/* 1 = verbraucht (Klick auf Rumpf/Knoepfe), 0 = Kopfzeile */
+static int notiz_klick(int j, int x, int y) {
+    struct widget* g = &wid[j]; if (y < g->y + 26) return 0;
+    notiz_fok = j; nz_meld[0] = 0;
+    if (y >= g->y + g->h - 34 && y < g->y + g->h - 8) { int zb = (g->w - 24) / 3, k = (x - g->x - 12) / zb; if (x >= g->x + 12 && k >= 0 && k < 3) notiz_ki(j, k); }
+    zeichne_desktop(); return 1;
+}
 static void maus_runter(int x, int y) {
     int h = fenster_bei(x, y);
     if (h >= 0) {
@@ -2542,10 +2807,12 @@ static void maus_runter(int x, int y) {
     if (flaeche == 0) for (int j = nwid - 1; j >= 0; j--) {
         struct widget* g = &wid[j];
         if (x >= g->x && x < g->x + g->w && y >= g->y && y < g->y + g->h) {
-            if (x >= g->x + g->w - 30 && y < g->y + 26) { for (int q = j; q < nwid - 1; q++) wid[q] = wid[q + 1]; nwid--; layout_speichern(); zeichne_desktop(); return; }
+            if (x >= g->x + g->w - 30 && y < g->y + 26) { widget_weg(j); zeichne_desktop(); return; }
+            if (g->typ == WG_NOTIZ && notiz_klick(j, x, y)) return;
             fdrag = 2; fobj = j; fdx = x - g->x; fdy = y - g->y; fox = g->x; foy = g->y; fdw = g->w; fdh = g->h; fdgezeichnet = 0; return;
         }
     }
+    if (notiz_fok >= 0) notiz_fok = -1;
     if (fok) { fok = 0; zustand = Z_DESK; zeichne_desktop(); }
     if (zustand == Z_DESK && flaeche == 0 && x >= zr_x() && x < zr_x() + zr_w() && y >= zr_y() && y < zr_y() + zr_h()) {
         if (x >= zr_x() + zr_w() - 24 && y >= zr_y() + zr_h() - 24) zdrag = 2; else { zdrag = 1; zdx = x - zx; zdy = y - zy; }
@@ -2623,7 +2890,8 @@ int desktop_start(void) {
     fname[0] = fpw[0] = 0; ffocus = 0; fmsg = 0; einlen = 0; eingabe[0] = 0; nsug = 0; sugsel = -1; flaeche = 0; alauf = -1; nalog = 0; pend = 0; nfen = 0; nwid = 0; fok = 0; fdrag = 0; fdgezeichnet = 0; menu.offen = 0; nantwort = 0; qh = qt = 0; was_down = 0;
     zx = 24 + 90; zy = 56 + 108; zs = 100; lbw = 0; zdrag = 0; letzte_eingabe = timer_get_ticks();
     gfx_console(0);
-    { const char* ws = zdb_get("desktop.widgets"); while (ws && *ws && nwid < 6) { int t = lies(&ws), x = lies(&ws) - 2000, y = lies(&ws) - 2000; if (t >= 1 && t <= 4) { wid[nwid].typ = t; wid_groesse(t, &wid[nwid].w, &wid[nwid].h); if (x < 60 - wid[nwid].w) x = 60 - wid[nwid].w; if (x > W - 60) x = W - 60; if (y < 42) y = 42; if (y > H - 40) y = H - 40; wid[nwid].x = x; wid[nwid].y = y; nwid++; } } }
+    notiz_laden();
+    { const char* ws = zdb_get("desktop.widgets"); while (ws && *ws && nwid < NWID_MAX) { int t = lies(&ws), x = lies(&ws) - 2000, y = lies(&ws) - 2000; if ((t >= 1 && t <= 4) || (t >= 10 && t < 10 + NZ_N)) { wid[nwid].typ = t >= 10 ? WG_NOTIZ : t; wid[nwid].id = t >= 10 ? t - 10 : 0; if (t >= 10) nz_used[t - 10] = 1; wid_groesse(wid[nwid].typ, &wid[nwid].w, &wid[nwid].h); if (x < 60 - wid[nwid].w) x = 60 - wid[nwid].w; if (x > W - 60) x = W - 60; if (y < 42) y = 42; if (y > H - 40) y = H - 40; wid[nwid].x = x; wid[nwid].y = y; nwid++; } } }
     { const char* zz = zdb_get("desktop.zynie"); if (zz) { int x = lies(&zz), y = lies(&zz), g = lies(&zz); if (g >= 50 && g <= 220 && x > 0 && x < W && y > 44 && y < H) { zx = x; zy = y; zs = g; } } }
     usb_set_rawgrab(rohtaste);
     shell_set_tick(tick);

@@ -200,6 +200,40 @@ void gfx_text_f(int x,int y,const char* s,uint32_t fg,int font){
     const struct aa_glyph* f=aa_glyphen+font*AA_ZEICHEN; uint32_t c=pc(fg);
     for(;*s;s++){ const struct aa_glyph* g=f+aa_index((unsigned char)*s); aa_glyph_zeichnen(x,y,g,c); x+=g->adv; }
 }
+/* Zeichen mit Stil (Textverarbeitung): stil Bit0 = fett (doppelt gezeichnet), Bit1 = kursiv (Scherung). y = Oberkante der Schriftbox. */
+int gfx_font_box(int font){ if(font>=0&&font<=3) return 16*(font+1); if(font>=4&&font<=7) return 16*(font-3); return 16; }
+static void aa_glyph_schief(int x,int y,const struct aa_glyph* g,uint32_t c,int grund){
+    const uint8_t* a=aa_daten+g->off; int gx=x+g->x0, gy=y+g->y0;
+    for(int j=0;j<g->h;j++){
+        int yy=gy+j; if(yy<0||yy>=(int)fb_h) continue;
+        int sh=(y+grund-yy)/4;                                       /* je 4 Pixel ueber der Grundlinie 1 Pixel nach rechts */
+        uint32_t* row=(uint32_t*)(fb+(uint64_t)yy*fb_pitch);
+        for(int i=0;i<g->w;i++){
+            int xx=gx+i+sh, al=a[j*g->w+i]; if(!al||xx<0||xx>=(int)fb_w) continue;
+            uint32_t d=row[xx], r=0;
+            for(int s2=0;s2<=16;s2+=8){ int dv=(int)((d>>s2)&255), cv=(int)((c>>s2)&255); r|=(uint32_t)(dv+(cv-dv)*al/255)<<s2; }
+            row[xx]=r;
+        }
+    }
+}
+int gfx_zeichen_adv(unsigned char ch,int font,int stil){
+    if(font<0||font>12) font=4;
+    int adv=(aa_glyphen+font*AA_ZEICHEN+aa_index(ch))->adv;
+    if(stil&1) adv+=gfx_font_box(font)>=32?2:1;
+    return adv;
+}
+int gfx_zeichen_stil(int x,int y,unsigned char ch,uint32_t fg,int font,int stil){
+    if(font<0||font>12) font=4;
+    const struct aa_glyph* g=aa_glyphen+font*AA_ZEICHEN+aa_index(ch);
+    int adv=g->adv;
+    if(mode==1){
+        uint32_t c=pc(fg); int box=gfx_font_box(font), grund=(box*77+50)/100, dicke=(stil&1)?(box>=32?2:1):0;
+        for(int d=0;d<=dicke;d++){
+            if(stil&2) aa_glyph_schief(x+d,y,g,c,grund); else aa_glyph_zeichnen(x+d,y,g,c);
+        }
+    }
+    return adv+((stil&1)?(gfx_font_box(font)>=32?2:1):0);
+}
 /* Bild (0x00RRGGBB) mit Ausschnitt: nur Zeilen y0..y1 des Bildschirms */
 void gfx_bild(int x,int y,int w,int h,const uint32_t* px,int stride,int y0,int y1){
     if(mode!=1) return;
