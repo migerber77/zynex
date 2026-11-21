@@ -2636,6 +2636,7 @@ static int ac_kontext(char* ctx, int max) {
         const char* f = pf_feld == 1 ? pf_t[pf_cur] : pf_b[pf_cur]; int n = slen(f), s0 = n; while (s0 > 0 && f[s0 - 1] != '\n' && n - s0 < 90) s0--;
         if (n - s0 < 2 || n - s0 >= max) return 0; for (int i = s0; i < n; i++) ctx[i - s0] = f[i]; ctx[n - s0] = 0; ac_ziel = AZ_PF; return AZ_PF;
     }
+    if (zustand == Z_OFF && top == FT_BOARD && !kp_fokus && b_sel >= 0 && b_edit && !b_ersetze && slen(bf[b_sel].t) > 1) { scopy(ctx, bf[b_sel].t, max); ac_ziel = AZ_BD; return AZ_BD; }
     if (zustand == Z_DESK && flaeche == 0 && !menu.offen && notiz_fok >= 0 && notiz_fok < nwid && wid[notiz_fok].typ == WG_NOTIZ) {
         int id = wid[notiz_fok].id, n = nz_len[id], s0 = n; while (s0 > 0 && nz[id][s0 - 1] != '\n' && n - s0 < 90) s0--;
         if (n - s0 < 2 || n - s0 >= max) return 0; for (int i = s0; i < n; i++) ctx[i - s0] = nz[id][i]; ctx[n - s0] = 0; ac_ziel = AZ_NZ; return AZ_NZ;
@@ -2685,6 +2686,8 @@ static void ac_wahl(int i) {
     } else if (z == AZ_PF) {
         char* f = pf_feld == 1 ? pf_t[pf_cur] : pf_b[pf_cur]; int mx = pf_feld == 1 ? 78 : 590, n = slen(f);
         if (er > n) er = n; n -= er; for (int k = 0; t[k] && n < mx; k++) f[n++] = t[k]; f[n] = 0; pf_geaendert = 1; zeichne_praes();
+    } else if (z == AZ_BD) {
+        char* f = bf[b_sel].t; int n = slen(f); if (er > n) er = n; n -= er; for (int k = 0; t[k] && n < 118; k++) f[n++] = t[k]; f[n] = 0; b_geaendert = 1; board_flaeche();
     } else if (z == AZ_NZ) {
         int id = wid[notiz_fok].id, n = nz_len[id]; if (er > n) er = n; n -= er;
         for (int k = 0; t[k] && n < NZ_T; k++) nz[id][n++] = t[k]; nz[id][n] = 0; nz_len[id] = n; notiz_speichern(); zeichne_desktop();
@@ -2707,7 +2710,7 @@ static void taste(uint8_t k, int shift, int altgr) {
     if (desk && rad_taste(k)) return;
     if (rad.offen && rad_ext && rad_taste(k)) return;
     if (!rad.offen && ac_n > 0 && k == 0x2B && ac_ziel == AZ_TEXT && ac_pos == dokcur && ac_len == doklen && zustand == Z_EDIT) { ac_wahl(0); return; }
-    if (!rad.offen && ac_n > 0 && k == 0x2B && (ac_ziel == AZ_KP || ac_ziel == AZ_TAB || ac_ziel == AZ_PF) && (zustand == Z_EDIT || zustand == Z_OFF)) { ac_wahl(0); return; }
+    if (!rad.offen && ac_n > 0 && k == 0x2B && (ac_ziel == AZ_KP || ac_ziel == AZ_TAB || ac_ziel == AZ_PF || ac_ziel == AZ_BD) && (zustand == Z_EDIT || zustand == Z_OFF)) { ac_wahl(0); return; }
     rad_weg();
     ac_n = 0;
     taste_roh(k, shift, altgr);
