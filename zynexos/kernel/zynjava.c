@@ -8,11 +8,19 @@ extern uint32_t timer_get_ticks(void);
 
 /* ---------- Typen und Befehle ---------- */
 enum { T_INT = 0, T_STR, T_ARR, T_ARR2, T_VOID };
+#define T_OBJ0 16            /* Objekt der Klasse cid = 16+cid; Feld solcher Objekte = 128+cid */
+#define T_OARR0 128
+#define TAG_ARR2 1
+#define TAG_OBJ 0x10
+#define TAG_OARR 0x40
+#define MAXF 32
+#define NCL_MAX 16
+static int is_ref(int ty) { return ty == T_ARR || ty == T_ARR2 || ty >= T_OBJ0; }
 enum {
     O_PUSH, O_LDL, O_STL, O_LDG, O_STG, O_AGET, O_ASETV, O_ALEN, O_NEWA, O_NEWA2, O_DUP, O_DUP2, O_POP,
     O_ADD, O_SUB, O_MUL, O_DIV, O_MOD, O_AND, O_OR, O_XOR, O_SHL, O_SHR, O_USHR,
     O_LT, O_LE, O_GT, O_GE, O_EQ, O_NE, O_NEG, O_NOT, O_BNOT,
-    O_SCAT, O_ITOS, O_SEQ, O_JMP, O_JZ, O_JNZ, O_CALL, O_RET, O_RETV, O_BI, O_ALIT, O_HALT
+    O_SCAT, O_ITOS, O_SEQ, O_JMP, O_JZ, O_JNZ, O_CALLM, O_CALL, O_RET, O_RETV, O_BI, O_ALIT, O_HALT, O_NEWO, O_GETF, O_SETF, O_INSTOF
 };
 enum {
     B_COLOR1, B_COLOR3, B_FILLRECT, B_DRAWRECT, B_LINE, B_FILLOVAL, B_DRAWOVAL, B_STRING, B_FONT, B_WIDTH, B_HEIGHT, B_PIXEL, B_NOP0, B_NOP1,
@@ -23,22 +31,27 @@ enum {
 #define CODE_MAX 4096                 /* Befehle je Programm */
 #define STK_MAX 4096
 #define HEAP_MAX 65536
-#define SPOOL_MAX 24000
-#define NSTR_MAX 1024
-#define NFN_MAX 64
+#define SPOOL_MAX 48000
+#define NSTR_MAX 4096
+#define NFN_MAX 160
 #define NG_MAX 128
 #define STEPS 600000
 
-struct fn { char name[24]; int pc, nargs, nloc, ret, def; };
+struct fn { char name[44]; int pc, nargs, nloc, ret, def; int cls; int stat, synth; unsigned mh; };
+struct cls {
+    char name[20]; int parent, isif, flat, nown, ntotal, ppos, ifpos[3], ifc[3];
+    char fname[MAXF][20]; uint8_t ftype[MAXF]; uint8_t ftot[MAXF];
+};
 struct zjv {
     int ok, ladet; char fehler[120];
     int w, h; uint32_t px[ZJ_MAXW * ZJ_MAXH];
     int code[CODE_MAX * 2]; int ncode, init_pc;
     struct fn fns[NFN_MAX]; int nfn;
-    char gname[NG_MAX][20]; uint8_t gtype[NG_MAX]; int g[NG_MAX]; int ng;
+    char gname[NG_MAX][44]; uint8_t gtype[NG_MAX]; int g[NG_MAX]; int ng;
     int stk[STK_MAX]; int sp, fp;
     int heap[HEAP_MAX]; int hp;
     char spool[SPOOL_MAX]; int soff[NSTR_MAX]; int nstr, nconst, spn, spconst;
+    struct cls cl[NCL_MAX]; int ncl;
     uint32_t farbe; int fscale; uint32_t rnd; int ex, ey, ekey;
     int f_start, f_paint, f_tick, f_down, f_up, f_key, f_move;
 };
@@ -90,13 +103,7 @@ static int s_neu(struct zjv* v, const char* t, int n) {
     int h = v->nstr++; v->soff[h] = v->spn; for (int i = 0; i < n; i++) v->spool[v->spn++] = t[i]; v->spool[v->spn++] = 0; return h;
 }
 static const char* s_text(struct zjv* v, int h) { return (h > 0 && h < v->nstr) ? v->spool + v->soff[h] : ""; }
-static void s_gc(struct zjv* v) {                      /* nur Zeichenketten in globalen Variablen bleiben erhalten */
-    if (v->spn < SPOOL_MAX * 6 / 10 && v->nstr < NSTR_MAX * 6 / 10) return;
-    static char tmp[SPOOL_MAX]; int tn = 0; static int th[NG_MAX];
-    for (int i = 0; i < v->ng; i++) if (v->gtype[i] == T_STR) { const char* t = s_text(v, v->g[i]); int l = slen(t); if (tn + l + 1 > SPOOL_MAX) l = 0; th[i] = tn; for (int k = 0; k < l; k++) tmp[tn++] = t[k]; tmp[tn++] = 0; }
-    v->nstr = v->nconst; v->spn = v->spconst;
-    for (int i = 0; i < v->ng; i++) if (v->gtype[i] == T_STR) v->g[i] = s_neu(v, tmp + th[i], slen(tmp + th[i]));
-}
+static void gc(struct zjv* v);
 
 /* ====================== Uebersetzer ====================== */
 enum { TK_END, TK_ID, TK_NUM, TK_STR, TK_OP };
@@ -113,7 +120,7 @@ static void fehler(const char* m) { if (!cerr[0]) { kop(cerr, m, 100); cerr_zeil
 static int str_const(const char* t, int n) { int h = s_neu(V, t, n); if (!h) fehler("Zu viele oder zu lange Texte"); return h; }
 
 static int lex(const char* s) {
-    int line = 1; ntk = 0; nid = 1; idpool[0] = 0;
+    int line = 1; ntk = 0; idpool[0] = 0; idpool[1] = 't'; idpool[2] = 'h'; idpool[3] = 'i'; idpool[4] = 's'; idpool[5] = 0; nid = 6;
     while (*s) {
         char c = *s;
         if (c == '\n') { line++; s++; continue; }
@@ -181,7 +188,7 @@ static int find_fn(const char* n) { for (int i = 0; i < V->nfn; i++) if (gl(V->f
 static int add_global(const char* n, int type) {
     int i = find_global(n); if (i >= 0) return i;
     if (V->ng >= NG_MAX) { fehler("Zu viele globale Variablen"); return 0; }
-    kop(V->gname[V->ng], n, 20); V->gtype[V->ng] = (uint8_t)type; return V->ng++;
+    kop(V->gname[V->ng], n, 44); V->gtype[V->ng] = (uint8_t)type; return V->ng++;
 }
 static int add_local(int nameidx, int type) {
     if (nlv >= 64) { fehler("Zu viele lokale Variablen"); return 0; }
@@ -189,13 +196,96 @@ static int add_local(int nameidx, int type) {
 }
 static int hidden_local(void) { if (nlv >= 64) { fehler("Zu viele lokale Variablen"); return 0; } lv_[nlv].name = 0; lv_[nlv].type = T_INT; lv_[nlv].slot = nlv; if (nlv + 1 > nloc_max) nloc_max = nlv + 1; return nlv++; }
 
+/* ---------- Klassen ---------- */
+static int cur_cls = -1, cur_static; static int fin_tp[NCL_MAX][MAXF];
+static unsigned hash_(const char* s) { unsigned h = 2166136261u; while (*s) { h ^= (unsigned char)*s++; h *= 16777619u; } return h; }
+static int tag_of(int ty) { return ty >= T_OARR0 ? TAG_OARR + (ty - T_OARR0) : 0; }
+static int class_find(const char* n) { for (int i = 0; i < V->ncl; i++) if (gl(V->cl[i].name, n)) return i; return -1; }
+static int cls_off(int c) { int o = 0; for (int d = 0; d < 20; d++) { int p = V->cl[c].parent; if (p < 0) break; o += V->cl[p].nown; c = p; } return o; }
+static int find_field(int c, const char* n, int* idx, int* ty) {
+    for (int d = 0; c >= 0 && d < 20; d++, c = V->cl[c].parent)
+        for (int i = 0; i < V->cl[c].nown; i++) if (gl(V->cl[c].fname[i], n)) { *idx = cls_off(c) + i; *ty = V->cl[c].ftype[i]; return 0; }
+    return -1;
+}
+static void mangle(char* o, int c, const char* n) { kop(o, V->cl[c].name, 44); int l = slen(o); o[l] = '.'; kop(o + l + 1, n, 44 - l - 1); }
+static int find_static(int c, const char* n) {
+    char m[44]; for (int d = 0; c >= 0 && d < 20; d++, c = V->cl[c].parent) { mangle(m, c, n); int g = find_global(m); if (g >= 0) return g; }
+    return -1;
+}
+static int find_method(int c, const char* n, int na) {
+    unsigned h = hash_(n);
+    for (int d = 0; c >= 0 && d < 20; d++, c = V->cl[c].parent)
+        for (int i = 0; i < V->nfn; i++) { struct fn* f = &V->fns[i]; if (f->cls == c && f->mh == h && f->nargs - (f->stat ? 0 : 1) == na) return i; }
+    return -1;
+}
+static int find_ctor(int c, int na) { unsigned h = hash_("<init>"); for (int i = 0; i < V->nfn; i++) { struct fn* f = &V->fns[i]; if (f->cls == c && f->mh == h && f->nargs == na + 1) return i; } return -1; }
+static int reg_method(int c, const char* n, int nargs, int ret, int stat) {
+    unsigned h = hash_(n);
+    for (int i = 0; i < V->nfn; i++) { struct fn* f = &V->fns[i]; if (f->cls == c && f->mh == h && f->nargs == nargs) return i; }
+    if (V->nfn >= NFN_MAX - 1) { fehler("Zu viele Funktionen"); return 0; }
+    struct fn* f = &V->fns[V->nfn]; mangle(f->name, c, n); f->cls = c; f->mh = h; f->nargs = nargs; f->ret = ret; f->stat = stat; f->synth = 0; f->def = 1; f->pc = -1; f->nloc = 0; return V->nfn++;
+}
+static int is_handler(const char* n) {
+    static const char* const H[] = { "paint", "init", "setup", "tick", "update", "step", "start", "mouseDown", "mousePressed", "mouseClicked", "mouseUp", "mouseReleased", "keyTyped", "keyPressed", "keyDown", "mouseMove", "mouseMoved", "mouseDragged", "main" };
+    for (unsigned i = 0; i < sizeof(H) / sizeof(H[0]); i++) if (gl(n, H[i])) return 1; return 0;
+}
+static int is_applet(const char* n) { return gl(n, "Applet") || gl(n, "JApplet") || gl(n, "JPanel") || gl(n, "Canvas") || gl(n, "Panel") || gl(n, "Frame") || gl(n, "JFrame") || gl(n, "Component") || gl(n, "JComponent"); }
+/* Durchgang 0: Klassen sammeln. Eine "Startklasse" (Applet, main, paint ...) bleibt wie bisher flach (Felder = globale Variablen). */
+static void class_scan(void) {
+    V->ncl = 0; int score[NCL_MAX], strong[NCL_MAX];
+    for (int i = 0; i < ntk; i++) {
+        if (tk[i].t != TK_ID) continue; const char* w = idn(i);
+        int isif = gl(w, "interface"); if (!isif && !gl(w, "class")) continue;
+        if (i > 0 && tk[i - 1].t == TK_OP && tk[i - 1].v == '.') continue;
+        if (tk[i + 1].t != TK_ID) continue;
+        if (V->ncl >= NCL_MAX) { tp = i; fehler("Zu viele Klassen (hoechstens 16)"); return; }
+        int cid = V->ncl++; struct cls* C = &V->cl[cid];
+        kop(C->name, idn(i + 1), 20); C->parent = -1; C->isif = isif; C->flat = 0; C->nown = 0; C->ntotal = 0; C->ppos = -1;
+        for (int k = 0; k < 3; k++) { C->ifpos[k] = -1; C->ifc[k] = -1; }
+        score[cid] = strong[cid] = 0; int ni = 0, j = i + 2;
+        while (tk[j].t != TK_END && !(tk[j].t == TK_OP && tk[j].v == '{')) {
+            if (tk[j].t == TK_ID && gl(idn(j), "extends") && !isif && tk[j + 1].t == TK_ID) { C->ppos = j + 1; if (is_applet(idn(j + 1))) strong[cid] = 1; j += 2; continue; }
+            if (tk[j].t == TK_ID && (gl(idn(j), "implements") || (isif && gl(idn(j), "extends")))) {
+                j++; while (tk[j].t == TK_ID || (tk[j].t == TK_OP && tk[j].v == ',')) { if (tk[j].t == TK_ID && ni < 3) C->ifpos[ni++] = j; j++; } continue; }
+            j++;
+        }
+        if (tk[j].t == TK_OP && tk[j].v == '{') {
+            int d = 0; for (int k = j; tk[k].t != TK_END; k++) {
+                if (tk[k].t == TK_OP) { if (tk[k].v == '{') d++; else if (tk[k].v == '}') { d--; if (d == 0) break; } }
+                else if (d == 1 && tk[k].t == TK_ID && tk[k + 1].t == TK_OP && tk[k + 1].v == '(' && (tk[k - 1].t == TK_ID || (tk[k - 1].t == TK_OP && tk[k - 1].v == ']')) && !gl(idn(k - 1), "new") && !gl(idn(k - 1), "return")) {
+                    if (is_handler(idn(k))) score[cid]++; if (gl(idn(k), "main") || gl(idn(k), "paint")) strong[cid] = 1; }
+            }
+        }
+    }
+    int nreal = 0, anyflat = 0, last = -1, best = -1, bs = 0;
+    for (int c = 0; c < V->ncl; c++) if (!V->cl[c].isif) { nreal++; last = c; if (strong[c]) { V->cl[c].flat = 1; anyflat = 1; } if (score[c] > bs) { bs = score[c]; best = c; } }
+    if (!anyflat && best >= 0) V->cl[best].flat = 1;
+    for (int c = 0; c < V->ncl; c++) {
+        struct cls* C = &V->cl[c];
+        if (C->ppos >= 0) { int p = class_find(idn(C->ppos)); C->parent = (p == c || (p >= 0 && V->cl[p].flat)) ? -1 : p; }
+        for (int k = 0; k < 3; k++) if (C->ifpos[k] >= 0) C->ifc[k] = class_find(idn(C->ifpos[k]));
+    }
+}
+static void layout(void) {
+    for (int c = 0; c < V->ncl; c++) {
+        int ch[20], n = 0; for (int p = c; p >= 0 && n < 20; p = V->cl[p].parent) ch[n++] = p;
+        int k = 0; for (int m = n - 1; m >= 0; m--) { struct cls* Q = &V->cl[ch[m]]; for (int i = 0; i < Q->nown; i++) { if (k < MAXF) V->cl[c].ftot[k++] = Q->ftype[i]; else { fehler("Zu viele Felder in einer Klasse (hoechstens 32)"); return; } } }
+        V->cl[c].ntotal = k;
+    }
+}
+static int add_this(int cid) {
+    if (nlv >= 64) { fehler("Zu viele lokale Variablen"); return 0; }
+    lv_[nlv].name = 1; lv_[nlv].type = T_OBJ0 + cid; lv_[nlv].slot = nlv; if (nlv + 1 > nloc_max) nloc_max = nlv + 1; return nlv++;
+}
+
 /* Typen im Quelltext */
 static int type_word(const char* n) {
     if (gl(n, "int") || gl(n, "long") || gl(n, "short") || gl(n, "byte") || gl(n, "char") || gl(n, "boolean") || gl(n, "Integer")) return T_INT;
     if (gl(n, "String")) return T_STR; if (gl(n, "void")) return T_VOID; return -1;
 }
 static int is_modifier(const char* n) { return gl(n, "public") || gl(n, "private") || gl(n, "protected") || gl(n, "static") || gl(n, "final") || gl(n, "abstract") || gl(n, "synchronized") || gl(n, "native") || gl(n, "volatile") || gl(n, "transient"); }
-static void skip_mods(void) { for (;;) { if (is_op('@')) { tp++; if (tk[tp].t == TK_ID) tp++; if (is_op('(')) { int d = 0; do { if (is_op('(')) d++; if (is_op(')')) d--; tp++; } while (d && tk[tp].t != TK_END); } continue; } if (tk[tp].t == TK_ID && is_modifier(idn(tp))) { tp++; continue; } break; } }
+static int mods_st;
+static void skip_mods(void) { mods_st = 0; for (;;) { if (is_op('@')) { tp++; if (tk[tp].t == TK_ID) tp++; if (is_op('(')) { int d = 0; do { if (is_op('(')) d++; if (is_op(')')) d--; tp++; } while (d && tk[tp].t != TK_END); } continue; } if (tk[tp].t == TK_ID && is_modifier(idn(tp))) { if (gl(idn(tp), "static")) mods_st = 1; tp++; continue; } break; } }
 static int check_float(const char* n) { if (gl(n, "float") || gl(n, "double")) { fehler("float/double gibt es nicht: bitte ganze Zahlen (int) verwenden"); return 1; } return 0; }
 /* Typ lesen (mit [] / [][]); -1 = kein Typ. unbekannte Namen zaehlen als int, wenn danach ein Name folgt */
 static int read_type(void) {
@@ -203,9 +293,9 @@ static int read_type(void) {
     int nx_id = tk[tp + 1].t == TK_ID, nx_arr = tk[tp + 1].t == TK_OP && tk[tp + 1].v == '[' && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ']';
     if (gl(n, "float") || gl(n, "double")) { if (!nx_id && !nx_arr) return -1; check_float(n); tp++; return T_INT; }
     if (!nx_id && !nx_arr) return -1;
-    if (base < 0) base = T_INT;
+    if (base < 0) { int cc = class_find(n); base = cc >= 0 ? T_OBJ0 + cc : T_INT; }
     tp++; int dim = 0; while (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; dim++; }
-    if (dim == 1) return T_ARR; if (dim >= 2) return T_ARR2; return base;
+    if (dim == 1) return base >= T_OBJ0 ? T_OARR0 + (base - T_OBJ0) : T_ARR; if (dim >= 2) return T_ARR2; return base;
 }
 
 /* ---------- Eingebaute Funktionen ---------- */
@@ -261,6 +351,22 @@ static int call_builtin(const char* name, int recv) {
     emit(O_BI, BI[found].id); return BI[found].ret;
 }
 
+static int postfix(void);
+static int count_args(void) {
+    int p = tp; if (!(tk[p].t == TK_OP && tk[p].v == '(')) return 0; p++; if (tk[p].t == TK_OP && tk[p].v == ')') return 0;
+    int d = 0, n = 1;
+    for (; tk[p].t != TK_END; p++) if (tk[p].t == TK_OP) { int o = tk[p].v; if (o == '(' || o == '[' || o == '{') d++; else if (o == ')' || o == ']' || o == '}') { if (!d) break; d--; } else if (o == ',' && !d) n++; }
+    return n;
+}
+static void call_args(void) { need('(', "'(' erwartet"); if (!is_op(')')) { do { expr(); } while (eat(',')); } need(')', "')' erwartet"); }
+static void array_lit(int tag) {
+    need('{', "'{' erwartet"); int cnt = 0, sv = tp, d = 0;
+    while (tk[tp].t != TK_END) { if (is_op('{')) d++; if (is_op('}')) { if (!d) break; d--; } if (is_op(',') && !d) cnt++; tp++; }
+    if (tp > sv && !(tk[tp - 1].t == TK_OP && tk[tp - 1].v == ',')) cnt++;
+    tp = sv; emit(O_PUSH, cnt); emit(O_NEWA, tag); int n = 0;
+    while (!is_op('}') && tk[tp].t != TK_END) { emit(O_DUP, 0); emit(O_PUSH, n++); expr(); emit(O_ASETV, 0); emit(O_POP, 0); if (!eat(',')) break; }
+    need('}', "'}' erwartet");
+}
 static int user_call(int fi, int nameidx) {
     (void)nameidx; struct fn* f = &V->fns[fi]; int na = 0;
     need('(', "'(' erwartet");
@@ -273,7 +379,7 @@ static int user_call(int fi, int nameidx) {
 /* Wertsatz fuer Zuweisungen / ++ / --: Lesezugriff als letzten Befehl erkennen */
 static int lv_kind(int start) {          /* 1 lokal, 2 global, 3 Feldelement, 0 nichts */
     int last = ncur - 1; if (last < start) return 0;
-    int op = op_at(last); if (op == O_LDL) return 1; if (op == O_LDG) return 2; if (op == O_AGET) return 3; return 0;
+    int op = op_at(last); if (op == O_LDL) return 1; if (op == O_LDG) return 2; if (op == O_AGET) return 3; if (op == O_GETF) return 4; return 0;
 }
 static int lv_type_g(int arg) { return V->gtype[arg]; }
 
@@ -286,6 +392,9 @@ static int primary(int* lvt) {
         /* Typumwandlung (int) (char) ... oder Klammerausdruck */
         if (tk[tp + 1].t == TK_ID && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ')' && type_word(idn(tp + 1)) == T_INT && !(tk[tp + 3].t == TK_OP && (tk[tp + 3].v == '+' || tk[tp + 3].v == '-') && 0)) {
             tp += 3; return primary(lvt) == T_STR ? T_STR : T_INT; }
+        if (tk[tp + 1].t == TK_ID && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ')' && class_find(idn(tp + 1)) >= 0 &&
+            (tk[tp + 3].t == TK_ID || tk[tp + 3].t == TK_NUM || tk[tp + 3].t == TK_STR || (tk[tp + 3].t == TK_OP && tk[tp + 3].v == '('))) {
+            int cc = class_find(idn(tp + 1)); tp += 3; postfix(); return T_OBJ0 + cc; }
         tp++; int ty = expr(); need(')', "')' erwartet"); return ty;
     }
     if (t->t != TK_ID) { fehler("Ausdruck erwartet"); tp++; return T_INT; }
@@ -293,9 +402,30 @@ static int primary(int* lvt) {
     if (gl(n, "true")) { tp++; emit(O_PUSH, 1); return T_INT; }
     if (gl(n, "false")) { tp++; emit(O_PUSH, 0); return T_INT; }
     if (gl(n, "null")) { tp++; emit(O_PUSH, 0); return T_INT; }
+    if (gl(n, "this")) {
+        tp++; if (cur_cls < 0 || cur_static) { fehler("this gibt es nur in Methoden einer Klasse"); return T_INT; }
+        if (is_op('(')) { fehler("this(...) wird nicht unterstuetzt"); return T_INT; }
+        emit(O_LDL, 0); return T_OBJ0 + cur_cls;
+    }
+    if (gl(n, "super")) {
+        tp++; int par = cur_cls >= 0 ? V->cl[cur_cls].parent : -1;
+        if (cur_cls < 0 || cur_static || !is_op('.') || tk[tp + 1].t != TK_ID || tk[tp + 2].t != TK_OP || tk[tp + 2].v != '(') { fehler("super.methode(...) erwartet"); return T_INT; }
+        const char* mn = idn(tp + 1); tp += 2; int na = count_args(); int fi = par >= 0 ? find_method(par, mn, na) : -1;
+        if (fi < 0) { fehler("Methode der Oberklasse nicht gefunden"); return T_INT; }
+        emit(O_LDL, 0); call_args(); emit(O_CALL, fi); return V->fns[fi].ret;
+    }
     if (gl(n, "new")) {
         tp++; if (tk[tp].t != TK_ID) { fehler("Typ nach new erwartet"); return T_INT; }
         const char* tn = idn(tp);
+        int ncid = class_find(tn);
+        if (ncid >= 0) {
+            tp++;
+            if (is_op('[')) { tp++; expr(); need(']', "']' erwartet"); emit(O_NEWA, TAG_OARR + ncid); return T_OARR0 + ncid; }
+            if (!is_op('(')) { fehler("( erwartet"); return T_INT; }
+            int na = count_args(), ci = find_ctor(ncid, na);
+            if (ci < 0) { fehler("Passender Konstruktor fehlt (Anzahl Argumente)"); return T_INT; }
+            emit(O_NEWO, ncid); emit(O_DUP, 0); call_args(); emit(O_CALL, ci); emit(O_POP, 0); return T_OBJ0 + ncid;
+        }
         if (gl(tn, "Color") && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') { tp++; return call_builtin("rgb", 0); }
         if (check_float(tn)) return T_INT;
         if (type_word(tn) < 0 || type_word(tn) == T_VOID) { fehler("Dieses Objekt (new) gibt es nicht; nur int[] und String"); return T_INT; }
@@ -314,10 +444,40 @@ static int primary(int* lvt) {
         const char* cn = idn(tp + 2); for (unsigned i = 0; i < sizeof(FARBEN) / sizeof(FARBEN[0]); i++) if (gl(FARBEN[i].n, cn)) { tp += 3; emit(O_PUSH, FARBEN[i].rgb); return T_INT; }
         fehler("Unbekannte Farbe"); tp += 3; return T_INT;
     }
-    int li = find_local(n), gi = li < 0 ? find_global(n) : -1;
-    if (li >= 0 || gi >= 0) {
+    int li = find_local(n), gi = -1;
+    if (li < 0 && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '.' && tk[tp + 2].t == TK_ID) {      /* Klasse.statisch */
+        int cc = class_find(n);
+        if (cc >= 0 && !V->cl[cc].flat) {
+            tp += 2; const char* mn = idn(tp);
+            if (tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') {
+                tp++; int na = count_args(), fi = find_method(cc, mn, na);
+                if (fi < 0 || !V->fns[fi].stat) { fehler("Statische Methode nicht gefunden"); return T_INT; }
+                call_args(); emit(O_CALL, fi); return V->fns[fi].ret;
+            }
+            int g = find_static(cc, mn); if (g < 0) { fehler("Statisches Feld nicht gefunden"); return T_INT; }
+            tp++; emit(O_LDG, g); return lv_type_g(g);
+        }
+    }
+    int fld = -1, fty = T_INT;
+    if (li < 0 && cur_cls >= 0) {
+        if (!cur_static && find_field(cur_cls, n, &fld, &fty) < 0) fld = -1;
+        if (fld < 0 && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') {                          /* Methode der eigenen Klasse */
+            tp++; int na = count_args(), fi = find_method(cur_cls, n, na);
+            if (fi >= 0) {
+                int st = V->fns[fi].stat; if (!st && cur_static) { fehler("Nicht-statische Methode aus statischem Kontext"); return T_INT; }
+                if (!st) emit(O_LDL, 0);
+                call_args(); emit(st ? O_CALL : O_CALLM, fi); return V->fns[fi].ret;
+            }
+            tp--;
+        }
+        if (fld < 0) gi = find_static(cur_cls, n);
+    }
+    if (li < 0 && fld < 0 && gi < 0) gi = find_global(n);
+    if (li >= 0 || gi >= 0 || fld >= 0) {
         tp++; int ty;
-        if (li >= 0) { emit(O_LDL, lv_[li].slot); ty = lv_[li].type; } else { emit(O_LDG, gi); ty = lv_type_g(gi); }
+        if (li >= 0) { emit(O_LDL, lv_[li].slot); ty = lv_[li].type; }
+        else if (fld >= 0) { emit(O_LDL, 0); emit(O_GETF, fld); ty = fty; }
+        else { emit(O_LDG, gi); ty = lv_type_g(gi); }
         /* Variable gefolgt von .name( ... ) bei int = Objekt-Aufruf wie g.fillRect(...) */
         if (ty == T_INT && is_op('.') && tk[tp + 1].t == TK_ID) {
             emit(O_POP, 0);
@@ -331,7 +491,7 @@ static int primary(int* lvt) {
     /* Qualifizierte Namen: System.out.println, Math.abs, g.fillRect, Integer.parseInt ... */
     if (tk[tp + 1].t == TK_OP && tk[tp + 1].v == '.') {
         while (tk[tp].t == TK_ID && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '.' && tk[tp + 2].t == TK_ID) { tp += 2; if (tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') break; }
-        if (tk[tp].t == TK_ID && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') { const char* mn = idn(tp); tp++; return call_builtin(mn, 0); }
+        if (tk[tp].t == TK_ID && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') { const char* mn = idn(tp); int f2 = find_fn(mn); tp++; if (f2 >= 0) return user_call(f2, tp - 1); return call_builtin(mn, 0); }
         if (gl(idn(tp), "PI")) { tp++; emit(O_PUSH, 3); return T_INT; }
         fehler("Unbekannter Name nach Punkt"); tp++; return T_INT;
     }
@@ -343,11 +503,23 @@ static int postfix(void) {
     int start = ncur, lvt; int ty = primary(&lvt);
     for (;;) {
         if (is_op('[')) {
-            if (ty != T_ARR && ty != T_ARR2) { fehler("[ ] nur bei Feldern (int[])"); return T_INT; }
-            tp++; expr(); need(']', "']' erwartet"); emit(O_AGET, 0); ty = ty == T_ARR2 ? T_ARR : T_INT;
+            if (ty != T_ARR && ty != T_ARR2 && ty < T_OARR0) { fehler("[ ] nur bei Feldern (int[])"); return T_INT; }
+            tp++; expr(); need(']', "']' erwartet"); emit(O_AGET, 0); ty = ty == T_ARR2 ? T_ARR : ty >= T_OARR0 ? T_OBJ0 + (ty - T_OARR0) : T_INT;
         } else if (is_op('.') && tk[tp + 1].t == TK_ID) {
             const char* mn = idn(tp + 1);
-            if (ty == T_ARR && gl(mn, "length")) { tp += 2; emit(O_ALEN, 0); ty = T_INT; }
+            if (ty >= T_OARR0 && gl(mn, "length")) { tp += 2; emit(O_ALEN, 0); ty = T_INT; }
+            else if (ty >= T_OBJ0 && ty < T_OARR0) {
+                int cid = ty - T_OBJ0;
+                if (tk[tp + 2].t == TK_OP && tk[tp + 2].v == '(') {
+                    tp += 2; int na = count_args(), fi = find_method(cid, mn, na);
+                    if (fi < 0 || V->fns[fi].stat) { fehler("Diese Methode gibt es in der Klasse nicht"); return T_INT; }
+                    call_args(); emit(O_CALLM, fi); ty = V->fns[fi].ret;
+                } else {
+                    int fidx, fty2; if (find_field(cid, mn, &fidx, &fty2) < 0) { fehler("Dieses Feld gibt es in der Klasse nicht"); return T_INT; }
+                    tp += 2; emit(O_GETF, fidx); ty = fty2;
+                }
+            }
+            else if (ty == T_ARR && gl(mn, "length")) { tp += 2; emit(O_ALEN, 0); ty = T_INT; }
             else if (ty == T_ARR2 && gl(mn, "length")) { tp += 2; emit(O_ALEN, 0); ty = T_INT; }
             else if (ty == T_STR) { tp += 2; ty = call_builtin(mn, 1); }
             else { fehler("Diese Methode gibt es nicht"); return T_INT; }
@@ -358,6 +530,7 @@ static int postfix(void) {
 
 static void incdec(int kind, int arg, int add, int nachher) {          /* kind aus lv_kind; Lesebefehl ist schon entfernt (bei Feld: arr idx liegt auf dem Stapel) */
     int op = add ? O_ADD : O_SUB;
+    if (kind == 4) { emit(O_DUP, 0); emit(O_GETF, arg); emit(O_PUSH, 1); emit(op, 0); emit(O_SETF, arg); if (nachher) { emit(O_PUSH, 1); emit(add ? O_SUB : O_ADD, 0); } return; }
     if (kind == 3) { emit(O_DUP2, 0); emit(O_AGET, 0); emit(O_PUSH, 1); emit(op, 0); emit(O_ASETV, 0); return; }
     int ld = kind == 1 ? O_LDL : O_LDG, st = kind == 1 ? O_STL : O_STG;
     if (nachher) { emit(ld, arg); emit(ld, arg); emit(O_PUSH, 1); emit(op, 0); emit(st, arg); }
@@ -405,7 +578,11 @@ static int shift_(void) {
 }
 static int rel_(void) {
     int t = shift_();
-    while (is_op('<') || is_op('>') || is_op(OP2('<', '=')) || is_op(OP2('>', '='))) { int o = tk[tp].v; tp++; shift_(); emit(o == '<' ? O_LT : o == '>' ? O_GT : o == OP2('<', '=') ? O_LE : O_GE, 0); t = T_INT; }
+    for (;;) {
+        if (is_op('<') || is_op('>') || is_op(OP2('<', '=')) || is_op(OP2('>', '='))) { int o = tk[tp].v; tp++; shift_(); emit(o == '<' ? O_LT : o == '>' ? O_GT : o == OP2('<', '=') ? O_LE : O_GE, 0); t = T_INT; }
+        else if (is_id("instanceof")) { tp++; int cc = tk[tp].t == TK_ID ? class_find(idn(tp)) : -1; if (cc < 0) { fehler("Klasse nach instanceof unbekannt"); return T_INT; } tp++; emit(O_INSTOF, cc); t = T_INT; }
+        else break;
+    }
     return t;
 }
 static int eq_(void) {
@@ -451,6 +628,13 @@ static int assign(void) {
     else return t;
     int k = lv_kind(start); if (!k) { fehler("Links von = muss eine Variable stehen"); return t; }
     tp++; int arg = arg_at(ncur - 1); ncur--;
+    if (k == 4) {
+        if (comp) { emit(O_DUP, 0); emit(O_GETF, arg); }
+        int rt = assign();
+        if (comp) { if (bop == O_ADD && t == T_STR) emit(O_SCAT, rt == T_STR ? 0 : 2); else emit(bop, 0); }
+        else if (t == T_STR && rt != T_STR) emit(O_ITOS, 0);
+        emit(O_SETF, arg); return t;
+    }
     int ld = k == 1 ? O_LDL : O_LDG, st = k == 1 ? O_STL : O_STG;
     if (k == 3) {
         if (comp) { emit(O_DUP2, 0); emit(O_AGET, 0); }
@@ -488,7 +672,7 @@ static void decl_rest(int type) {
         int li = add_local(ni, ty);
         if (eat('=')) {
             if (is_op('{')) {                        /* Feldliste {1,2,3} */
-                tp++; int n = 0; int base = ncur; (void)base; emit(O_PUSH, 0); int newa = emit(O_NEWA, 0); (void)newa;
+                tp++; int n = 0; int base = ncur; (void)base; emit(O_PUSH, 0); int newa = emit(O_NEWA, tag_of(ty)); (void)newa;
                 /* Laenge steht noch nicht fest: Elemente zaehlen, dann Anzahl einsetzen */
                 int cnt = 0; int sv = tp; int d = 0; while (tk[tp].t != TK_END) { if (is_op('{')) d++; if (is_op('}')) { if (!d) break; d--; } if (is_op(',') && !d) cnt++; tp++; } if (tp > sv && !(tk[tp - 1].t == TK_OP && tk[tp - 1].v == ',')) cnt++;
                 tp = sv; cb[(ncur - 2) * 2 + 1] = cnt;
@@ -526,8 +710,9 @@ static void stmt(void) {
         if (gl(n, "for")) {
             tp++; need('(', "'(' erwartet"); int sv = nlv;
             /* for (int x : feld) */
-            if (tk[tp].t == TK_ID && type_word(idn(tp)) == T_INT && tk[tp + 1].t == TK_ID && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ':') {
-                tp++; int ni = tp; tp += 2; int arrs = hidden_local(), idx = hidden_local(), var = add_local(ni, T_INT);
+            if (tk[tp].t == TK_ID && (type_word(idn(tp)) == T_INT || class_find(idn(tp)) >= 0) && tk[tp + 1].t == TK_ID && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ':') {
+                int vty = type_word(idn(tp)) == T_INT ? T_INT : T_OBJ0 + class_find(idn(tp));
+                tp++; int ni = tp; tp += 2; int arrs = hidden_local(), idx = hidden_local(), var = add_local(ni, vty);
                 expr(); emit(O_STL, lv_[arrs].slot); need(')', "')' erwartet"); emit(O_PUSH, 0); emit(O_STL, lv_[idx].slot);
                 int top = ncur; emit(O_LDL, lv_[idx].slot); emit(O_LDL, lv_[arrs].slot); emit(O_ALEN, 0); emit(O_LT, 0); int jz = emit(O_JZ, 0);
                 emit(O_LDL, lv_[arrs].slot); emit(O_LDL, lv_[idx].slot); emit(O_AGET, 0); emit(O_STL, lv_[var].slot);
@@ -595,21 +780,128 @@ static void global_init(int gi, int ty) {
     if (is_op('{')) {
         tp++; int cnt = 0, sv = tp, d = 0; while (tk[tp].t != TK_END) { if (is_op('{')) d++; if (is_op('}')) { if (!d) break; d--; } if (is_op(',') && !d) cnt++; tp++; }
         if (tp > sv && !(tk[tp - 1].t == TK_OP && tk[tp - 1].v == ',')) cnt++;
-        tp = sv; emit(O_PUSH, cnt); emit(O_NEWA, 0); emit(O_STG, gi); int n = 0;
+        tp = sv; emit(O_PUSH, cnt); emit(O_NEWA, tag_of(ty)); emit(O_STG, gi); int n = 0;
         while (!is_op('}') && tk[tp].t != TK_END) { emit(O_LDG, gi); emit(O_PUSH, n++); expr(); emit(O_ASETV, 0); emit(O_POP, 0); if (!eat(',')) break; }
         need('}', "'}' erwartet");
     } else { int rt = assign(); if (ty == T_STR && rt != T_STR) emit(O_ITOS, 0); emit(O_STG, gi); }
     nibuf = ncur; cb = sb; ncur = sn; cmax = sm;
 }
 
+static int read_params(int* pt, int* pn) {          /* tp hinter '(' ; verbraucht ')' ; -1 bei Fehler */
+    int na = 0;
+    if (!is_op(')')) {
+        do { skip_mods(); int pty = read_type(); if (pty < 0 || tk[tp].t != TK_ID) { fehler("Parameter: Typ und Name erwartet"); return -1; }
+             if (na < 16) { pt[na] = pty; pn[na] = tp; na++; } tp++;
+             while (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; if (na > 0 && na <= 16) pt[na - 1] = T_ARR; } } while (eat(','));
+    }
+    need(')', "')' erwartet"); return na;
+}
+static void field_inits(int cid) {
+    struct cls* C = &V->cl[cid]; int off = cls_off(cid);
+    for (int i = 0; i < C->nown; i++) if (fin_tp[cid][i] >= 0) {
+        int save = tp; tp = fin_tp[cid][i]; int ty = C->ftype[i];
+        emit(O_LDL, 0);
+        if (is_op('{')) array_lit(tag_of(ty)); else { int rt = assign(); if (ty == T_STR && rt != T_STR) emit(O_ITOS, 0); }
+        emit(O_SETF, off + i); emit(O_POP, 0); tp = save;
+    }
+}
+static void parent_ctor0(int cid) {
+    int par = V->cl[cid].parent; if (par < 0) return;
+    int ci = find_ctor(par, 0); if (ci >= 0) { emit(O_LDL, 0); emit(O_CALL, ci); emit(O_POP, 0); }
+}
+static void class_body(int pass, int cid) {
+    struct cls* C = &V->cl[cid]; int sv_cls = cur_cls, sv_st = cur_static; int has_ctor = 0;
+    if (!is_op('{')) { fehler("'{' erwartet"); return; }
+    tp++;
+    while (!is_op('}') && tk[tp].t != TK_END && !cerr[0]) {
+        skip_mods(); int st = mods_st; int fst = mods_st || C->isif;
+        cur_cls = cid; cur_static = st;
+        if (eat(';')) continue;
+        if (is_op('{')) { skip_body(); continue; }
+        if (tk[tp].t != TK_ID) { fehler("Unerwartetes Zeichen in der Klasse"); return; }
+        const char* n = idn(tp);
+        if (gl(n, "class") || gl(n, "interface") || gl(n, "enum")) {
+            int cc = tk[tp + 1].t == TK_ID ? class_find(idn(tp + 1)) : -1;
+            while (!is_op('{') && tk[tp].t != TK_END) tp++;
+            if (cc >= 0 && !V->cl[cc].flat && !gl(n, "enum")) class_body(pass, cc); else skip_body();
+            continue;
+        }
+        if (gl(n, C->name) && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') {          /* Konstruktor */
+            tp += 2; int pt[16], pn[16]; int na = read_params(pt, pn); if (na < 0) return;
+            while (!is_op('{') && tk[tp].t != TK_END) tp++;
+            has_ctor = 1; int fi = reg_method(cid, "<init>", na + 1, T_VOID, 0);
+            if (pass == 1) { skip_body(); continue; }
+            nlv = 0; nloc_max = 0; nlp = 0; add_this(cid); for (int i = 0; i < na; i++) add_local(pn[i], pt[i]);
+            if (nlv > nloc_max) nloc_max = nlv;
+            V->fns[fi].pc = ncur; cur_cls = cid; cur_static = 0; cur_ret = T_VOID;
+            need('{', "'{' erwartet");
+            if (is_id("this") && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') { fehler("this(...) wird nicht unterstuetzt"); return; }
+            if (is_id("super") && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') {
+                tp++; int sa = count_args(); int par = C->parent; int ci = par >= 0 ? find_ctor(par, sa) : -1;
+                if (par >= 0 && ci < 0) { fehler("Konstruktor der Oberklasse passt nicht"); return; }
+                emit(O_LDL, 0); call_args(); if (ci >= 0) { emit(O_CALL, ci); emit(O_POP, 0); } else for (int i = 0; i <= sa; i++) emit(O_POP, 0);
+                eat(';');
+            } else parent_ctor0(cid);
+            field_inits(cid);
+            while (!is_op('}') && tk[tp].t != TK_END && !cerr[0]) stmt();
+            need('}', "'}' erwartet"); emit(O_RET, 0); nlv = 0;
+            V->fns[fi].nloc = nloc_max < na + 1 ? na + 1 : nloc_max;
+            continue;
+        }
+        int ty = read_type(); if (ty < 0 || tk[tp].t != TK_ID) { fehler("Typ und Name erwartet"); return; }
+        int ni = tp; tp++;
+        if (is_op('(')) {                                                       /* Methode */
+            tp++; int pt[16], pn[16]; int na = read_params(pt, pn); if (na < 0) return;
+            while (!is_op('{') && !is_op(';') && tk[tp].t != TK_END) tp++;
+            int nargs = na + (st ? 0 : 1); int fi = reg_method(cid, idn(ni), nargs, ty, st);
+            if (pass == 1 || !is_op('{')) { if (is_op('{')) skip_body(); else tp++; continue; }
+            nlv = 0; nloc_max = 0; nlp = 0; if (!st) add_this(cid); for (int i = 0; i < na; i++) add_local(pn[i], pt[i]);
+            if (nlv > nloc_max) nloc_max = nlv;
+            V->fns[fi].pc = ncur; cur_cls = cid; cur_static = st; cur_ret = ty;
+            block_();
+            if (ty == T_VOID) emit(O_RET, 0); else { emit(O_PUSH, 0); emit(O_RETV, 0); }
+            V->fns[fi].nloc = nloc_max < nargs ? nargs : nloc_max;
+            continue;
+        }
+        tp = ni;                                                                /* Felder */
+        do {
+            if (tk[tp].t != TK_ID) { fehler("Variablenname erwartet"); return; }
+            int vi = tp; tp++; int vt = ty;
+            if (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; vt = ty >= T_OBJ0 && ty < T_OARR0 ? T_OARR0 + (ty - T_OBJ0) : T_ARR; }
+            if (fst) {
+                char m[44]; mangle(m, cid, idn(vi));
+                if (pass == 1) { add_global(m, vt); if (eat('=')) skip_init(); }
+                else { int gi = find_global(m); if (eat('=')) global_init(gi, V->gtype[gi]); }
+            } else if (pass == 1) {
+                if (C->nown >= MAXF) { fehler("Zu viele Felder in einer Klasse (hoechstens 32)"); return; }
+                int idx = C->nown++; kop(C->fname[idx], idn(vi), 20); C->ftype[idx] = (uint8_t)vt; fin_tp[cid][idx] = -1;
+                if (eat('=')) { fin_tp[cid][idx] = tp; skip_init(); }
+            } else if (eat('=')) skip_init();
+        } while (eat(','));
+        need(';', "';' erwartet");
+    }
+    need('}', "'}' erwartet");
+    cur_cls = cid; cur_static = 0;
+    if (!has_ctor && !C->isif) {                                                /* Standard-Konstruktor */
+        int fi = reg_method(cid, "<init>", 1, T_VOID, 0);
+        if (pass == 1) V->fns[fi].synth = 1;
+        else if (!cerr[0]) { nlv = 0; nloc_max = 0; add_this(cid); V->fns[fi].pc = ncur; parent_ctor0(cid); field_inits(cid); emit(O_RET, 0); nlv = 0; V->fns[fi].nloc = 1; }
+    }
+    cur_cls = sv_cls; cur_static = sv_st;
+}
+
 static void toplevel(int pass) {
-    tp = 0;
+    tp = 0; cur_cls = -1; cur_static = 0;
     while (tk[tp].t != TK_END && !cerr[0]) {
         skip_mods();
         if (tk[tp].t == TK_OP) { tp++; continue; }                        /* Ende einer Klasse oder Semikolon */
         if (tk[tp].t != TK_ID) { fehler("Unerwartetes Zeichen"); return; }
         const char* n = idn(tp);
         if (gl(n, "import") || gl(n, "package")) { while (!is_op(';') && tk[tp].t != TK_END) tp++; tp++; continue; }
+        if (gl(n, "class") || gl(n, "interface")) {
+            int cc = tk[tp + 1].t == TK_ID ? class_find(idn(tp + 1)) : -1;
+            if (cc >= 0 && !V->cl[cc].flat) { while (!is_op('{') && tk[tp].t != TK_END) tp++; class_body(pass, cc); cur_cls = -1; cur_static = 0; continue; }
+        }
         if (gl(n, "class") || gl(n, "interface") || gl(n, "enum")) { while (!is_op('{') && tk[tp].t != TK_END) tp++; tp++; continue; }
         if (tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') {               /* Konstruktor o.ae.: ueberspringen */
             tp++; skip_parens(); while (!is_op('{') && tk[tp].t != TK_END) tp++; skip_body(); continue;
@@ -626,7 +918,7 @@ static void toplevel(int pass) {
             while (!is_op('{') && !is_op(';') && tk[tp].t != TK_END) tp++;     /* throws ... */
             if (pass == 1) {
                 const char* fname = idn(ni); int fi = find_fn(fname);
-                if (fi < 0) { if (V->nfn >= NFN_MAX) { fehler("Zu viele Funktionen"); return; } fi = V->nfn++; kop(V->fns[fi].name, fname, 24); }
+                if (fi < 0) { if (V->nfn >= NFN_MAX) { fehler("Zu viele Funktionen"); return; } fi = V->nfn++; kop(V->fns[fi].name, fname, 44); V->fns[fi].cls = -1; V->fns[fi].stat = 1; V->fns[fi].synth = 0; V->fns[fi].mh = hash_(fname); }
                 V->fns[fi].nargs = na; V->fns[fi].ret = ty; V->fns[fi].def = 1; V->fns[fi].pc = -1;
                 if (is_op('{')) skip_body(); else tp++;
             } else {
@@ -656,11 +948,79 @@ static void toplevel(int pass) {
 
 /* ====================== Maschine ====================== */
 static void rt_fehler(struct zjv* v, const char* m) { if (v->ok) { v->ok = 0; kop(v->fehler, "Laufzeitfehler: ", 120); int l = slen(v->fehler); kop(v->fehler + l, m, 120 - l); kprint("[ZYNJAVA] "); kprint(v->fehler); kprint("\n"); } }
-static int h_neu(struct zjv* v, int n) {
+static int h_neu(struct zjv* v, int n, int tag) {
     if (n < 0 || n > 20000) { rt_fehler(v, "Feldgroesse ungueltig"); return 0; }
-    if (v->hp + n + 1 >= HEAP_MAX) { rt_fehler(v, "Speicher voll (zu viele Felder)"); return 0; }
-    int h = v->hp; v->heap[h] = n; for (int i = 1; i <= n; i++) v->heap[h + i] = 0; v->hp += n + 1; return h;
+    if (v->hp + n + 1 >= HEAP_MAX) { rt_fehler(v, "Speicher voll (zu viele Felder oder Objekte)"); return 0; }
+    int h = v->hp; v->heap[h] = n | (tag << 16); for (int i = 1; i <= n; i++) v->heap[h + i] = 0; v->hp += n + 1; return h;
 }
+static int is_obj(struct zjv* v, int h) { if (h <= 0 || h >= v->hp) return 0; int t = v->heap[h] >> 16; return t >= TAG_OBJ && t < TAG_OARR; }
+static int cls_is(struct zjv* v, int c, int target, int depth) {
+    if (c < 0 || depth > 20) return 0; if (c == target) return 1;
+    for (int i = 0; i < 3; i++) if (v->cl[c].ifc[i] >= 0 && cls_is(v, v->cl[c].ifc[i], target, depth + 1)) return 1;
+    return cls_is(v, v->cl[c].parent, target, depth + 1);
+}
+/* ---------- Speicherbereinigung (am Anfang jedes Ereignisses; Stapel ist dann leer) ---------- */
+static uint8_t gc_m[HEAP_MAX];                         /* 2 = Blockanfang, 1 = erreichbar */
+static int gc_fwd[HEAP_MAX], gc_stk[8192], gc_smap[NSTR_MAX], gc_soff[NSTR_MAX];
+static uint8_t gc_sm[NSTR_MAX];
+static char gc_tmp[SPOOL_MAX];
+static int gc_slot(struct zjv* v, int h, int i) {         /* 0 Zahl, 1 Text, 2 Verweis */
+    int tag = v->heap[h] >> 16;
+    if (tag == 0) return 0;
+    if (tag == TAG_ARR2 || tag >= TAG_OARR) return 2;
+    int c = tag - TAG_OBJ; if (c < 0 || c >= v->ncl) return 0;
+    int t = v->cl[c].ftot[i]; return t == T_STR ? 1 : is_ref(t) ? 2 : 0;
+}
+static void gc(struct zjv* v) {
+    if (v->spn < SPOOL_MAX * 6 / 10 && v->nstr < NSTR_MAX * 6 / 10 && v->hp < HEAP_MAX / 2) return;
+    int hp = v->hp, ns = v->nstr, sk = 0;
+    for (int h = 1; h < hp; ) { int n = v->heap[h] & 0xFFFF; gc_m[h] = 2; for (int k = 1; k <= n && h + k < hp; k++) gc_m[h + k] = 0; h += n + 1; }
+    for (int i = 0; i < ns; i++) gc_sm[i] = 0;
+    for (int i = 0; i < v->ng; i++) {
+        int t = v->gtype[i], x = v->g[i];
+        if (t == T_STR) { if (x > 0 && x < ns) gc_sm[x] = 1; }
+        else if (is_ref(t) && x > 0 && x < hp && (gc_m[x] & 2) && !(gc_m[x] & 1)) { gc_m[x] |= 1; if (sk >= 8192) return; gc_stk[sk++] = x; }
+    }
+    while (sk > 0) {
+        int h = gc_stk[--sk], n = v->heap[h] & 0xFFFF;
+        for (int i = 0; i < n; i++) {
+            int k = gc_slot(v, h, i), x = v->heap[h + 1 + i];
+            if (k == 1) { if (x > 0 && x < ns) gc_sm[x] = 1; }
+            else if (k == 2 && x > 0 && x < hp && (gc_m[x] & 2) && !(gc_m[x] & 1)) { gc_m[x] |= 1; if (sk >= 8192) return; gc_stk[sk++] = x; }
+        }
+    }
+    /* neue Adressen der Bloecke */
+    int np = 1; for (int h = 1; h < hp; ) { int n = v->heap[h] & 0xFFFF; if (gc_m[h] & 1) { gc_fwd[h] = np; np += n + 1; } h += n + 1; }
+    /* Texte neu ordnen (feste Texte bleiben stehen) */
+    int nh = v->nconst, tn = 0;
+    for (int i = 0; i < v->nconst && i < ns; i++) gc_smap[i] = i;
+    for (int i = v->nconst; i < ns; i++) {
+        gc_smap[i] = 0; if (!gc_sm[i]) continue;
+        const char* t = v->spool + v->soff[i]; int l = slen(t); if (tn + l + 1 > SPOOL_MAX) continue;
+        gc_soff[nh] = tn; for (int k = 0; k < l; k++) gc_tmp[tn++] = t[k]; gc_tmp[tn++] = 0; gc_smap[i] = nh++;
+    }
+    for (int j = v->nconst; j < nh; j++) { v->soff[j] = v->spconst + gc_soff[j]; }
+    for (int k = 0; k < tn; k++) v->spool[v->spconst + k] = gc_tmp[k];
+    /* Verweise anpassen */
+    for (int i = 0; i < v->ng; i++) {
+        int t = v->gtype[i], x = v->g[i];
+        if (t == T_STR) v->g[i] = (x > 0 && x < ns) ? gc_smap[x] : 0;
+        else if (is_ref(t) && x > 0 && x < hp && (gc_m[x] & 1)) v->g[i] = gc_fwd[x];
+    }
+    for (int h = 1; h < hp; ) {
+        int n = v->heap[h] & 0xFFFF;
+        if (gc_m[h] & 1) for (int i = 0; i < n; i++) {
+            int k = gc_slot(v, h, i), x = v->heap[h + 1 + i];
+            if (k == 1) v->heap[h + 1 + i] = (x > 0 && x < ns) ? gc_smap[x] : 0;
+            else if (k == 2 && x > 0 && x < hp && (gc_m[x] & 1)) v->heap[h + 1 + i] = gc_fwd[x];
+        }
+        h += n + 1;
+    }
+    /* Bloecke nach unten schieben */
+    for (int h = 1; h < hp; ) { int n = v->heap[h] & 0xFFFF; if (gc_m[h] & 1) { int d = gc_fwd[h]; if (d != h) for (int k = 0; k <= n; k++) v->heap[d + k] = v->heap[h + k]; } h += n + 1; }
+    v->hp = np; v->nstr = nh; v->spn = v->spconst + tn;
+}
+
 static const int SINT[91] = {0,17,35,52,70,87,105,122,139,156,174,191,208,225,242,259,276,292,309,326,342,358,375,391,407,423,438,454,469,485,500,515,530,545,559,574,588,602,616,629,643,656,669,682,695,707,719,731,743,755,766,777,788,799,809,819,829,839,848,857,866,875,883,891,899,906,914,921,927,934,940,946,951,956,961,966,970,974,978,982,985,988,990,993,995,996,998,999,999,1000,1000};
 static int sin_deg(int d) { d %= 360; if (d < 0) d += 360; int neg = 0; if (d >= 180) { d -= 180; neg = 1; } if (d > 90) d = 180 - d; return neg ? -SINT[d] : SINT[d]; }
 static uint32_t rgbc(int c) { return (uint32_t)c & 0x00FFFFFFu; }
@@ -731,11 +1091,11 @@ static int call_fn(struct zjv* v, int fi, int a, int b) {
         case O_STL: S[v->fp + ar] = S[--v->sp]; break;
         case O_LDG: S[v->sp++] = v->g[ar]; break;
         case O_STG: v->g[ar] = S[--v->sp]; break;
-        case O_AGET: { int i = S[--v->sp], h = S[--v->sp]; if (h <= 0 || h >= v->hp) { rt_fehler(v, "Feld nicht angelegt"); return 0; } if (i < 0 || i >= v->heap[h]) { rt_fehler(v, "Feldindex ausserhalb"); return 0; } S[v->sp++] = v->heap[h + 1 + i]; break; }
-        case O_ASETV: { int val = S[--v->sp], i = S[--v->sp], h = S[--v->sp]; if (h <= 0 || h >= v->hp) { rt_fehler(v, "Feld nicht angelegt"); return 0; } if (i < 0 || i >= v->heap[h]) { rt_fehler(v, "Feldindex ausserhalb"); return 0; } v->heap[h + 1 + i] = val; S[v->sp++] = val; break; }
-        case O_ALEN: { int h = S[--v->sp]; if (h <= 0 || h >= v->hp) { rt_fehler(v, "Feld nicht angelegt"); return 0; } S[v->sp++] = v->heap[h]; break; }
-        case O_NEWA: { int n = S[--v->sp]; int h = h_neu(v, n); if (!v->ok) return 0; S[v->sp++] = h; break; }
-        case O_NEWA2: { int m = S[--v->sp], n = S[--v->sp]; int h = h_neu(v, n); if (!v->ok) return 0; for (int i = 0; i < n; i++) { int in = h_neu(v, m); if (!v->ok) return 0; v->heap[h + 1 + i] = in; } S[v->sp++] = h; break; }
+        case O_AGET: { int i = S[--v->sp], h = S[--v->sp]; if (h <= 0 || h >= v->hp) { rt_fehler(v, "Feld nicht angelegt"); return 0; } if (i < 0 || i >= (v->heap[h] & 0xFFFF)) { rt_fehler(v, "Feldindex ausserhalb"); return 0; } S[v->sp++] = v->heap[h + 1 + i]; break; }
+        case O_ASETV: { int val = S[--v->sp], i = S[--v->sp], h = S[--v->sp]; if (h <= 0 || h >= v->hp) { rt_fehler(v, "Feld nicht angelegt"); return 0; } if (i < 0 || i >= (v->heap[h] & 0xFFFF)) { rt_fehler(v, "Feldindex ausserhalb"); return 0; } v->heap[h + 1 + i] = val; S[v->sp++] = val; break; }
+        case O_ALEN: { int h = S[--v->sp]; if (h <= 0 || h >= v->hp) { rt_fehler(v, "Feld nicht angelegt"); return 0; } S[v->sp++] = v->heap[h] & 0xFFFF; break; }
+        case O_NEWA: { int n = S[--v->sp]; int h = h_neu(v, n, ar); if (!v->ok) return 0; S[v->sp++] = h; break; }
+        case O_NEWA2: { int m = S[--v->sp], n = S[--v->sp]; int h = h_neu(v, n, TAG_ARR2); if (!v->ok) return 0; for (int i = 0; i < n; i++) { int in = h_neu(v, m, 0); if (!v->ok) return 0; v->heap[h + 1 + i] = in; } S[v->sp++] = h; break; }
         case O_DUP: S[v->sp] = S[v->sp - 1]; v->sp++; break;
         case O_DUP2: S[v->sp] = S[v->sp - 2]; S[v->sp + 1] = S[v->sp - 1]; v->sp += 2; break;
         case O_POP: v->sp--; break;
@@ -769,6 +1129,21 @@ static int call_fn(struct zjv* v, int fi, int a, int b) {
         case O_JMP: pc += ar; break;
         case O_JZ: if (!S[--v->sp]) pc += ar; break;
         case O_JNZ: if (S[--v->sp]) pc += ar; break;
+        case O_NEWO: { int h = h_neu(v, v->cl[ar].ntotal, TAG_OBJ + ar); if (!v->ok) return 0; S[v->sp++] = h; break; }
+        case O_GETF: { int h = S[v->sp - 1]; if (!is_obj(v, h)) { rt_fehler(v, "Objekt ist null"); return 0; } if (ar >= (v->heap[h] & 0xFFFF)) { rt_fehler(v, "Feld ungueltig"); return 0; } S[v->sp - 1] = v->heap[h + 1 + ar]; break; }
+        case O_SETF: { int val = S[--v->sp], h = S[v->sp - 1]; if (!is_obj(v, h)) { rt_fehler(v, "Objekt ist null"); return 0; } if (ar >= (v->heap[h] & 0xFFFF)) { rt_fehler(v, "Feld ungueltig"); return 0; } v->heap[h + 1 + ar] = val; S[v->sp - 1] = val; break; }
+        case O_INSTOF: { int h = S[v->sp - 1]; S[v->sp - 1] = is_obj(v, h) && cls_is(v, (v->heap[h] >> 16) - TAG_OBJ, ar, 0); break; }
+        case O_CALLM: {
+            struct fn* sf = &v->fns[ar]; int h = S[v->sp - sf->nargs];
+            if (!is_obj(v, h)) { rt_fehler(v, "Methode auf null aufgerufen"); return 0; }
+            int c = (v->heap[h] >> 16) - TAG_OBJ, tgt = -1;
+            if (v->cl[c].parent < 0 && sf->cls == c && sf->pc >= 0) tgt = ar;
+            for (int d = 0; c >= 0 && d < 20 && tgt < 0; d++, c = v->cl[c].parent)
+                for (int j = 0; j < v->nfn; j++) if (v->fns[j].cls == c && v->fns[j].mh == sf->mh && v->fns[j].nargs == sf->nargs && v->fns[j].pc >= 0) { tgt = j; break; }
+            if (tgt < 0) { rt_fehler(v, "Methode nicht gefunden (abstrakt?)"); return 0; }
+            ar = tgt; }
+            /* weiter wie ein normaler Aufruf */
+        /* fall through */
         case O_CALL: {
             struct fn* g2 = &v->fns[ar]; if (depth >= 60) { rt_fehler(v, "Rekursion zu tief"); return 0; }
             if (g2->pc < 0) { rt_fehler(v, "Funktion nicht definiert"); return 0; }
@@ -801,8 +1176,10 @@ int zj_laden(int slot, const char* src, int w, int h) {
     for (int i = 0; i < w * h; i++) v->px[i] = 0x00FFFFFFu;
     cerr[0] = 0; cerr_zeile = 0; nibuf = 0; nlv = 0; nlp = 0;
     if (lex(src) < 0) { kop(v->fehler, cerr, 120); return -1; }
-    cb = v->code; cmax = CODE_MAX; ncur = 0;
-    toplevel(1);
+    cb = v->code; cmax = CODE_MAX; ncur = 0; cur_cls = -1; cur_static = 0;
+    class_scan();
+    if (!cerr[0]) toplevel(1);
+    if (!cerr[0]) layout();
     if (!cerr[0]) { ncur = 0; toplevel(2); }
     if (!cerr[0]) {
         v->ncode = ncur; v->init_pc = ncur;
@@ -814,7 +1191,7 @@ int zj_laden(int slot, const char* src, int w, int h) {
         kprint("[ZYNJAVA] Fehler: "); kprint(v->fehler); kprint("\n"); return -1;
     }
     v->nconst = v->nstr; v->spconst = v->spn;
-    v->f_start = fn_alias(v, "init", "setup", 0);
+    v->f_start = fn_alias(v, "init", "setup", "main");
     v->f_paint = fn_idx(v, "paint"); v->f_tick = fn_alias(v, "tick", "update", "step");
     v->f_down = fn_alias(v, "mouseDown", "mousePressed", "mouseClicked"); v->f_up = fn_alias(v, "mouseUp", "mouseReleased", 0);
     v->f_key = fn_alias(v, "keyTyped", "keyPressed", "keyDown"); v->f_move = fn_alias(v, "mouseMove", "mouseMoved", "mouseDragged");
@@ -822,7 +1199,7 @@ int zj_laden(int slot, const char* src, int w, int h) {
     v->sp = 0; v->fp = 0; { struct fn tmp; (void)tmp; }
     /* globale Anfangswerte, dann init(), start() */
     { int steps_ok = 1; struct fn* f0 = &v->fns[0]; (void)f0; (void)steps_ok;
-      int save = v->nfn; if (v->nfn < NFN_MAX) { struct fn* st = &v->fns[v->nfn]; kop(st->name, "$init", 24); st->pc = v->init_pc; st->nargs = 0; st->nloc = 0; st->ret = T_VOID; st->def = 1; call_fn(v, v->nfn, 0, 0); } (void)save; }
+      int save = v->nfn; if (v->nfn < NFN_MAX) { struct fn* st = &v->fns[v->nfn]; kop(st->name, "$init", 44); st->cls = -1; st->stat = 1; st->mh = 0; st->pc = v->init_pc; st->nargs = 0; st->nloc = 0; st->ret = T_VOID; st->def = 1; call_fn(v, v->nfn, 0, 0); } (void)save; }
     if (v->ok && v->f_start >= 0) call_fn(v, v->f_start, 0, 0);
     { int st2 = fn_idx(v, "start"); if (v->ok && st2 >= 0 && st2 != v->f_start) call_fn(v, st2, 0, 0); }
     if (v->ok && v->f_paint >= 0) call_fn(v, v->f_paint, 0, 0);
@@ -836,7 +1213,7 @@ int zj_hat(int slot, int art) {
 }
 int zj_ereignis(int slot, int art, int a, int b) {
     if (slot < 0 || slot >= ZJ_MAX) return 0; struct zjv* v = &vm_[slot]; if (!v->ladet || !v->ok) return 0;
-    V = v; s_gc(v);
+    V = v; gc(v);
     int fi = art == ZJ_TICK ? v->f_tick : art == ZJ_MDOWN ? v->f_down : art == ZJ_MUP ? v->f_up : art == ZJ_KEY ? v->f_key : art == ZJ_MMOVE ? v->f_move : -1;
     if (art == ZJ_MDOWN || art == ZJ_MUP || art == ZJ_MMOVE) { v->ex = a; v->ey = b; } if (art == ZJ_KEY) v->ekey = a;
     if (fi >= 0) call_fn(v, fi, a, b);

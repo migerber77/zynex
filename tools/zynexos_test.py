@@ -901,6 +901,15 @@ def browser():
         "void tick() { n++; }\nvoid mouseDown(int x, int y) { n += x + y; }\n"
         "</applet><script type='text/javascript'>var x = 1 < 2;</script>"
         "<script type='text/java'>void paint() { fillRect(0, 0, 10, 10); } int kaputt( {</script></body></html>")
+    open(www + "/oop.html", "w", encoding="utf-8").write(
+        "<html><title>Objekte</title><body><applet width='120' height='60'>"
+        "class Shape { int id; Shape(int id) { this.id = id; } int area() { return 0; } String name() { return \"shape\" + id; } }\n"
+        "class Sq extends Shape { int s; Sq(int id, int s) { super(id); this.s = s; } int area() { return s * s; } String name() { return \"sq\" + id; } }\n"
+        "class Ci extends Shape { int r; Ci(int id, int r) { super(id); this.r = r; } int area() { return 3 * r * r; } }\n"
+        "Shape[] a = new Shape[2];\n"
+        "void init() { a[0] = new Sq(1, 6); a[1] = new Ci(2, 4); int t = 0; for (Shape s : a) t += s.area(); System.out.println(\"ZJ OOP \" + t + \" \" + a[0].name() + \" \" + a[1].name()); }\n"
+        "void paint(Graphics g) { g.setColor(Color.BLUE); g.fillRect(5, 5, a[0].area(), 20); }\n"
+        "</applet></body></html>")
     worte = " ".join("Wort%d" % i for i in range(60000))
     open(www + "/gross.html", "w").write("<html><title>Grosse Seite</title><body><p>" + worte + "</p></body></html>")
     srv = subprocess.Popen([sys.executable, "-m", "http.server", "8090", "--bind", "0.0.0.0", "--directory", www], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -911,6 +920,8 @@ def browser():
     vm.warte("[WEB] Bilder geladen", 60)
     vm.tippe("webtest http://10.0.2.2:8090/app.html", 3.0)
     vm.warte("[WEB] Programm 1", 30)
+    vm.tippe("webtest http://10.0.2.2:8090/oop.html", 3.0)
+    vm.warte("ZJ OOP", 30)
     vm.tippe("webtest http://10.0.2.2:8090/gross.html", 3.0)
     vm.warte("Grosse Seite", 60); time.sleep(2)
     out = vm.log(); vm.ende(); srv.kill()
@@ -923,6 +934,7 @@ def browser():
     pruefe("Browser: Programm in der Seite (ZynJava) berechnet fib(12)=144", "[ZYNJAVA] ZJ fib=144 3" in out)
     pruefe("Browser: Programm zeichnet auf die Flaeche", re.search(r"\[WEB\] Programm 0: ok, gezeichnete Pixel (\d+)", out) is not None and int(re.search(r"\[WEB\] Programm 0: ok, gezeichnete Pixel (\d+)", out).group(1)) > 3000)
     pruefe("Browser: Programmfehler wird gemeldet (Zeile), JavaScript bleibt ignoriert", "[WEB] Programm 1: Fehler: Zeile 1:" in out)
+    pruefe("Browser: Programm mit Klassen, Vererbung und Objektfeldern (ZynJava)", "[ZYNJAVA] ZJ OOP 84 sq1 shape2" in out)
     m = re.search(r"\[WEB\] Seite: Grosse Seite \((\d+) Woerter", out)
     pruefe("Browser: grosse Seite (500 KB) vollstaendig", bool(m) and int(m.group(1)) >= 59000)
 
