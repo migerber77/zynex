@@ -909,6 +909,10 @@ def browser():
         "Shape[] a = new Shape[2];\n"
         "void init() { a[0] = new Sq(1, 6); a[1] = new Ci(2, 4); int t = 0; for (Shape s : a) t += s.area(); System.out.println(\"ZJ OOP \" + t + \" \" + a[0].name() + \" \" + a[1].name()); }\n"
         "void paint(Graphics g) { g.setColor(Color.BLUE); g.fillRect(5, 5, a[0].area(), 20); }\n"
+        "ArrayList<Integer> zl = new ArrayList<>();\n"
+        "void start() { for (int i = 1; i <= 4; i++) zl.add(i * i); int sm = 0; for (int x : zl) sm += x; String r = \"\";\n"
+        "  try { int z = 0; r = \"\" + (5 / z); } catch (ArithmeticException e) { r = \"fang\"; } finally { r += \"+fin\"; }\n"
+        "  System.out.println(\"ZJ LISTE \" + sm + \" \" + zl.size() + \" \" + r); }\n"
         "</applet></body></html>")
     worte = " ".join("Wort%d" % i for i in range(60000))
     open(www + "/gross.html", "w").write("<html><title>Grosse Seite</title><body><p>" + worte + "</p></body></html>")
@@ -935,6 +939,7 @@ def browser():
     pruefe("Browser: Programm zeichnet auf die Flaeche", re.search(r"\[WEB\] Programm 0: ok, gezeichnete Pixel (\d+)", out) is not None and int(re.search(r"\[WEB\] Programm 0: ok, gezeichnete Pixel (\d+)", out).group(1)) > 3000)
     pruefe("Browser: Programmfehler wird gemeldet (Zeile), JavaScript bleibt ignoriert", "[WEB] Programm 1: Fehler: Zeile 1:" in out)
     pruefe("Browser: Programm mit Klassen, Vererbung und Objektfeldern (ZynJava)", "[ZYNJAVA] ZJ OOP 84 sq1 shape2" in out)
+    pruefe("Browser: ArrayList und try/catch/finally (ZynJava)", "[ZYNJAVA] ZJ LISTE 30 4 fang+fin" in out)
     m = re.search(r"\[WEB\] Seite: Grosse Seite \((\d+) Woerter", out)
     pruefe("Browser: grosse Seite (500 KB) vollstaendig", bool(m) and int(m.group(1)) >= 59000)
 
