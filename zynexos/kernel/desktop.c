@@ -586,6 +586,7 @@ static struct widget wid[NWID_MAX]; static int nwid;
 static char nz[NZ_N][NZ_T + 1]; static int nz_len[NZ_N], nz_used[NZ_N]; static int notiz_fok = -1; static char nz_meld[48];
 static int ob_ki(const char* auftrag, const char* daten, char* out, int max);
 static int notiz_taste(uint8_t k, int shift, int altgr);
+static void ac_aktualisieren(void); static void ac_wahl(int i);
 static void layout_speichern(void) {
     char b[220], a[12]; b[0] = 0;
     for (int j = 0; j < nwid; j++) { dec(a, (uint32_t)(wid[j].typ == WG_NOTIZ ? 10 + wid[j].id : wid[j].typ)); cat(b, a, 220); cat(b, ",", 220); dec(a, (uint32_t)(wid[j].x + 2000)); cat(b, a, 220); cat(b, ",", 220); dec(a, (uint32_t)(wid[j].y + 2000)); cat(b, a, 220); cat(b, ";", 220); }
@@ -2631,6 +2632,14 @@ static int ac_kontext(char* ctx, int max) {
         ac_ziel = AZ_TEXT; ac_pos = dokcur; ac_len = doklen; return AZ_TEXT;
     }
     if (zustand == Z_OFF && top == FT_TAB && t_edit && t_ebuf[0] != '=' && t_elen > 1) { scopy(ctx, t_ebuf, max); ac_ziel = AZ_TAB; return AZ_TAB; }
+    if (zustand == Z_OFF && top == FT_PRAES && !kp_fokus && pf_feld) {
+        const char* f = pf_feld == 1 ? pf_t[pf_cur] : pf_b[pf_cur]; int n = slen(f), s0 = n; while (s0 > 0 && f[s0 - 1] != '\n' && n - s0 < 90) s0--;
+        if (n - s0 < 2 || n - s0 >= max) return 0; for (int i = s0; i < n; i++) ctx[i - s0] = f[i]; ctx[n - s0] = 0; ac_ziel = AZ_PF; return AZ_PF;
+    }
+    if (zustand == Z_DESK && flaeche == 0 && !menu.offen && notiz_fok >= 0 && notiz_fok < nwid && wid[notiz_fok].typ == WG_NOTIZ) {
+        int id = wid[notiz_fok].id, n = nz_len[id], s0 = n; while (s0 > 0 && nz[id][s0 - 1] != '\n' && n - s0 < 90) s0--;
+        if (n - s0 < 2 || n - s0 >= max) return 0; for (int i = s0; i < n; i++) ctx[i - s0] = nz[id][i]; ctx[n - s0] = 0; ac_ziel = AZ_NZ; return AZ_NZ;
+    }
     return 0;
 }
 static int ac_lernpos = -1;
@@ -2655,7 +2664,7 @@ static void ac_aktualisieren(void) {
         for (int i = 0; i < ac_n; i++) { scopy(rc[i], ac_c[i], 96); rtyp[i] = z == AZ_TEXT ? 0 : 1; }
         const struct usb_pointer* p = usb_pointer_state();
         if (z == AZ_TEXT && ac_hat) rad_zeige(ac_cx + 24, ac_cy + ac_ch / 2); else rad_zeige(p->x, p->y);
-    } else if (z != AZ_TEXT) { scopy(ob_meld, "Tab: ", 100); cat(ob_meld, ac_c[0], 100); ob_neu_zeichnen(nfen ? fen[nfen - 1].typ : FT_EDIT); }
+    } else if (z != AZ_TEXT && z != AZ_NZ) { scopy(ob_meld, "Tab: ", 100); cat(ob_meld, ac_c[0], 100); ob_neu_zeichnen(nfen ? fen[nfen - 1].typ : FT_EDIT); }
 }
 static void ac_wahl(int i) {
     if (i < 0 || i >= ac_n) return;
@@ -2673,6 +2682,12 @@ static void ac_wahl(int i) {
         if (er > t_elen) er = t_elen; t_elen -= er; t_ebuf[t_elen] = 0;
         for (int k = 0; t[k] && t_elen < 46; k++) t_ebuf[t_elen++] = t[k]; t_ebuf[t_elen] = 0;
         zeichne_tabelle();
+    } else if (z == AZ_PF) {
+        char* f = pf_feld == 1 ? pf_t[pf_cur] : pf_b[pf_cur]; int mx = pf_feld == 1 ? 78 : 590, n = slen(f);
+        if (er > n) er = n; n -= er; for (int k = 0; t[k] && n < mx; k++) f[n++] = t[k]; f[n] = 0; pf_geaendert = 1; zeichne_praes();
+    } else if (z == AZ_NZ) {
+        int id = wid[notiz_fok].id, n = nz_len[id]; if (er > n) er = n; n -= er;
+        for (int k = 0; t[k] && n < NZ_T; k++) nz[id][n++] = t[k]; nz[id][n] = 0; nz_len[id] = n; notiz_speichern(); zeichne_desktop();
     } else return;
     kprint("[DESKTOP] Vorschlag uebernommen: "); kprint(t); kprint("\n");
     ac_aktualisieren();
@@ -2692,7 +2707,7 @@ static void taste(uint8_t k, int shift, int altgr) {
     if (desk && rad_taste(k)) return;
     if (rad.offen && rad_ext && rad_taste(k)) return;
     if (!rad.offen && ac_n > 0 && k == 0x2B && ac_ziel == AZ_TEXT && ac_pos == dokcur && ac_len == doklen && zustand == Z_EDIT) { ac_wahl(0); return; }
-    if (!rad.offen && ac_n > 0 && k == 0x2B && (ac_ziel == AZ_KP || ac_ziel == AZ_TAB) && (zustand == Z_EDIT || zustand == Z_OFF)) { ac_wahl(0); return; }
+    if (!rad.offen && ac_n > 0 && k == 0x2B && (ac_ziel == AZ_KP || ac_ziel == AZ_TAB || ac_ziel == AZ_PF) && (zustand == Z_EDIT || zustand == Z_OFF)) { ac_wahl(0); return; }
     rad_weg();
     ac_n = 0;
     taste_roh(k, shift, altgr);
@@ -2773,6 +2788,9 @@ static int notiz_taste(uint8_t k, int shift, int altgr) {
     if (notiz_fok < 0 || notiz_fok >= nwid || wid[notiz_fok].typ != WG_NOTIZ) return 0;
     if (zustand != Z_DESK || flaeche != 0 || menu.offen) return 0;
     int id = wid[notiz_fok].id; nz_meld[0] = 0;
+    if (rad.offen && rad_ext && rad_taste(k)) return 1;
+    if (k == 0x2B && ac_n > 0 && ac_ziel == AZ_NZ) { ac_wahl(0); return 1; }
+    rad_weg(); ac_n = 0;
     if (k == 0x29) { notiz_fok = -1; zeichne_desktop(); return 1; }
     if (k == 0x2A) { if (nz_len[id] > 0) nz[id][--nz_len[id]] = 0; }
     else {
@@ -2780,7 +2798,7 @@ static int notiz_taste(uint8_t k, int shift, int altgr) {
         if (!((c == '\n' || (c >= 32 && c < 127) || (unsigned char)c >= 0xA0) && nz_len[id] < NZ_T)) return 0;
         nz[id][nz_len[id]++] = c; nz[id][nz_len[id]] = 0;
     }
-    notiz_speichern(); gfx_begin(); wid_zeichnen(notiz_fok); gfx_end(); return 1;
+    notiz_speichern(); gfx_begin(); wid_zeichnen(notiz_fok); gfx_end(); ac_aktualisieren(); return 1;
 }
 /* 1 = verbraucht (Klick auf Rumpf/Knoepfe), 0 = Kopfzeile */
 static int notiz_klick(int j, int x, int y) {

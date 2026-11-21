@@ -6,7 +6,7 @@
  */
 
 #define AC_MAX 6
-enum { AZ_NICHTS, AZ_TEXT, AZ_KP, AZ_TAB };
+enum { AZ_NICHTS, AZ_TEXT, AZ_KP, AZ_TAB, AZ_PF, AZ_NZ };
 static int ac_cx, ac_cy, ac_ch, ac_hat;                 /* Eingabemarke des Texteditors (Bildschirm) */
 static int ac_n, ac_ziel, ac_pos, ac_len;                /* Anzahl Vorschlaege, Ziel, Gueltigkeitsmarke (Cursor, Laenge) */
 static char ac_c[AC_MAX][96]; static int ac_er[AC_MAX];  /* Vorschlag und Anzahl bereits getippter Zeichen, die er ersetzt */

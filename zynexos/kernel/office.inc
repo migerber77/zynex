@@ -288,9 +288,11 @@ static int ob_quelltext(char* out, int max) {                     /* aktuelles D
 #define TZ 60
 #define TS 12
 static char tz[TZ][TS][48];
+static uint8_t tzs[TZ][TS];                                   /* Zellstil: Bits wie beim Text (fett, kursiv, unterstrichen, Mono, Groessenrang); 0 = Standard */
+static uint8_t t_stil(int r, int c) { return tzs[r][c] ? tzs[r][c] : (uint8_t)ST_STD; }
 static int t_r, t_c, t_sr, t_edit, t_elen, t_geaendert, t_diag, t_tiefe; static char t_ebuf[48]; static char tabname[28];
 static int tg_x, tg_y, tg_cw, tg_vz, tg_vs, tg_gw, tg_gh;
-#define TG_RH 24
+#define TG_RH 30
 #define TG_HW 46
 static const char* tp;
 static int64_t te_ausdr(int* err);
@@ -412,10 +414,29 @@ static void t_aus_text(const char* t, int r0, int c0) {          /* Zeilen mit ;
     }
     t_geaendert = 1;
 }
-static void t_leeren(void) { for (int r = 0; r < TZ; r++) for (int c = 0; c < TS; c++) tz[r][c][0] = 0; t_r = t_c = t_sr = 0; t_edit = 0; t_geaendert = 0; }
+static void t_leeren(void) { for (int r = 0; r < TZ; r++) for (int c = 0; c < TS; c++) { tz[r][c][0] = 0; tzs[r][c] = 0; } t_r = t_c = t_sr = 0; t_edit = 0; t_geaendert = 0; }
 static void t_neu(void) { t_leeren(); ob_name_neu("tabelle-", ".csv", tabname); }
-static void t_speichern(void) { static char b[24000]; t_csv(b, sizeof(b), 0); ob_speichere(tabname, b, slen(b)); t_geaendert = 0; }
-static void t_laden(const char* name) { static char b[24000]; int r = synfs_read(name, b, sizeof(b) - 1); if (r < 0) return; b[r] = 0; t_leeren(); t_aus_text(b, 0, 0); t_geaendert = 0; scopy(tabname, name, 28); kprint("[OFFICE] Tabelle geoeffnet: "); kprint(name); kprint("\n"); }
+static void t_fmtname(char* o) { scopy(o, tabname, 40); cat(o, ".fmt", 40); }
+static void t_speichern(void) {
+    static char b[24000]; t_csv(b, sizeof(b), 0); ob_speichere(tabname, b, slen(b)); t_geaendert = 0;
+    static char f[TZ * TS * 8 + 8]; int o = 0; static const char hx[] = "0123456789ABCDEF";
+    for (int r = 0; r < TZ; r++) for (int c = 0; c < TS; c++) if (tzs[r][c] && tzs[r][c] != ST_STD && o < (int)sizeof(f) - 12) {
+        char a[8]; dec(a, (uint32_t)r); for (int k = 0; a[k]; k++) f[o++] = a[k]; f[o++] = ','; dec(a, (uint32_t)c); for (int k = 0; a[k]; k++) f[o++] = a[k]; f[o++] = ',';
+        f[o++] = hx[tzs[r][c] >> 4]; f[o++] = hx[tzs[r][c] & 15]; f[o++] = ';';
+    }
+    char fn[40]; t_fmtname(fn); if (o) ob_speichere(fn, f, o);
+}
+static int t_hexv(char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; }
+static void t_fmt_laden(void) {
+    static char f[TZ * TS * 8 + 8]; char fn[40]; t_fmtname(fn); int n = synfs_read(fn, f, sizeof(f) - 1); if (n <= 0) return; f[n] = 0;
+    int i = 0; while (i < n) {
+        int r = 0, c = 0; while (f[i] >= '0' && f[i] <= '9') r = r * 10 + (f[i++] - '0'); if (f[i] != ',') break; i++;
+        while (f[i] >= '0' && f[i] <= '9') c = c * 10 + (f[i++] - '0'); if (f[i] != ',') break; i++;
+        int h = t_hexv(f[i]), l = t_hexv(f[i + 1]); if (h < 0 || l < 0) break; i += 2; if (f[i] == ';') i++;
+        if (r < TZ && c < TS) tzs[r][c] = (uint8_t)(h * 16 + l);
+    }
+}
+static void t_laden(const char* name) { static char b[24000]; int r = synfs_read(name, b, sizeof(b) - 1); if (r < 0) return; b[r] = 0; t_leeren(); t_aus_text(b, 0, 0); t_geaendert = 0; scopy(tabname, name, 28); t_fmt_laden(); kprint("[OFFICE] Tabelle geoeffnet: "); kprint(name); kprint("\n"); }
 static void t_setze(int r, int c, const char* v) {
     scopy(tz[r][c], v, 48); t_geaendert = 1;
     char n[8], a[48]; t_zellname(r, c, n); t_anzeige(r, c, a);
@@ -433,6 +454,8 @@ static void zeichne_tabelle(void) {
         rb_knopf(K_T0 + 0, TR("Neu", "New"), 0, OC_EXCEL); rb_knopf(K_T0 + 1, TR("Oeffnen", "Open"), 0, OC_EXCEL); rb_knopf(K_T0 + 2, TR("Speichern", "Save"), 0, OC_EXCEL); rb_gruppe(TR("Datei", "File"));
         rb_knopf(K_T0 + 3, TR("AutoSumme", "AutoSum"), 0, OC_EXCEL); rb_knopf(K_T0 + 4, TR("Mittelwert", "Average"), 0, OC_EXCEL); rb_knopf(K_T0 + 5, TR("Zelle leeren", "Clear cell"), 0, OC_EXCEL); rb_gruppe(TR("Bearbeiten", "Editing"));
         rb_knopf(K_T0 + 6, TR("Diagramm", "Chart"), t_diag, OC_EXCEL); rb_gruppe(TR("Einfuegen", "Insert"));
+        { uint8_t sj = t_stil(t_r, t_c); rb_knopf(K_T0 + 11, TR("F", "B"), sj & ST_FETT, OC_EXCEL); rb_knopf(K_T0 + 12, TR("K", "I"), sj & ST_KURSIV, OC_EXCEL); rb_knopf(K_T0 + 13, "U", sj & ST_UNTER, OC_EXCEL);
+          rb_knopf(K_T0 + 14, "A-", 0, OC_EXCEL); rb_knopf(K_T0 + 15, "A+", 0, OC_EXCEL); rb_knopf(K_T0 + 16, (sj & ST_MONO) ? TR("Schrift: Schreibmaschine", "Font: Typewriter") : TR("Schrift: Sans", "Font: Sans"), 0, OC_EXCEL); rb_gruppe(TR("Format", "Format")); }
     } else {
         rb_knopf(K_T0 + 7, TR("Analysieren", "Analyse"), 0, OC_EXCEL); rb_knopf(K_T0 + 8, TR("Tabelle aus Beschreibung", "Sheet from description"), 0, OC_EXCEL); rb_knopf(K_T0 + 9, TR("Formel erklaeren", "Explain formula"), 0, OC_EXCEL); rb_gruppe(TR("Zynie rechnet mit", "Zynie helps"));
         rb_knopf(K_T0 + 10, TR("Tabellen-Agent", "Sheet agent"), 0, OC_EXCEL); rb_gruppe(TR("Agenten", "Agents"));
@@ -468,11 +491,14 @@ static void zeichne_tabelle(void) {
         for (int c = 0; c < tg_vs; c++) {
             int cx = tg_x + TG_HW + c * tg_cw; if (cx >= tg_x + gw) break;
             char v[48]; int rechts = t_anzeige(r, c, v); if (!v[0]) continue;
-            int mc = (tg_cw - 10) / 8; if (cx + tg_cw > tg_x + gw) mc = (tg_x + gw - cx - 10) / 8; if (mc < 1) continue;
-            if (slen(v) > mc) { if (rechts) { scopy(v, "###", 48); } else v[mc] = 0; }
-            int fett = r == 0 && !rechts;
-            int tx = rechts ? cx + tg_cw - 6 - gtw(v, 1) : cx + 5;
-            gtxt(tx, ry + 4, v, v[0] == '#' && rechts ? 0x00C42B1Cu : O_TXT, 1); if (fett) gtxt(tx + 1, ry + 4, v, O_TXT, 1);
+            uint8_t zs = t_stil(r, c); int zf = st_font(zs), zst = zs & 3; if (r == 0 && !rechts) zs |= ST_FETT; zst = zs & 3;
+            int zw = 0; for (int q = 0; v[q]; q++) zw += st_adv((unsigned char)v[q], zs);
+            int avail = tg_cw - 10; if (cx + tg_cw > tg_x + gw) avail = tg_x + gw - cx - 10; if (avail < 8) continue;
+            if (zw > avail) { if (rechts) { scopy(v, "###", 48); zw = 0; for (int q = 0; v[q]; q++) zw += st_adv((unsigned char)v[q], zs); } else { int w2 = 0, q = 0; while (v[q]) { int a2 = st_adv((unsigned char)v[q], zs); if (w2 + a2 > avail) break; w2 += a2; q++; } v[q] = 0; zw = w2; } }
+            int tx = rechts ? cx + tg_cw - 6 - zw : cx + 5; int ty = ry + (TG_RH - gfx_font_box(zf)) / 2; if (ty < ry) ty = ry;
+            uint32_t col = v[0] == '#' && rechts ? 0x00C42B1Cu : O_TXT; int px = tx;
+            for (int q = 0; v[q]; q++) { gfx_zeichen_stil(px, ty, (unsigned char)v[q], col, zf, zst); px += st_adv((unsigned char)v[q], zs); }
+            if (zs & ST_UNTER) gfx_rect(tx, ty + gfx_font_box(zf) - 2, zw, 1, col);
         }
     }
     { int i = t_r - t_sr, c = t_c; if (i >= 0 && i < tg_vz && c < tg_vs) { int cx = tg_x + TG_HW + c * tg_cw, ry = tg_y + TG_RH + i * TG_RH;
@@ -533,6 +559,7 @@ static void t_taste(uint8_t k, int shift, int altgr) {
 /* ======================================================================= Zynex Praesentation ======================================================================= */
 #define NF 20
 static char pf_t[NF][80], pf_b[NF][600];
+static uint8_t pf_st[NF][2];                                  /* Stil je Folie: [0] Titel, [1] Text. Bit0 fett, 1 kursiv, 2 unterstrichen, 3 Mono, Bit4-6 Groessenwahl (0 = Standard, 1..5 = -2..+2) */
 static int pf_n = 1, pf_cur, pf_feld, pf_design, pf_geaendert, pf_vend; static char pfname[28];
 static int ps_x, ps_y, ps_w, ps_h;
 static const struct { const char* de; const char* en; uint32_t bg, bg2, ti, tx, akz; } PD[4] = {
@@ -541,7 +568,7 @@ static const struct { const char* de; const char* en; uint32_t bg, bg2, ti, tx, 
     { "Dunkel", "Dark", 0x00262626u, 0x00181818u, 0x00FFC000u, 0x00F2F2F2u, 0x00FFC000u },
     { "Warm", "Warm", 0x00FFF7F0u, 0x00FBE5D6u, 0x00C43E1Cu, 0x003B3B3Bu, 0x00ED7D31u },
 };
-static void pf_leeren(void) { for (int i = 0; i < NF; i++) { pf_t[i][0] = 0; pf_b[i][0] = 0; } pf_n = 1; pf_cur = 0; pf_feld = 0; pf_geaendert = 0; }
+static void pf_leeren(void) { for (int i = 0; i < NF; i++) { pf_t[i][0] = 0; pf_b[i][0] = 0; pf_st[i][0] = pf_st[i][1] = 0; } pf_n = 1; pf_cur = 0; pf_feld = 0; pf_geaendert = 0; }
 static void pf_neu(void) { pf_leeren(); pf_design = 0; ob_name_neu("praesentation-", ".zpr", pfname); }
 static int pf_aus_text(const char* t, int ab) {                   /* "# Titel" / "- Punkt"; ab = erste Folie, die ueberschrieben wird */
     int n = ab - 1, i = 0;
@@ -578,11 +605,21 @@ static void pf_text(char* o, int max) {
         const char* b = pf_b[i]; while (*b) { const char* e = b; while (*e && *e != '\n') e++; cat(o, "- ", max); int n = slen(o); for (const char* q = b; q < e && n < max - 2; q++) o[n++] = *q; o[n] = 0; cat(o, "\n", max); b = *e ? e + 1 : e; }
     }
 }
-static void pf_speichern(void) { static char b[14000]; pf_text(b, sizeof(b)); char d[16] = "@design "; dec(d + 8, (uint32_t)pf_design); cat(d, "\n", 16); static char g[14100]; scopy(g, d, sizeof(g)); cat(g, b, sizeof(g)); ob_speichere(pfname, g, slen(g)); pf_geaendert = 0; }
+static void pf_speichern(void) { static char b[14000]; pf_text(b, sizeof(b)); char d[16] = "@design "; dec(d + 8, (uint32_t)pf_design); cat(d, "\n", 16); static char g[14300]; scopy(g, d, sizeof(g)); { char sl[4 * NF + 12]; int o = 0; static const char hx[] = "0123456789ABCDEF"; scopy(sl, "@stile ", 12); o = 7; for (int q = 0; q < pf_n; q++) for (int k = 0; k < 2; k++) { sl[o++] = hx[pf_st[q][k] >> 4]; sl[o++] = hx[pf_st[q][k] & 15]; } sl[o++] = 10; sl[o] = 0; cat(g, sl, sizeof(g)); } cat(g, b, sizeof(g)); ob_speichere(pfname, g, slen(g)); pf_geaendert = 0; }
 static void pf_laden(const char* name) {
-    static char b[14100]; int r = synfs_read(name, b, sizeof(b) - 1); if (r < 0) return; b[r] = 0;
+    static char b[14300]; int r = synfs_read(name, b, sizeof(b) - 1); if (r < 0) return; b[r] = 0;
     pf_leeren(); const char* t = b; if (t[0] == '@') { pf_design = (t[8] - '0') & 3; while (*t && *t != '\n') t++; }
+    if (*t == '\n') t++;
+    if (t[0] == '@' && t[1] == 's') { const char* q = t + 7; int idx = 0; while (idx < 2 * NF && t_hexv(q[0]) >= 0 && t_hexv(q[1]) >= 0) { pf_st[idx / 2][idx % 2] = (uint8_t)(t_hexv(q[0]) * 16 + t_hexv(q[1])); q += 2; idx++; } while (*t && *t != '\n') t++; }
     pf_n = 0; pf_aus_text(t, 0); pf_geaendert = 0; scopy(pfname, name, 28); kprint("[OFFICE] Praesentation geoeffnet: "); kprint(name); kprint("\n");
+}
+static int pf_rang(int basis, uint8_t st) { int d = (st >> 4) & 7; int r = basis + (d ? d - 3 : 0); return r < 0 ? 0 : r > 4 ? 4 : r; }
+static uint8_t pf_fst(int rang, uint8_t st) { return (uint8_t)((st & 15) | (rang << 4)); }
+static int pf_breite(const char* t, uint8_t fs) { int w = 0; for (int q = 0; t[q]; q++) w += st_adv((unsigned char)t[q], fs); return w; }
+static void pf_zeichne_text(int x, int y, const char* t, uint32_t col, uint8_t fs) {
+    int f = st_font(fs), px = x, box = gfx_font_box(f);
+    for (int q = 0; t[q]; q++) { gfx_zeichen_stil(px, y, (unsigned char)t[q], col, f, fs & 3); if (fs & ST_FETT) gfx_zeichen_stil(px + 1, y, (unsigned char)t[q], col, f, fs & 3); px += st_adv((unsigned char)t[q], fs); }
+    if (fs & ST_UNTER) gfx_rect(x, y + box - 2, px - x, 2, col);
 }
 static void folie(int i, int x, int y, int w, int h, int modus) {          /* modus 0 Bearbeiten, 1 Miniatur, 2 Vorfuehren */
     uint32_t bg = PD[pf_design].bg, bg2 = PD[pf_design].bg2, ti = PD[pf_design].ti, tx = PD[pf_design].tx, ak = PD[pf_design].akz;
@@ -594,19 +631,21 @@ static void folie(int i, int x, int y, int w, int h, int modus) {          /* mo
         return;
     }
     int ts = w >= 1600 ? 4 : w >= 900 ? 3 : 2, bs = w >= 1600 ? 2 : 1, mx = x + w / 14, tyy = y + h / 9;
-    if (pf_t[i][0]) gfx_text(mx, tyy, pf_t[i], ti, ts);
-    else if (modus == 0) gfx_text(mx, tyy, l1(TR("Titel hinzufuegen", "Add title")), mix(bg, ti, 110), ts);
-    gfx_rect(mx, tyy + 16 * ts + 12, w / 6, 4, ak);
-    int by = tyy + 16 * ts + 40, cols = (w - 2 * (mx - x) - 24 * bs) / (8 * bs);
-    static char z[60][100]; int n = ob_umbruch(pf_b[i], cols, z, 60), lh = 26 * bs;
+    int tr = pf_rang(ts, pf_st[i][0]), br = pf_rang(bs, pf_st[i][1]); uint8_t tf = pf_fst(tr, pf_st[i][0]), bf = pf_fst(br, pf_st[i][1]);
+    int th2 = gfx_font_box(st_font(tf));
+    if (pf_t[i][0]) pf_zeichne_text(mx, tyy, pf_t[i], ti, tf);
+    else if (modus == 0) pf_zeichne_text(mx, tyy, l1(TR("Titel hinzufuegen", "Add title")), mix(bg, ti, 110), pf_fst(tr, 0));
+    gfx_rect(mx, tyy + th2 + 12, w / 6, 4, ak);
+    int by = tyy + th2 + 40, cols = (w - 2 * (mx - x) - 24 * bs) * 100 / (gfx_font_box(st_font(bf)) * 60 + 1); int lh = gfx_font_box(st_font(bf)) * 17 / 10 + 2;
+    static char z[60][100]; int n = ob_umbruch(pf_b[i], cols, z, 60);
     { const char* b = pf_b[i]; int li = 0, neu = 1; for (int q = 0; q < n && by + q * lh < y + h - h / 15; q++) {
           if (neu) gfx_rect(mx, by + q * lh + 6 * bs, 6 * bs, 6 * bs, ak);
-          gfx_text(mx + 20 * bs, by + q * lh, z[q], tx, bs);
+          pf_zeichne_text(mx + 20 * bs, by + q * lh, z[q], tx, bf);
           /* naechste Zeile beginnt einen neuen Punkt, wenn diese Zeile die Originalzeile beendet */
           int len = slen(z[q]); while (*b == ' ') b++; b += len; neu = (*b == '\n' || !*b); if (*b == '\n') b++; li++; } (void)li; }
     if (!pf_b[i][0] && modus == 0) gfx_text(mx + 20, by, l1(TR("Text hinzufuegen (Enter = neuer Punkt)", "Add text (Enter = new bullet)")), mix(bg, tx, 110), bs);
     if (modus == 0 && pf_feld) {
-        int fy = pf_feld == 1 ? tyy - 8 : by - 10, fh = pf_feld == 1 ? 16 * ts + 16 : y + h - h / 15 - by;
+        int fy = pf_feld == 1 ? tyy - 8 : by - 10, fh = pf_feld == 1 ? th2 + 16 : y + h - h / 15 - by;
         for (int q = 0; q < w - 2 * (mx - x) + 16; q += 8) { gfx_rect(mx - 8 + q, fy, 4, 1, O_BLAU); gfx_rect(mx - 8 + q, fy + fh, 4, 1, O_BLAU); }
         for (int q = 0; q < fh; q += 8) { gfx_rect(mx - 8, fy + q, 1, 4, O_BLAU); gfx_rect(x + w - (mx - x) + 8, fy + q, 1, 4, O_BLAU); }
     }
@@ -637,6 +676,8 @@ static void zeichne_praes(void) {
         rb_knopf(K_P0 + 0, TR("Neu", "New"), 0, OC_PPT); rb_knopf(K_P0 + 1, TR("Oeffnen", "Open"), 0, OC_PPT); rb_knopf(K_P0 + 2, TR("Speichern", "Save"), 0, OC_PPT); rb_gruppe(TR("Datei", "File"));
         rb_knopf(K_P0 + 3, TR("Neue Folie", "New slide"), 0, OC_PPT); rb_knopf(K_P0 + 4, TR("Folie loeschen", "Delete slide"), 0, OC_PPT); rb_gruppe(TR("Folien", "Slides"));
         rb_knopf(K_P0 + 5, TR("Design wechseln", "Change design"), 0, OC_PPT); rb_gruppe("Design");
+        { uint8_t sj = pf_st[pf_cur][pf_feld == 1 ? 0 : 1]; rb_knopf(K_P0 + 11, TR("F", "B"), sj & ST_FETT, OC_PPT); rb_knopf(K_P0 + 12, TR("K", "I"), sj & ST_KURSIV, OC_PPT); rb_knopf(K_P0 + 13, "U", sj & ST_UNTER, OC_PPT);
+          rb_knopf(K_P0 + 14, "A-", 0, OC_PPT); rb_knopf(K_P0 + 15, "A+", 0, OC_PPT); rb_knopf(K_P0 + 16, (sj & ST_MONO) ? TR("Schrift: Schreibmaschine", "Font: Typewriter") : TR("Schrift: Sans", "Font: Sans"), 0, OC_PPT); rb_gruppe(TR("Format", "Format")); }
         rb_knopf(K_P0 + 6, TR("Vorfuehren (F5)", "Present (F5)"), 0, OC_PPT); rb_gruppe(TR("Bildschirmpraesentation", "Slide show"));
     } else {
         rb_knopf(K_P0 + 7, TR("Folien aus Thema", "Slides from topic"), 0, OC_PPT); rb_knopf(K_P0 + 8, TR("Aus Dokument", "From document"), 0, OC_PPT); rb_knopf(K_P0 + 9, TR("Folie verbessern", "Improve slide"), 0, OC_PPT); rb_gruppe(TR("Zynie gestaltet mit", "Zynie designs"));
@@ -682,8 +723,8 @@ static void pf_taste(uint8_t k, int shift, int altgr) {
 }
 static void pf_neue_folie(void) {
     if (pf_n >= NF) { scopy(ob_meld, TR("Hoechstens 20 Folien", "At most 20 slides"), 100); return; }
-    for (int i = pf_n; i > pf_cur + 1; i--) { scopy(pf_t[i], pf_t[i - 1], 80); scopy(pf_b[i], pf_b[i - 1], 600); }
-    pf_n++; pf_cur++; pf_t[pf_cur][0] = 0; pf_b[pf_cur][0] = 0; pf_feld = 1; pf_geaendert = 1;
+    for (int i = pf_n; i > pf_cur + 1; i--) { scopy(pf_t[i], pf_t[i - 1], 80); scopy(pf_b[i], pf_b[i - 1], 600); pf_st[i][0] = pf_st[i - 1][0]; pf_st[i][1] = pf_st[i - 1][1]; }
+    pf_n++; pf_cur++; pf_t[pf_cur][0] = 0; pf_b[pf_cur][0] = 0; pf_st[pf_cur][0] = pf_st[pf_cur][1] = 0; pf_feld = 1; pf_geaendert = 1;
     kprint("[OFFICE] Neue Folie "); kprint_dec((uint32_t)pf_cur + 1); kprint("\n");
 }
 
@@ -1047,7 +1088,21 @@ static void office_klick(int id, int wi) {
     else if (id == K_T0 + 2) { t_uebernehme(); t_speichern(); }
     else if (id == K_T0 + 3) { t_uebernehme(); t_autofunktion(TR("SUMME", "SUM")); }
     else if (id == K_T0 + 4) { t_uebernehme(); t_autofunktion(TR("MITTELWERT", "AVERAGE")); }
+    else if (id >= K_P0 + 11 && id <= K_P0 + 16) {
+        uint8_t* ps = &pf_st[pf_cur][pf_feld == 1 ? 0 : 1]; uint8_t st = *ps; int d = (st >> 4) & 7; int dl = d ? d - 3 : 0;
+        if (id == K_P0 + 11) st ^= ST_FETT; else if (id == K_P0 + 12) st ^= ST_KURSIV; else if (id == K_P0 + 13) st ^= ST_UNTER;
+        else if (id == K_P0 + 14) { if (dl > -2) dl--; } else if (id == K_P0 + 15) { if (dl < 2) dl++; } else st ^= ST_MONO;
+        st = (uint8_t)((st & 15) | ((dl ? dl + 3 : 0) << 4)); *ps = st; pf_geaendert = 1;
+        kprint("[OFFICE] Praesentation: Format "); kprint_dec((uint32_t)(id - K_P0 - 11)); kprint("\n");
+    }
     else if (id == K_T0 + 5) t_setze(t_r, t_c, "");
+    else if (id >= K_T0 + 11 && id <= K_T0 + 16) {
+        uint8_t st = t_stil(t_r, t_c); int rk = (st >> 4) & 7; if (rk > 2) rk = 2;
+        if (id == K_T0 + 11) st ^= ST_FETT; else if (id == K_T0 + 12) st ^= ST_KURSIV; else if (id == K_T0 + 13) st ^= ST_UNTER;
+        else if (id == K_T0 + 14) { if (rk > 0) rk--; } else if (id == K_T0 + 15) { if (rk < 2) rk++; } else st ^= ST_MONO;
+        st = (uint8_t)((st & 0x8F) | (rk << 4)); tzs[t_r][t_c] = st; t_geaendert = 1;
+        kprint("[OFFICE] Tabelle: Zellformat "); kprint_dec((uint32_t)(id - K_T0 - 11)); kprint("\n");
+    }
     else if (id == K_T0 + 6) { t_diag = !t_diag; if (t_diag) kp_auf[FT_TAB] = 0; }
     else if (id == K_T0 + 7) { t_csv(d, sizeof(d), 1); int n = ob_ki(TR("Analysiere diese Tabelle kurz: Auffaelligkeiten, Summen, Trends, Empfehlung.", "Analyse this table briefly: notable points, totals, trends, recommendation."), d, out, sizeof(out)); kp_zeige(FT_TAB, out, KA_KEINE); (void)n; t_diag = 0; }
     else if (id == K_T0 + 8) { kp_auf[FT_TAB] = 1; t_diag = 0; kp_fokus = FT_TAB; kp_modus = KE_TAB; }
@@ -1059,7 +1114,7 @@ static void office_klick(int id, int wi) {
     else if (id == K_P0 + 1) { if (pf_geaendert) pf_speichern(); char nm[28]; if (ob_naechste("praesentation-", ".zpr", pfname, nm)) pf_laden(nm); else scopy(ob_meld, TR("Noch keine Praesentationen gespeichert", "No presentations saved yet"), 100); }
     else if (id == K_P0 + 2) pf_speichern();
     else if (id == K_P0 + 3) pf_neue_folie();
-    else if (id == K_P0 + 4) { if (pf_n > 1) { for (int i = pf_cur; i < pf_n - 1; i++) { scopy(pf_t[i], pf_t[i + 1], 80); scopy(pf_b[i], pf_b[i + 1], 600); } pf_n--; if (pf_cur >= pf_n) pf_cur = pf_n - 1; } else { pf_t[0][0] = 0; pf_b[0][0] = 0; } pf_geaendert = 1; pf_feld = 0; }
+    else if (id == K_P0 + 4) { if (pf_n > 1) { for (int i = pf_cur; i < pf_n - 1; i++) { scopy(pf_t[i], pf_t[i + 1], 80); scopy(pf_b[i], pf_b[i + 1], 600); pf_st[i][0] = pf_st[i + 1][0]; pf_st[i][1] = pf_st[i + 1][1]; } pf_n--; if (pf_cur >= pf_n) pf_cur = pf_n - 1; } else { pf_t[0][0] = 0; pf_b[0][0] = 0; } pf_geaendert = 1; pf_feld = 0; }
     else if (id == K_P0 + 5) { pf_design = (pf_design + 1) & 3; pf_geaendert = 1; kprint("[OFFICE] Design: "); kprint(PD[pf_design].en); kprint("\n"); }
     else if (id == K_P0 + 6) { ob_vollbild = 1; pf_vend = 0; pf_feld = 0; kprint("[OFFICE] Vorfuehrung gestartet\n"); praes_vollbild_zeichnen(); return; }
     else if (id == K_P0 + 7) { kp_auf[FT_PRAES] = 1; kp_fokus = FT_PRAES; kp_modus = KE_FOLIEN; }
