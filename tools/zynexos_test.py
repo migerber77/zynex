@@ -248,6 +248,12 @@ def platte(dev="nvme0", titel="NVMe", extra=None, img="/tmp/zynex-nvme.img", ber
 
 
 
+def virtio_blk():
+    img = "/tmp/zynex-vblk.img"
+    extra = ["-drive", "file=%s,if=none,id=vb0,format=raw" % img, "-device", "virtio-blk-pci,drive=vb0,disable-legacy=on"]
+    platte("vblk0", "VirtIO-Blk", extra, img, "vblk0 bereit")
+
+
 def sata():
     img = "/tmp/zynex-sata.img"
     extra = ["-drive", "file=%s,if=none,id=satadisk,format=raw" % img, "-device", "ide-hd,drive=satadisk,bus=ide.0"]
@@ -1169,6 +1175,6 @@ def manip():
 
 
 for s in SZEN:
-    {"browser": browser, "stick": stick, "kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "sicherboot": sicherboot, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
+    {"browser": browser, "stick": stick, "kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "sicherboot": sicherboot, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "virtio": virtio_blk, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
 
 sys.exit(0 if all(ergebnis) else 1)

@@ -18,7 +18,7 @@ static struct hw_zeile bewerte(const struct pci_dev* d) {
     struct hw_zeile z = { "Systemgeraet", "kein Treiber noetig", 1 };
     if (d->cls == 0x01 && d->sub == 0x08) { z.protokoll = "NVMe (PCIe)"; z.treiber = "nvme"; return z; }
     if (d->cls == 0x01 && d->sub == 0x06 && d->prog == 0x01) { z.protokoll = "AHCI (SATA)"; z.treiber = "ahci"; return z; }
-    if (d->cls == 0x01 && d->vendor == 0x1AF4) { z.protokoll = "VirtIO-Blk"; z.treiber = "keiner (noch nicht gebaut)"; z.ja = 0; return z; }
+    if (d->cls == 0x01 && d->vendor == 0x1AF4) { z.protokoll = "VirtIO-Blk"; z.treiber = "virtioblk (modern, vblk0)"; return z; }
     if (d->cls == 0x01) { z.protokoll = "Massenspeicher (IDE/RAID/anderes)"; z.treiber = "keiner (nur NVMe, AHCI)"; z.ja = 0; return z; }
     if (d->cls == 0x0C && d->sub == 0x03 && d->prog == 0x30) { z.protokoll = "xHCI (USB 3)"; z.treiber = "usb (HID-Tastatur/Maus, Speicher)"; return z; }
     if (d->cls == 0x0C && d->sub == 0x03) { z.protokoll = "USB (EHCI/OHCI/UHCI)"; z.treiber = "keiner (nur xHCI)"; z.ja = 0; return z; }

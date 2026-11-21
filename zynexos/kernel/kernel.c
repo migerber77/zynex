@@ -38,6 +38,7 @@
 #include "synbin.h"
 #include "pci.h"
 #include "nvme.h"
+#include "virtioblk.h"
 #include "ahci.h"
 #include "net.h"
 #include "usb.h"
@@ -312,6 +313,7 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr){
     nvme_init();
     desktop_splash(-1, 30, "NVMe geprueft");
     ahci_init();
+    virtioblk_init();
     desktop_splash(-1, 34, "SATA geprueft");
     usb_init();
     desktop_splash(-1, 38, "USB geprueft");
