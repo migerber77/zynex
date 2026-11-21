@@ -39,6 +39,7 @@
 #include "pci.h"
 #include "nvme.h"
 #include "virtioblk.h"
+#include "zlk.h"
 #include "ahci.h"
 #include "net.h"
 #include "usb.h"
@@ -342,7 +343,7 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr){
         if (zp && block_select(zp) == 0 && synfs_mount() == 0) {
             gemountet = 1;
             kprint("[SYSTEM] Installiertes System von "); kprint(zp); kprint(" gestartet\n");
-            benutzer_laden(); zdb_init(); ged_neu_laden(); fw_laden();
+            benutzer_laden(); zdb_init(); ged_neu_laden(); fw_laden(); zlk_laden();
             { const char* tl = zdb_get("system.tastatur"); if (tl) { int w = kbd_find(tl); if (w >= 0) usb_set_layout(w); } }
             static char cfg[64]; int r = synfs_read("sys.config", cfg, sizeof(cfg) - 1);
             if (r > 0) { cfg[r] = 0; for (int i = 0; cfg[i]; i++) if (cfg[i] == 'l' && cfg[i+1] == 'a' && cfg[i+6] == '=') { int w = kbd_find(cfg + i + 7); if (w >= 0) usb_set_layout(w); break; } }

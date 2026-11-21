@@ -46,6 +46,7 @@
 #include "webseite.h"
 #include "zynjava.h"
 extern void hardware_info(void);
+#include "zlk.h"
 #include "browser.h"
 
 extern void kprint(const char* str);
@@ -499,6 +500,11 @@ static void run_legacy(char* cmd) {
     }
     else if (streq(cmd, "pci")) pci_list();
     else if (streq(cmd, "hardware")) hardware_info();
+    else if (starts_with(cmd, "zlern ")) { zlk_lerne(cmd + 6, -1); zlk_lerne("\n", 1); zlk_speichern(); zlk_info(); }
+    else if (starts_with(cmd, "zsag ")) { static char zo[256]; int n = zlk_ergaenze(cmd + 5, zo, sizeof(zo), 0); kprint("[ZLK] "); kprint(cmd + 5); kprint(n ? zo : "(keine Ahnung - noch nichts dazu gelernt)"); kprint("\n"); }
+    else if (starts_with(cmd, "zfrei ")) { static char zo2[256]; zlk_ergaenze(cmd + 6, zo2, sizeof(zo2), 70); kprint("[ZLK] "); kprint(cmd + 6); kprint(zo2); kprint("\n"); }
+    else if (streq(cmd, "zinfo")) zlk_info();
+    else if (streq(cmd, "zvergessen")) { zlk_init(); zlk_speichern(); kprint("[ZLK] Lernkern auf null zurueckgesetzt\n"); }
     else if (streq(cmd, "usb")) usb_list();
     else if (streq(cmd, "net")) net_info();
     else if (streq(cmd, "wifi")) wifi_info();
