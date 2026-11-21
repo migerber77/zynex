@@ -7,20 +7,29 @@ extern void kprint_dec(uint32_t v);
 extern uint32_t timer_get_ticks(void);
 
 /* ---------- Typen und Befehle ---------- */
-enum { T_INT = 0, T_STR, T_ARR, T_ARR2, T_VOID };
+enum { T_INT = 0, T_STR, T_ARR, T_ARR2, T_VOID, T_CHR };
 #define T_OBJ0 16            /* Objekt der Klasse cid = 16+cid; Feld solcher Objekte = 128+cid */
 #define T_OARR0 128
 #define T_LST0 144          /* Liste: 144 int, 145 String, 160+cid Objekte der Klasse cid */
 #define TAG_STRARR 2
 #define TAG_REFARR 3
 #define TAG_LIST 0x60
+#define TAG_MAP 0x70
+#define T_MAP0 176          /* Map: 176 + (Schluessel String ? 18 : 0) + Wert (0 int, 1 String, 2+cid Objekt) */
 #define TAG_ARR2 1
 #define TAG_OBJ 0x10
 #define TAG_OARR 0x40
 #define MAXF 32
 #define NCL_MAX 16
-static int is_list(int ty) { return ty >= T_LST0; }
+static int is_list(int ty) { return ty >= T_LST0 && ty < T_MAP0; }
+static int is_map(int ty) { return ty >= T_MAP0; }
+static int map_ks(int ty) { return (ty - T_MAP0) >= 18; }
+static int map_vcode(int ty) { return (ty - T_MAP0) % 18; }
+static int map_vtype(int ty) { int c = map_vcode(ty); return c == 0 ? T_INT : c == 1 ? T_STR : 16 + (c - 2); }
+static int map_vkind(int ty) { int c = map_vcode(ty); return c < 2 ? c : 2; }
+static int map_listtype(int vc) { return vc == 0 ? T_LST0 : vc == 1 ? T_LST0 + 1 : 160 + (vc - 2); }
 static int is_oarr(int ty) { return ty >= T_OARR0 && ty < T_LST0; }
+enum { MP_NEW, MP_PUT, MP_GET, MP_CONTAINS, MP_REMOVE, MP_SIZE, MP_EMPTY, MP_CLEAR, MP_GETDEF, MP_KEYS, MP_VALUES };
 static int list_elem(int ty) { return ty == T_LST0 ? T_INT : ty == T_LST0 + 1 ? T_STR : 16 + (ty - 160); }
 static int list_kind(int ty) { return ty == T_LST0 ? 0 : ty == T_LST0 + 1 ? 1 : 2; }
 enum { LS_NEW, LS_ADD, LS_GET, LS_SET, LS_SIZE, LS_REMOVE, LS_CLEAR, LS_EMPTY, LS_CONTAINS, LS_INDEXOF, LS_ADDAT };
@@ -29,7 +38,7 @@ enum {
     O_PUSH, O_LDL, O_STL, O_LDG, O_STG, O_AGET, O_ASETV, O_ALEN, O_NEWA, O_NEWA2, O_DUP, O_DUP2, O_POP,
     O_ADD, O_SUB, O_MUL, O_DIV, O_MOD, O_AND, O_OR, O_XOR, O_SHL, O_SHR, O_USHR,
     O_LT, O_LE, O_GT, O_GE, O_EQ, O_NE, O_NEG, O_NOT, O_BNOT,
-    O_SCAT, O_ITOS, O_SEQ, O_JMP, O_JZ, O_JNZ, O_CALLM, O_CALL, O_RET, O_RETV, O_BI, O_ALIT, O_HALT, O_NEWO, O_GETF, O_SETF, O_INSTOF, O_TRY, O_ENDTRY, O_THROW, O_CATCHT, O_RETHROW, O_LIST
+    O_SCAT, O_ITOS, O_SEQ, O_JMP, O_JZ, O_JNZ, O_CALLM, O_CALL, O_RET, O_RETV, O_BI, O_ALIT, O_HALT, O_NEWO, O_GETF, O_SETF, O_INSTOF, O_TRY, O_ENDTRY, O_THROW, O_CATCHT, O_RETHROW, O_LIST, O_MAP
 };
 enum {
     B_COLOR1, B_COLOR3, B_FILLRECT, B_DRAWRECT, B_LINE, B_FILLOVAL, B_DRAWOVAL, B_STRING, B_FONT, B_WIDTH, B_HEIGHT, B_PIXEL, B_NOP0, B_NOP1,
@@ -116,7 +125,7 @@ static const char* s_text(struct zjv* v, int h) { return (h > 0 && h < v->nstr) 
 static void gc(struct zjv* v);
 
 /* ====================== Uebersetzer ====================== */
-enum { TK_END, TK_ID, TK_NUM, TK_STR, TK_OP };
+enum { TK_END, TK_ID, TK_NUM, TK_STR, TK_OP, TK_CHR };
 struct tok { uint8_t t; int16_t line; int v; };
 #define TOK_MAX 7000
 static struct tok tk[TOK_MAX]; static int ntk, tp;
@@ -154,7 +163,7 @@ static int lex(const char* s) {
             s++; int v = (unsigned char)*s;
             if (*s == '\\') { s++; v = *s == 'n' ? 10 : *s == 't' ? 9 : *s == 'r' ? 13 : *s == '0' ? 0 : (unsigned char)*s; }
             s++; if (*s == '\'') s++;
-            t->t = TK_NUM; t->v = v; ntk++; continue;
+            t->t = TK_CHR; t->v = v; ntk++; continue;
         }
         if (c == '"') {
             s++; static char b[400]; int n = 0;
@@ -293,7 +302,8 @@ static int add_this(int cid) {
 
 /* Typen im Quelltext */
 static int type_word(const char* n) {
-    if (gl(n, "int") || gl(n, "long") || gl(n, "short") || gl(n, "byte") || gl(n, "char") || gl(n, "boolean") || gl(n, "Integer")) return T_INT;
+    if (gl(n, "char") || gl(n, "Character")) return T_CHR;
+    if (gl(n, "int") || gl(n, "long") || gl(n, "short") || gl(n, "byte") || gl(n, "boolean") || gl(n, "Integer")) return T_INT;
     if (gl(n, "String")) return T_STR; if (gl(n, "void")) return T_VOID; return -1;
 }
 static int is_modifier(const char* n) { return gl(n, "public") || gl(n, "private") || gl(n, "protected") || gl(n, "static") || gl(n, "final") || gl(n, "abstract") || gl(n, "synchronized") || gl(n, "native") || gl(n, "volatile") || gl(n, "transient"); }
@@ -307,6 +317,14 @@ static int exc_code(const char* n) {
     return 4 + (int)(hash_(n) & 0xFFFFF);
 }
 static int exc_alle(const char* n) { return gl(n, "Exception") || gl(n, "Throwable") || gl(n, "RuntimeException") || gl(n, "Error"); }
+static int is_mapname(const char* n) { return gl(n, "HashMap") || gl(n, "Map") || gl(n, "TreeMap") || gl(n, "LinkedHashMap"); }
+static int map_type_of(int ktok, int vtok) {              /* -1 = nicht unterstuetzt */
+    const char* k = idn(ktok); int ks = gl(k, "String");
+    if (!ks && type_word(k) != T_INT) return -1;
+    const char* vn = idn(vtok); int vc = 0;
+    if (gl(vn, "String")) vc = 1; else { int cc = class_find(vn); if (cc >= 0) vc = 2 + cc; }
+    return T_MAP0 + (ks ? 18 : 0) + vc;
+}
 static int is_listname(const char* n) { return gl(n, "ArrayList") || gl(n, "List") || gl(n, "LinkedList") || gl(n, "Vector") || gl(n, "Collection"); }
 static int list_type_of(int elemtok) {       /* Typ der Liste fuer Elementname */
     const char* e = idn(elemtok); if (gl(e, "String")) return T_LST0 + 1;
@@ -319,6 +337,11 @@ static int read_type(void) {
         int lt = list_type_of(tp + 2); tp += 4; return lt;
     }
     if (is_listname(n) && tk[tp + 1].t == TK_ID) { tp++; return T_LST0; }
+    if (is_mapname(n) && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '<') {
+        int mt = (tk[tp + 2].t == TK_ID && tk[tp + 3].t == TK_OP && tk[tp + 3].v == ',' && tk[tp + 4].t == TK_ID && tk[tp + 5].t == TK_OP && tk[tp + 5].v == '>') ? map_type_of(tp + 2, tp + 4) : -1;
+        if (mt < 0) { fehler("Map: Schluessel String oder Integer, z.B. HashMap<String, Integer>"); return -1; }
+        tp += 6; return mt;
+    }
     int nx_id = tk[tp + 1].t == TK_ID, nx_arr = tk[tp + 1].t == TK_OP && tk[tp + 1].v == '[' && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ']';
     if (gl(n, "float") || gl(n, "double")) { if (!nx_id && !nx_arr) return -1; check_float(n); tp++; return T_INT; }
     if (!nx_id && !nx_arr) return -1;
@@ -336,7 +359,7 @@ static const struct bi BI[] = {
     { "setPixel", 2, B_PIXEL, T_VOID, 0 }, { "clear", 0, B_CLEARALL, T_VOID, 0 }, { "repaint", 0, B_NOP0, T_VOID, 0 }, { "sleep", 1, B_NOP1, T_VOID, 0 }, { "exit", 0, B_NOP0, T_VOID, 0 },
     { "abs", 1, B_ABS, T_INT, 0 }, { "min", 2, B_MIN, T_INT, 0 }, { "max", 2, B_MAX, T_INT, 0 }, { "sqrt", 1, B_SQRT, T_INT, 0 }, { "sin", 1, B_SIN, T_INT, 0 }, { "cos", 1, B_COS, T_INT, 0 },
     { "random", 1, B_RND, T_INT, 0 }, { "rnd", 1, B_RND, T_INT, 0 }, { "pow", 2, B_POW, T_INT, 0 },
-    { "length", 1, B_SLEN, T_INT, 0 }, { "charAt", 2, B_CHARAT, T_INT, 0 }, { "substring", 3, B_SUBSTR, T_STR, 0 }, { "indexOf", 2, B_INDEXOF, T_INT, 0 }, { "isEmpty", 1, B_ISEMPTY, T_INT, 0 },
+    { "length", 1, B_SLEN, T_INT, 0 }, { "charAt", 2, B_CHARAT, T_CHR, 0 }, { "substring", 3, B_SUBSTR, T_STR, 0 }, { "indexOf", 2, B_INDEXOF, T_INT, 0 }, { "isEmpty", 1, B_ISEMPTY, T_INT, 0 },
     { "toUpperCase", 1, B_UPPER, T_STR, 0 }, { "toLowerCase", 1, B_LOWER, T_STR, 0 }, { "parseInt", 1, B_PARSE, T_INT, 0 },
     { "println", 1, B_PRINT, T_VOID, 1 }, { "print", 1, B_PRINT, T_VOID, 1 }, { "millis", 0, B_MILLIS, T_INT, 0 }, { "currentTimeMillis", 0, B_MILLIS, T_INT, 0 },
     { "getX", 0, B_GETX, T_INT, 0 }, { "getY", 0, B_GETY, T_INT, 0 }, { "getKey", 0, B_GETKEY, T_INT, 0 }, { "getKeyChar", 0, B_GETKEY, T_INT, 0 }, { "getKeyCode", 0, B_GETKEY, T_INT, 0 },
@@ -346,6 +369,7 @@ static const struct bi BI[] = {
 
 static int expr(void);
 static int assign(void);
+static int scat_rhs(int rt) { if (rt == T_CHR) { emit(O_BI, B_TOCHR); return 0; } return rt == T_STR ? 0 : 2; }
 
 static struct { const char* n; int rgb; } const FARBEN[] = {
     { "RED", 0xFF0000 }, { "GREEN", 0x00C000 }, { "BLUE", 0x0000FF }, { "BLACK", 0x000000 }, { "WHITE", 0xFFFFFF }, { "YELLOW", 0xFFFF00 }, { "ORANGE", 0xFFA500 },
@@ -365,7 +389,7 @@ static int call_builtin(const char* name, int recv) {
         do {
             int t = expr(); na++; given++;
             if (na == 1) { t0 = t; first = 1; }
-            if (na == 1 && cand >= 0 && BI[cand].strfirst && t == T_INT) emit(O_ITOS, 0);
+            if (na == 1 && cand >= 0 && BI[cand].strfirst && t == T_INT) emit(O_ITOS, 0); else if (na == 1 && cand >= 0 && BI[cand].strfirst && t == T_CHR) emit(O_BI, B_TOCHR);
             if (na == 1 && cand >= 0 && !BI[cand].strfirst && gl(name, "length") && t == T_ARR) { /* arr.length() nicht Java: ignorieren */ }
         } while (eat(','));
     }
@@ -374,7 +398,7 @@ static int call_builtin(const char* name, int recv) {
     int found = -1; for (int i = 0; i < NBI; i++) if (gl(BI[i].n, name) && BI[i].na == na) { found = i; break; }
     if (found < 0 && gl(name, "substring") && na == 2) { emit(O_PUSH, 100000); found = -2; for (int i = 0; i < NBI; i++) if (gl(BI[i].n, "substring") && BI[i].na == 3) found = i; }
     if (found < 0 && (gl(name, "equals") || gl(name, "equalsIgnoreCase")) && na == 2) { emit(O_SEQ, 0); return T_INT; }
-    if (found < 0 && (gl(name, "toString") || gl(name, "valueOf") || gl(name, "str")) && na == 1) { if (t0 == T_INT) emit(O_ITOS, 0); return T_STR; }
+    if (found < 0 && (gl(name, "toString") || gl(name, "valueOf") || gl(name, "str")) && na == 1) { if (t0 == T_INT) emit(O_ITOS, 0); else if (t0 == T_CHR) emit(O_BI, B_TOCHR); return T_STR; }
     if (found < 0 && (gl(name, "getMessage") || gl(name, "getLocalizedMessage")) && na == 1) return T_STR;
     if (found < 0 && gl(name, "printStackTrace") && na == 1) { emit(O_POP, 0); emit(O_PUSH, 0); return T_VOID; }
     if (found < 0 && gl(name, "concat") && na == 2) { emit(O_SCAT, 0); return T_STR; }
@@ -418,13 +442,14 @@ static int primary(int* lvt) {
     struct tok* t = &tk[tp];
     *lvt = -1;
     if (t->t == TK_NUM) { tp++; emit(O_PUSH, t->v); return T_INT; }
+    if (t->t == TK_CHR) { tp++; emit(O_PUSH, t->v); return T_CHR; }
     if (t->t == TK_STR) { tp++; emit(O_PUSH, t->v); return T_STR; }
     if (is_op('(')) {
         /* Typumwandlung (int) (char) ... oder Klammerausdruck */
-        if (tk[tp + 1].t == TK_ID && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ')' && type_word(idn(tp + 1)) == T_INT && !(tk[tp + 3].t == TK_OP && (tk[tp + 3].v == '+' || tk[tp + 3].v == '-') && 0)) {
-            tp += 3; return primary(lvt) == T_STR ? T_STR : T_INT; }
+        if (tk[tp + 1].t == TK_ID && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ')' && (type_word(idn(tp + 1)) == T_INT || type_word(idn(tp + 1)) == T_CHR) && !(tk[tp + 3].t == TK_OP && (tk[tp + 3].v == '+' || tk[tp + 3].v == '-') && 0)) {
+            int cch = type_word(idn(tp + 1)) == T_CHR; tp += 3; int ct2 = primary(lvt); return ct2 == T_STR ? T_STR : cch ? T_CHR : T_INT; }
         if (tk[tp + 1].t == TK_ID && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ')' && class_find(idn(tp + 1)) >= 0 &&
-            (tk[tp + 3].t == TK_ID || tk[tp + 3].t == TK_NUM || tk[tp + 3].t == TK_STR || (tk[tp + 3].t == TK_OP && tk[tp + 3].v == '('))) {
+            (tk[tp + 3].t == TK_ID || tk[tp + 3].t == TK_NUM || tk[tp + 3].t == TK_CHR || tk[tp + 3].t == TK_STR || (tk[tp + 3].t == TK_OP && tk[tp + 3].v == '('))) {
             int cc = class_find(idn(tp + 1)); tp += 3; postfix(); return T_OBJ0 + cc; }
         tp++; int ty = expr(); need(')', "')' erwartet"); return ty;
     }
@@ -448,6 +473,17 @@ static int primary(int* lvt) {
     if (gl(n, "new")) {
         tp++; if (tk[tp].t != TK_ID) { fehler("Typ nach new erwartet"); return T_INT; }
         const char* tn = idn(tp);
+        if (is_mapname(tn)) {
+            tp++; int mt = is_map(want_ty) ? want_ty : T_MAP0;
+            if (is_op('<')) {
+                if (tk[tp + 1].t == TK_OP && tk[tp + 1].v == '>') tp += 2;
+                else if (tk[tp + 1].t == TK_ID && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ',' && tk[tp + 3].t == TK_ID && tk[tp + 4].t == TK_OP && tk[tp + 4].v == '>') {
+                    mt = map_type_of(tp + 1, tp + 3); if (mt < 0) { fehler("Map: Schluessel String oder Integer"); return T_INT; } tp += 5; }
+                else { fehler("Map-Typen: HashMap<String, Integer>"); return T_INT; }
+            }
+            need('(', "'(' erwartet"); need(')', "')' erwartet");
+            emit(O_MAP, MP_NEW | ((map_ks(mt) ? 1 : 0) << 8) | (map_vkind(mt) << 9)); return mt;
+        }
         if (is_listname(tn)) {
             tp++; int lt = is_list(want_ty) ? want_ty : T_LST0;
             if (is_op('<')) {
@@ -551,6 +587,17 @@ static int postfix(void) {
         } else if (is_op('.') && tk[tp + 1].t == TK_ID) {
             const char* mn = idn(tp + 1);
             if (is_oarr(ty) && gl(mn, "length")) { tp += 2; emit(O_ALEN, 0); ty = T_INT; }
+            else if (is_map(ty)) {
+                if (!(tk[tp + 2].t == TK_OP && tk[tp + 2].v == '(')) { fehler("Bei Maps gibt es nur Methoden: put, get, containsKey, remove, size, isEmpty, clear, getOrDefault, keySet, values"); return T_INT; }
+                tp += 2; int na = count_args(), id = -1, rt = T_INT, vt = map_vtype(ty);
+                if (gl(mn, "put") && na == 2) { id = MP_PUT; rt = vt; } else if (gl(mn, "get") && na == 1) { id = MP_GET; rt = vt; }
+                else if ((gl(mn, "containsKey")) && na == 1) id = MP_CONTAINS; else if (gl(mn, "remove") && na == 1) { id = MP_REMOVE; rt = vt; }
+                else if (gl(mn, "size") && na == 0) id = MP_SIZE; else if (gl(mn, "isEmpty") && na == 0) id = MP_EMPTY; else if (gl(mn, "clear") && na == 0) { id = MP_CLEAR; rt = T_VOID; }
+                else if (gl(mn, "getOrDefault") && na == 2) { id = MP_GETDEF; rt = vt; }
+                else if (gl(mn, "keySet") && na == 0) { id = MP_KEYS; rt = map_ks(ty) ? T_LST0 + 1 : T_LST0; } else if (gl(mn, "values") && na == 0) { id = MP_VALUES; rt = map_listtype(map_vcode(ty)); }
+                if (id < 0) { fehler("Diese Map-Methode gibt es nicht (oder falsche Argumentzahl)"); return T_INT; }
+                call_args(); emit(O_MAP, id | ((map_ks(ty) ? 1 : 0) << 8) | (map_vkind(ty) << 9)); ty = rt;
+            }
             else if (is_list(ty)) {
                 if (!(tk[tp + 2].t == TK_OP && tk[tp + 2].v == '(')) { fehler("Bei Listen gibt es nur Methoden: add, get, set, size, remove, clear, isEmpty, contains, indexOf"); return T_INT; }
                 tp += 2; int na = count_args(), et = list_elem(ty), id = -1, rt = T_INT;
@@ -619,9 +666,9 @@ static int add_(void) {
     int t = mul_();
     while (is_op('+') || is_op('-')) {
         int o = tk[tp].v; tp++;
-        if (o == '+' && (t == T_STR)) { int t2 = mul_(); emit(O_SCAT, t2 == T_STR ? 0 : 2); t = T_STR; continue; }
+        if (o == '+' && (t == T_STR)) { int t2 = mul_(); int fl = scat_rhs(t2); emit(O_SCAT, fl); t = T_STR; continue; }
         int pc = ncur; (void)pc; int t2 = mul_();
-        if (o == '+' && t2 == T_STR) { emit(O_SCAT, 1); t = T_STR; continue; }
+        if (o == '+' && t2 == T_STR) { emit(O_SCAT, t == T_CHR ? 3 : 1); t = T_STR; continue; }
         emit(o == '+' ? O_ADD : O_SUB, 0); t = T_INT;
     }
     return t;
@@ -686,7 +733,7 @@ static int assign(void) {
     if (k == 4) {
         if (comp) { emit(O_DUP, 0); emit(O_GETF, arg); }
         int rt = assign();
-        if (comp) { if (bop == O_ADD && t == T_STR) emit(O_SCAT, rt == T_STR ? 0 : 2); else emit(bop, 0); }
+        if (comp) { if (bop == O_ADD && t == T_STR) { int fl = scat_rhs(rt); emit(O_SCAT, fl); } else emit(bop, 0); }
         else if (t == T_STR && rt != T_STR) emit(O_ITOS, 0);
         emit(O_SETF, arg); return t;
     }
@@ -697,7 +744,7 @@ static int assign(void) {
     }
     if (comp) emit(ld, arg);
     int rt = assign();
-    if (comp) { if (bop == O_ADD && t == T_STR) emit(O_SCAT, rt == T_STR ? 0 : 2); else emit(bop, 0); }
+    if (comp) { if (bop == O_ADD && t == T_STR) { int fl = scat_rhs(rt); emit(O_SCAT, fl); } else emit(bop, 0); }
     else if (t == T_STR && rt != T_STR) emit(O_ITOS, 0);
     emit(O_DUP, 0); emit(st, arg); return t;
 }
@@ -824,7 +871,7 @@ static void stmt(void) {
             int jd = emit(O_JMP, 0); nlp++; lp[nlp - 1].nbrk = lp[nlp - 1].ncont = 0; lp[nlp - 1].sw = 1;
             int cv[40], cp[40], nc = 0, defp = -1;
             while (!is_op('}') && tk[tp].t != TK_END && !cerr[0]) {
-                if (is_id("case")) { tp++; int neg = eat('-'); int v = 0; if (tk[tp].t == TK_NUM) { v = tk[tp].v; tp++; } else { fehler("case braucht eine Zahl oder ein Zeichen"); return; } if (neg) v = -v; need(':', "':' erwartet"); if (nc < 40) { cv[nc] = v; cp[nc++] = ncur; } }
+                if (is_id("case")) { tp++; int neg = eat('-'); int v = 0; if (tk[tp].t == TK_NUM || tk[tp].t == TK_CHR) { v = tk[tp].v; tp++; } else { fehler("case braucht eine Zahl oder ein Zeichen"); return; } if (neg) v = -v; need(':', "':' erwartet"); if (nc < 40) { cv[nc] = v; cp[nc++] = ncur; } }
                 else if (is_id("default")) { tp++; need(':', "':' erwartet"); defp = ncur; }
                 else stmt();
             }
@@ -845,6 +892,7 @@ static void skip_parens(void) { int d = 0; do { if (is_op('(')) d++; else if (is
 static void skip_init(void) {
     int d = 0;
     while (tk[tp].t != TK_END) {
+        if (tk[tp].t == TK_ID && is_mapname(idn(tp)) && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '<') { while (tk[tp].t != TK_END && !is_op('>')) tp++; if (tk[tp].t == TK_END) break; }
         if (is_op('(') || is_op('{') || is_op('[')) d++;
         else if (is_op(')') || is_op('}') || is_op(']')) { if (!d) break; d--; }
         else if (!d && (is_op(',') || is_op(';'))) break;
@@ -1053,6 +1101,7 @@ static int gc_slot(struct zjv* v, int h, int i) {         /* 0 Zahl, 1 Text, 2 V
     if (tag == 0) return 0;
     if (tag == TAG_STRARR) return 1;
     if (tag == TAG_LIST) return i == 0 ? 2 : 0;
+    if (tag == TAG_MAP) return i < 2 ? 2 : 0;
     if (tag == TAG_ARR2 || tag == TAG_REFARR || tag >= TAG_OARR) return 2;
     int c = tag - TAG_OBJ; if (c < 0 || c >= v->ncl) return 0;
     int t = v->cl[c].ftot[i]; return t == T_STR ? 1 : is_ref(t) ? 2 : 0;
@@ -1205,6 +1254,53 @@ static void list_op(struct zjv* v, int ar) {              /* legt genau ein Erge
     }
     S[v->sp++] = r;
 }
+static int arr_tag(int kind) { return kind == 0 ? 0 : kind == 1 ? TAG_STRARR : TAG_REFARR; }
+static int m_ok(struct zjv* v, int h) { return h > 0 && h < v->hp && (v->heap[h] >> 16) == TAG_MAP; }
+static int m_find(struct zjv* v, int m, int key) {
+    int ks = v->heap[m + 4] & 1, d = v->heap[m + 1], n = v->heap[m + 3];
+    for (int i = 0; i < n; i++) { int k = v->heap[d + 1 + i]; if (ks ? gl(s_text(v, k), s_text(v, key)) : k == key) return i; }
+    return -1;
+}
+static void map_op(struct zjv* v, int ar) {              /* legt genau ein Ergebnis auf den Stapel */
+    int* S = v->stk; int id = ar & 255, kinds = ar >> 8, r = 0, m, key, val;
+    switch (id) {
+    case MP_NEW: { int h = h_neu(v, 4, TAG_MAP); if (h) v->heap[h + 4] = kinds; r = h; break; }
+    case MP_PUT: {
+        val = S[--v->sp]; key = S[--v->sp]; m = S[--v->sp]; if (!m_ok(v, m)) { rt_fehler(v, "Map ist null"); break; }
+        int i = m_find(v, m, key);
+        if (i >= 0) { int vd = v->heap[m + 2]; r = v->heap[vd + 1 + i]; v->heap[vd + 1 + i] = val; break; }
+        int kd = v->heap[m + 1], vd = v->heap[m + 2], n = v->heap[m + 3], cap = kd ? (v->heap[kd] & 0xFFFF) : 0;
+        if (n >= cap) {
+            int nc = cap ? cap * 2 : 8; int k2 = h_neu(v, nc, arr_tag(kinds & 1)); if (!k2 || !v->ok || v->thrown) break;
+            int v2 = h_neu(v, nc, arr_tag((kinds >> 1) & 3)); if (!v2 || !v->ok || v->thrown) break;
+            for (int j = 0; j < n; j++) { v->heap[k2 + 1 + j] = v->heap[kd + 1 + j]; v->heap[v2 + 1 + j] = v->heap[vd + 1 + j]; }
+            v->heap[m + 1] = kd = k2; v->heap[m + 2] = vd = v2;
+        }
+        v->heap[kd + 1 + n] = key; v->heap[vd + 1 + n] = val; v->heap[m + 3] = n + 1; break; }
+    case MP_GET: case MP_CONTAINS: case MP_REMOVE: case MP_GETDEF: {
+        int def = 0; if (id == MP_GETDEF) def = S[--v->sp];
+        key = S[--v->sp]; m = S[--v->sp]; if (!m_ok(v, m)) { rt_fehler(v, "Map ist null"); break; }
+        int i = m_find(v, m, key), vd = v->heap[m + 2], kd = v->heap[m + 1], n = v->heap[m + 3];
+        if (id == MP_CONTAINS) { r = i >= 0; break; }
+        r = i >= 0 ? v->heap[vd + 1 + i] : def;
+        if (id == MP_REMOVE && i >= 0) { for (int j = i; j + 1 < n; j++) { v->heap[kd + 1 + j] = v->heap[kd + 2 + j]; v->heap[vd + 1 + j] = v->heap[vd + 2 + j]; } v->heap[kd + n] = 0; v->heap[vd + n] = 0; v->heap[m + 3] = n - 1; }
+        break; }
+    case MP_SIZE: case MP_EMPTY: case MP_CLEAR: {
+        m = S[--v->sp]; if (!m_ok(v, m)) { rt_fehler(v, "Map ist null"); break; }
+        if (id == MP_CLEAR) { int kd = v->heap[m + 1], vd = v->heap[m + 2], n = v->heap[m + 3]; for (int j = 0; j < n; j++) { v->heap[kd + 1 + j] = 0; v->heap[vd + 1 + j] = 0; } v->heap[m + 3] = 0; }
+        else r = id == MP_SIZE ? v->heap[m + 3] : v->heap[m + 3] == 0;
+        break; }
+    case MP_KEYS: case MP_VALUES: {
+        m = S[--v->sp]; if (!m_ok(v, m)) { rt_fehler(v, "Map ist null"); break; }
+        int n = v->heap[m + 3], src = id == MP_KEYS ? v->heap[m + 1] : v->heap[m + 2], kind = id == MP_KEYS ? (v->heap[m + 4] & 1) : ((v->heap[m + 4] >> 1) & 3);
+        int l = h_neu(v, 3, TAG_LIST); if (!l || !v->ok || v->thrown) break;
+        v->heap[l + 3] = kind;
+        if (n > 0) { int d = h_neu(v, n, arr_tag(kind)); if (!d || !v->ok || v->thrown) break; for (int j = 0; j < n; j++) v->heap[d + 1 + j] = v->heap[src + 1 + j]; v->heap[l + 1] = d; v->heap[l + 2] = n; }
+        r = l; break; }
+    default: break;
+    }
+    S[v->sp++] = r;
+}
 static void do_throw(struct zjv* v, int val, int kind, int type) {
     if (v->nh <= 0) {
         static char m[100]; kop(m, "Nicht abgefangene Ausnahme: ", 100); int l = slen(m);
@@ -1266,13 +1362,14 @@ static int call_fn(struct zjv* v, int fi, int a, int b) {
         case O_ITOS: { char t[16]; dezi(t, S[v->sp - 1]); int h = s_neu(v, t, slen(t)); if (!h) { rt_fehler(v, "Textspeicher voll"); break; } S[v->sp - 1] = h; break; }
         case O_SCAT: {
             int b2 = S[--v->sp], a2 = S[v->sp - 1]; char t1[16], t2[16]; const char* x = s_text(v, a2); const char* y = s_text(v, b2);
-            if (ar == 1) { dezi(t1, a2); x = t1; } if (ar == 2) { dezi(t2, b2); y = t2; }
+            if (ar == 1) { dezi(t1, a2); x = t1; } if (ar == 3) { t1[0] = (char)a2; t1[1] = 0; x = t1; } if (ar == 2) { dezi(t2, b2); y = t2; }
             static char buf[900]; int l = 0; for (int i = 0; x[i] && l < 880; i++) buf[l++] = x[i]; for (int i = 0; y[i] && l < 899; i++) buf[l++] = y[i];
             int h = s_neu(v, buf, l); if (!h && l) { rt_fehler(v, "Textspeicher voll"); break; } S[v->sp - 1] = h; break; }
         case O_SEQ: { int b2 = S[--v->sp], a2 = S[v->sp - 1]; S[v->sp - 1] = gl(s_text(v, a2), s_text(v, b2)); break; }
         case O_JMP: pc += ar; break;
         case O_JZ: if (!S[--v->sp]) pc += ar; break;
         case O_JNZ: if (S[--v->sp]) pc += ar; break;
+        case O_MAP: map_op(v, ar); if (!v->ok) return 0; break;
         case O_LIST: list_op(v, ar); if (!v->ok) return 0; break;
         case O_TRY: if (v->nh >= 16) { rt_fatal(v, "try zu tief verschachtelt"); return 0; } hpc[v->nh] = pc + ar; hsp[v->nh] = v->sp; hfp[v->nh] = v->fp; hdep[v->nh] = depth; v->nh++; break;
         case O_ENDTRY: if (v->nh > 0) v->nh--; break;

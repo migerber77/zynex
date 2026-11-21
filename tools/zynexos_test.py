@@ -913,6 +913,10 @@ def browser():
         "void start() { for (int i = 1; i <= 4; i++) zl.add(i * i); int sm = 0; for (int x : zl) sm += x; String r = \"\";\n"
         "  try { int z = 0; r = \"\" + (5 / z); } catch (ArithmeticException e) { r = \"fang\"; } finally { r += \"+fin\"; }\n"
         "  System.out.println(\"ZJ LISTE \" + sm + \" \" + zl.size() + \" \" + r); }\n"
+        "HashMap<String, Integer> hm = new HashMap<>();\n"
+        "void tick() { }\nvoid mouseUp(int x, int y) { }\n"
+        "void keyTyped(int k) { }\n"
+        "int dummy = initMap();\nint initMap() { char c = 'x'; hm.put(\"a\" + c, 7); System.out.println(\"ZJ MAP \" + hm.get(\"ax\") + \" \" + hm.size() + c); return 0; }\n"
         "</applet></body></html>")
     worte = " ".join("Wort%d" % i for i in range(60000))
     open(www + "/gross.html", "w").write("<html><title>Grosse Seite</title><body><p>" + worte + "</p></body></html>")
@@ -940,6 +944,7 @@ def browser():
     pruefe("Browser: Programmfehler wird gemeldet (Zeile), JavaScript bleibt ignoriert", "[WEB] Programm 1: Fehler: Zeile 1:" in out)
     pruefe("Browser: Programm mit Klassen, Vererbung und Objektfeldern (ZynJava)", "[ZYNJAVA] ZJ OOP 84 sq1 shape2" in out)
     pruefe("Browser: ArrayList und try/catch/finally (ZynJava)", "[ZYNJAVA] ZJ LISTE 30 4 fang+fin" in out)
+    pruefe("Browser: HashMap und char als Zeichen (ZynJava)", "[ZYNJAVA] ZJ MAP 7 1x" in out)
     m = re.search(r"\[WEB\] Seite: Grosse Seite \((\d+) Woerter", out)
     pruefe("Browser: grosse Seite (500 KB) vollstaendig", bool(m) and int(m.group(1)) >= 59000)
 
