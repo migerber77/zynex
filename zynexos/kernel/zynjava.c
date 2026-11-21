@@ -7,7 +7,7 @@ extern void kprint_dec(uint32_t v);
 extern uint32_t timer_get_ticks(void);
 
 /* ---------- Typen und Befehle ---------- */
-enum { T_INT = 0, T_STR, T_ARR, T_ARR2, T_VOID, T_CHR };
+enum { T_INT = 0, T_STR, T_ARR, T_ARR2, T_VOID, T_CHR, T_DBL, T_DARR };     /* double/float = Festkomma 16.16 */
 #define T_OBJ0 16            /* Objekt der Klasse cid = 16+cid; Feld solcher Objekte = 128+cid */
 #define T_OARR0 128
 #define T_LST0 144          /* Liste: 144 int, 145 String, 160+cid Objekte der Klasse cid */
@@ -30,20 +30,21 @@ static int map_vkind(int ty) { int c = map_vcode(ty); return c < 2 ? c : 2; }
 static int map_listtype(int vc) { return vc == 0 ? T_LST0 : vc == 1 ? T_LST0 + 1 : 160 + (vc - 2); }
 static int is_oarr(int ty) { return ty >= T_OARR0 && ty < T_LST0; }
 enum { MP_NEW, MP_PUT, MP_GET, MP_CONTAINS, MP_REMOVE, MP_SIZE, MP_EMPTY, MP_CLEAR, MP_GETDEF, MP_KEYS, MP_VALUES };
-static int list_elem(int ty) { return ty == T_LST0 ? T_INT : ty == T_LST0 + 1 ? T_STR : 16 + (ty - 160); }
-static int list_kind(int ty) { return ty == T_LST0 ? 0 : ty == T_LST0 + 1 ? 1 : 2; }
+static int list_elem(int ty) { return ty == T_LST0 ? T_INT : ty == T_LST0 + 1 ? T_STR : ty == T_LST0 + 2 ? T_DBL : 16 + (ty - 160); }
+static int list_kind(int ty) { return ty == T_LST0 ? 0 : ty == T_LST0 + 1 ? 1 : ty == T_LST0 + 2 ? 0 : 2; }
 enum { LS_NEW, LS_ADD, LS_GET, LS_SET, LS_SIZE, LS_REMOVE, LS_CLEAR, LS_EMPTY, LS_CONTAINS, LS_INDEXOF, LS_ADDAT };
-static int is_ref(int ty) { return ty == T_ARR || ty == T_ARR2 || ty >= T_OBJ0; }
+static int is_ref(int ty) { return ty == T_ARR || ty == T_ARR2 || ty == T_DARR || ty >= T_OBJ0; }
 enum {
     O_PUSH, O_LDL, O_STL, O_LDG, O_STG, O_AGET, O_ASETV, O_ALEN, O_NEWA, O_NEWA2, O_DUP, O_DUP2, O_POP,
     O_ADD, O_SUB, O_MUL, O_DIV, O_MOD, O_AND, O_OR, O_XOR, O_SHL, O_SHR, O_USHR,
     O_LT, O_LE, O_GT, O_GE, O_EQ, O_NE, O_NEG, O_NOT, O_BNOT,
-    O_SCAT, O_ITOS, O_SEQ, O_JMP, O_JZ, O_JNZ, O_CALLM, O_CALL, O_RET, O_RETV, O_BI, O_ALIT, O_HALT, O_NEWO, O_GETF, O_SETF, O_INSTOF, O_TRY, O_ENDTRY, O_THROW, O_CATCHT, O_RETHROW, O_LIST, O_MAP
+    O_SCAT, O_ITOS, O_SEQ, O_JMP, O_JZ, O_JNZ, O_CALLM, O_CALL, O_RET, O_RETV, O_BI, O_ALIT, O_HALT, O_NEWO, O_GETF, O_SETF, O_INSTOF, O_TRY, O_ENDTRY, O_THROW, O_CATCHT, O_RETHROW, O_LIST, O_MAP, O_ITOF, O_ITOF2, O_FTOI, O_FMUL, O_FDIV
 };
 enum {
     B_COLOR1, B_COLOR3, B_FILLRECT, B_DRAWRECT, B_LINE, B_FILLOVAL, B_DRAWOVAL, B_STRING, B_FONT, B_WIDTH, B_HEIGHT, B_PIXEL, B_NOP0, B_NOP1,
     B_ABS, B_MIN, B_MAX, B_SQRT, B_SIN, B_COS, B_RND, B_POW,
-    B_SLEN, B_CHARAT, B_SUBSTR, B_INDEXOF, B_ISEMPTY, B_UPPER, B_LOWER, B_PARSE, B_PRINT, B_MILLIS, B_GETX, B_GETY, B_GETKEY, B_RGB, B_CLEARALL, B_TOCHR
+    B_SLEN, B_CHARAT, B_SUBSTR, B_INDEXOF, B_ISEMPTY, B_UPPER, B_LOWER, B_PARSE, B_PRINT, B_MILLIS, B_GETX, B_GETY, B_GETKEY, B_RGB, B_CLEARALL, B_TOCHR,
+    B_FTOS, B_FSQRT, B_FSIN, B_FCOS, B_FTAN, B_FPOW, B_FFLOOR, B_FCEIL, B_FROUND, B_FRAND
 };
 
 #define CODE_MAX 4096                 /* Befehle je Programm */
@@ -55,7 +56,7 @@ enum {
 #define NG_MAX 128
 #define STEPS 600000
 
-struct fn { char name[44]; int pc, nargs, nloc, ret, def; int cls; int stat, synth; unsigned mh; };
+struct fn { char name[44]; int pc, nargs, nloc, ret, def; int cls; int stat, synth; unsigned mh; uint8_t pt[8]; };
 struct cls {
     char name[20]; int parent, isif, isex, flat, nown, ntotal, ppos, ifpos[3], ifc[3];
     char fname[MAXF][20]; uint8_t ftype[MAXF]; uint8_t ftot[MAXF];
@@ -83,6 +84,18 @@ static int slen(const char* s) { int n = 0; while (s[n]) n++; return n; }
 static void kop(char* d, const char* s, int m) { int i = 0; while (s[i] && i < m - 1) { d[i] = s[i]; i++; } d[i] = 0; }
 static int gl(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
 static void dezi(char* o, int v) { char t[12]; int n = 0, neg = v < 0; unsigned u = neg ? (unsigned)(-(long long)v) : (unsigned)v; do { t[n++] = (char)('0' + u % 10); u /= 10; } while (u); int k = 0; if (neg) o[k++] = '-'; while (n) o[k++] = t[--n]; o[k] = 0; }
+static void ftoa(char* o, int q) {
+    int neg = q < 0; unsigned long long u = neg ? (unsigned long long)(-(long long)q) : (unsigned long long)q;
+    unsigned long long ip = u >> 16; unsigned dec = (unsigned)(((u & 0xFFFF) * 10000 + 32768) >> 16);
+    if (dec >= 10000) { ip++; dec -= 10000; }
+    char t[16]; int n = 0; do { t[n++] = (char)('0' + ip % 10); ip /= 10; } while (ip);
+    int k = 0; if (neg && (n > 1 || t[0] != '0' || dec)) o[k++] = '-';
+    while (n) o[k++] = t[--n];
+    o[k++] = '.'; char d[4]; for (int i = 3; i >= 0; i--) { d[i] = (char)('0' + dec % 10); dec /= 10; }
+    int dl = 4; while (dl > 1 && d[dl - 1] == '0') dl--;
+    for (int i = 0; i < dl; i++) o[k++] = d[i];
+    o[k] = 0;
+}
 
 /* ---------- Zeichnen in die Flaeche ---------- */
 static void px_(struct zjv* v, int x, int y, uint32_t c) { if (x >= 0 && y >= 0 && x < v->w && y < v->h) v->px[y * v->w + x] = c; }
@@ -125,7 +138,7 @@ static const char* s_text(struct zjv* v, int h) { return (h > 0 && h < v->nstr) 
 static void gc(struct zjv* v);
 
 /* ====================== Uebersetzer ====================== */
-enum { TK_END, TK_ID, TK_NUM, TK_STR, TK_OP, TK_CHR };
+enum { TK_END, TK_ID, TK_NUM, TK_STR, TK_OP, TK_CHR, TK_FLT };
 struct tok { uint8_t t; int16_t line; int v; };
 #define TOK_MAX 7000
 static struct tok tk[TOK_MAX]; static int ntk, tp;
@@ -155,7 +168,13 @@ static int lex(const char* s) {
         if (c >= '0' && c <= '9') {
             long long v = 0;
             if (c == '0' && (s[1] == 'x' || s[1] == 'X')) { s += 2; while ((*s >= '0' && *s <= '9') || ((*s | 32) >= 'a' && (*s | 32) <= 'f')) { int d = *s <= '9' ? *s - '0' : (*s | 32) - 'a' + 10; v = v * 16 + d; s++; } }
-            else { while (*s >= '0' && *s <= '9') { v = v * 10 + (*s - '0'); s++; } if (*s == '.' ) { kop(cerr, "Kommazahlen werden nicht unterstuetzt (nur ganze Zahlen)", 100); return -1; } }
+            else {
+                while (*s >= '0' && *s <= '9') { v = v * 10 + (*s - '0'); s++; }
+                int isf = 0; long long fr = 0, den = 1;
+                if (*s == '.' && s[1] >= '0' && s[1] <= '9') { isf = 1; s++; while (*s >= '0' && *s <= '9') { if (den < 1000000000LL) { fr = fr * 10 + (*s - '0'); den *= 10; } s++; } }
+                if ((*s == 'f' || *s == 'F' || *s == 'd' || *s == 'D') && !((s[1] >= 'a' && s[1] <= 'z') || (s[1] >= 'A' && s[1] <= 'Z') || (s[1] >= '0' && s[1] <= '9') || s[1] == '_')) { isf = 1; s++; }
+                if (isf) { t->t = TK_FLT; t->v = (int)(v * 65536 + (fr * 65536 + den / 2) / den); ntk++; continue; }
+            }
             if (*s == 'L' || *s == 'l') s++;
             t->t = TK_NUM; t->v = (int)v; ntk++; continue;
         }
@@ -243,7 +262,7 @@ static int reg_method(int c, const char* n, int nargs, int ret, int stat) {
     unsigned h = hash_(n);
     for (int i = 0; i < V->nfn; i++) { struct fn* f = &V->fns[i]; if (f->cls == c && f->mh == h && f->nargs == nargs) return i; }
     if (V->nfn >= NFN_MAX - 1) { fehler("Zu viele Funktionen"); return 0; }
-    struct fn* f = &V->fns[V->nfn]; mangle(f->name, c, n); f->cls = c; f->mh = h; f->nargs = nargs; f->ret = ret; f->stat = stat; f->synth = 0; f->def = 1; f->pc = -1; f->nloc = 0; return V->nfn++;
+    struct fn* f = &V->fns[V->nfn]; mangle(f->name, c, n); f->cls = c; f->mh = h; f->nargs = nargs; f->ret = ret; f->stat = stat; f->synth = 0; f->def = 1; f->pc = -1; f->nloc = 0; for (int q = 0; q < 8; q++) f->pt[q] = 0; return V->nfn++;
 }
 static int is_handler(const char* n) {
     static const char* const H[] = { "paint", "init", "setup", "tick", "update", "step", "start", "mouseDown", "mousePressed", "mouseClicked", "mouseUp", "mouseReleased", "keyTyped", "keyPressed", "keyDown", "mouseMove", "mouseMoved", "mouseDragged", "main" };
@@ -304,12 +323,12 @@ static int add_this(int cid) {
 static int type_word(const char* n) {
     if (gl(n, "char") || gl(n, "Character")) return T_CHR;
     if (gl(n, "int") || gl(n, "long") || gl(n, "short") || gl(n, "byte") || gl(n, "boolean") || gl(n, "Integer")) return T_INT;
+    if (gl(n, "double") || gl(n, "float") || gl(n, "Double") || gl(n, "Float")) return T_DBL;
     if (gl(n, "String")) return T_STR; if (gl(n, "void")) return T_VOID; return -1;
 }
 static int is_modifier(const char* n) { return gl(n, "public") || gl(n, "private") || gl(n, "protected") || gl(n, "static") || gl(n, "final") || gl(n, "abstract") || gl(n, "synchronized") || gl(n, "native") || gl(n, "volatile") || gl(n, "transient"); }
 static int mods_st;
 static void skip_mods(void) { mods_st = 0; for (;;) { if (is_op('@')) { tp++; if (tk[tp].t == TK_ID) tp++; if (is_op('(')) { int d = 0; do { if (is_op('(')) d++; if (is_op(')')) d--; tp++; } while (d && tk[tp].t != TK_END); } continue; } if (tk[tp].t == TK_ID && is_modifier(idn(tp))) { if (gl(idn(tp), "static")) mods_st = 1; tp++; continue; } break; } }
-static int check_float(const char* n) { if (gl(n, "float") || gl(n, "double")) { fehler("float/double gibt es nicht: bitte ganze Zahlen (int) verwenden"); return 1; } return 0; }
 /* Typ lesen (mit [] / [][]); -1 = kein Typ. unbekannte Namen zaehlen als int, wenn danach ein Name folgt */
 static int exc_code(const char* n) {
     if (gl(n, "ArithmeticException")) return 1; if (gl(n, "NullPointerException")) return 3;
@@ -327,7 +346,7 @@ static int map_type_of(int ktok, int vtok) {              /* -1 = nicht unterstu
 }
 static int is_listname(const char* n) { return gl(n, "ArrayList") || gl(n, "List") || gl(n, "LinkedList") || gl(n, "Vector") || gl(n, "Collection"); }
 static int list_type_of(int elemtok) {       /* Typ der Liste fuer Elementname */
-    const char* e = idn(elemtok); if (gl(e, "String")) return T_LST0 + 1;
+    const char* e = idn(elemtok); if (gl(e, "String")) return T_LST0 + 1; if (gl(e, "Double") || gl(e, "Float")) return T_LST0 + 2;
     int cc = class_find(e); return cc >= 0 ? 160 + cc : T_LST0;
 }
 static int read_type(void) {
@@ -343,11 +362,11 @@ static int read_type(void) {
         tp += 6; return mt;
     }
     int nx_id = tk[tp + 1].t == TK_ID, nx_arr = tk[tp + 1].t == TK_OP && tk[tp + 1].v == '[' && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ']';
-    if (gl(n, "float") || gl(n, "double")) { if (!nx_id && !nx_arr) return -1; check_float(n); tp++; return T_INT; }
     if (!nx_id && !nx_arr) return -1;
     if (base < 0) { int cc = class_find(n); base = cc >= 0 ? T_OBJ0 + cc : T_INT; }
     tp++; int dim = 0; while (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; dim++; }
-    if (dim == 1) return base >= T_OBJ0 ? T_OARR0 + (base - T_OBJ0) : T_ARR; if (dim >= 2) return T_ARR2; return base;
+    if (dim == 1) return base == T_DBL ? T_DARR : base >= T_OBJ0 ? T_OARR0 + (base - T_OBJ0) : T_ARR;
+    if (dim >= 2) { if (base == T_DBL) { fehler("double[][] wird nicht unterstuetzt"); return -1; } return T_ARR2; } return base;
 }
 
 /* ---------- Eingebaute Funktionen ---------- */
@@ -369,7 +388,11 @@ static const struct bi BI[] = {
 
 static int expr(void);
 static int assign(void);
-static int scat_rhs(int rt) { if (rt == T_CHR) { emit(O_BI, B_TOCHR); return 0; } return rt == T_STR ? 0 : 2; }
+static void coerce_rhs(int t, int rt, int* bop) {
+    if (t == T_DBL) { if (rt != T_DBL && rt != T_STR) emit(O_ITOF, 0); if (*bop == O_MUL) *bop = O_FMUL; else if (*bop == O_DIV) *bop = O_FDIV; }
+    else if (rt == T_DBL && t != T_STR && t != T_DBL) fehler("double kann nicht in eine int-Variable: bitte (int) davorsetzen");
+}
+static int scat_rhs(int rt) { if (rt == T_CHR) { emit(O_BI, B_TOCHR); return 0; } if (rt == T_DBL) return 5; return rt == T_STR ? 0 : 2; }
 
 static struct { const char* n; int rgb; } const FARBEN[] = {
     { "RED", 0xFF0000 }, { "GREEN", 0x00C000 }, { "BLUE", 0x0000FF }, { "BLACK", 0x000000 }, { "WHITE", 0xFFFFFF }, { "YELLOW", 0xFFFF00 }, { "ORANGE", 0xFFA500 },
@@ -384,21 +407,34 @@ static int call_builtin(const char* name, int recv) {
     if (recv) t0 = T_STR;
     need('(', "'(' erwartet");
     int na = recv;
-    int sargs[4]; (void)sargs;
+    int at[3] = { T_INT, T_INT, T_INT };
     if (!is_op(')')) {
         do {
-            int t = expr(); na++; given++;
+            int t = expr(); na++; given++; if (na - recv >= 1 && na - recv <= 3) at[na - recv - 1] = t;
             if (na == 1) { t0 = t; first = 1; }
+            if (na == 1 && cand >= 0 && BI[cand].strfirst && t == T_DBL) emit(O_BI, B_FTOS);
             if (na == 1 && cand >= 0 && BI[cand].strfirst && t == T_INT) emit(O_ITOS, 0); else if (na == 1 && cand >= 0 && BI[cand].strfirst && t == T_CHR) emit(O_BI, B_TOCHR);
             if (na == 1 && cand >= 0 && !BI[cand].strfirst && gl(name, "length") && t == T_ARR) { /* arr.length() nicht Java: ignorieren */ }
         } while (eat(','));
     }
     need(')', "')' erwartet");
     (void)first; (void)given;
+    if (!recv) {
+        int a0 = at[0] == T_DBL, a1 = at[1] == T_DBL;
+        if (na == 0 && gl(name, "random")) { emit(O_BI, B_FRAND); return T_DBL; }
+        if (na == 1 && (gl(name, "sqrt") || gl(name, "sin") || gl(name, "cos") || gl(name, "tan") || gl(name, "floor") || gl(name, "ceil") || gl(name, "round"))) {
+            if (!a0) emit(O_ITOF, 0);
+            int id = gl(name, "sqrt") ? B_FSQRT : gl(name, "sin") ? B_FSIN : gl(name, "cos") ? B_FCOS : gl(name, "tan") ? B_FTAN : gl(name, "floor") ? B_FFLOOR : gl(name, "ceil") ? B_FCEIL : B_FROUND;
+            emit(O_BI, id); return id == B_FROUND ? T_INT : T_DBL;
+        }
+        if (na == 2 && gl(name, "pow")) { if (!a1) emit(O_ITOF, 0); if (!a0) emit(O_ITOF2, 0); emit(O_BI, B_FPOW); return T_DBL; }
+        if (na == 1 && gl(name, "abs") && a0) { emit(O_BI, B_ABS); return T_DBL; }
+        if (na == 2 && (gl(name, "min") || gl(name, "max")) && (a0 || a1)) { if (!a1) emit(O_ITOF, 0); if (!a0) emit(O_ITOF2, 0); emit(O_BI, gl(name, "min") ? B_MIN : B_MAX); return T_DBL; }
+    }
     int found = -1; for (int i = 0; i < NBI; i++) if (gl(BI[i].n, name) && BI[i].na == na) { found = i; break; }
     if (found < 0 && gl(name, "substring") && na == 2) { emit(O_PUSH, 100000); found = -2; for (int i = 0; i < NBI; i++) if (gl(BI[i].n, "substring") && BI[i].na == 3) found = i; }
     if (found < 0 && (gl(name, "equals") || gl(name, "equalsIgnoreCase")) && na == 2) { emit(O_SEQ, 0); return T_INT; }
-    if (found < 0 && (gl(name, "toString") || gl(name, "valueOf") || gl(name, "str")) && na == 1) { if (t0 == T_INT) emit(O_ITOS, 0); else if (t0 == T_CHR) emit(O_BI, B_TOCHR); return T_STR; }
+    if (found < 0 && (gl(name, "toString") || gl(name, "valueOf") || gl(name, "str")) && na == 1) { if (t0 == T_INT) emit(O_ITOS, 0); else if (t0 == T_CHR) emit(O_BI, B_TOCHR); else if (t0 == T_DBL) emit(O_BI, B_FTOS); return T_STR; }
     if (found < 0 && (gl(name, "getMessage") || gl(name, "getLocalizedMessage")) && na == 1) return T_STR;
     if (found < 0 && gl(name, "printStackTrace") && na == 1) { emit(O_POP, 0); emit(O_PUSH, 0); return T_VOID; }
     if (found < 0 && gl(name, "concat") && na == 2) { emit(O_SCAT, 0); return T_STR; }
@@ -413,19 +449,24 @@ static int count_args(void) {
     for (; tk[p].t != TK_END; p++) if (tk[p].t == TK_OP) { int o = tk[p].v; if (o == '(' || o == '[' || o == '{') d++; else if (o == ')' || o == ']' || o == '}') { if (!d) break; d--; } else if (o == ',' && !d) n++; }
     return n;
 }
-static void call_args(void) { need('(', "'(' erwartet"); if (!is_op(')')) { do { expr(); } while (eat(',')); } need(')', "')' erwartet"); }
-static void array_lit(int tag) {
+static void call_args_f(int fi, int skip) {
+    need('(', "'(' erwartet"); int i = 0;
+    if (!is_op(')')) { do { int t = expr(); int pt = (fi >= 0 && i + skip < 8) ? V->fns[fi].pt[i + skip] : T_INT; if (pt == T_DBL && t != T_DBL && t != T_STR) emit(O_ITOF, 0); i++; } while (eat(',')); }
+    need(')', "')' erwartet");
+}
+static void call_args(void) { call_args_f(-1, 0); }
+static void array_lit(int tag, int dbl) {
     need('{', "'{' erwartet"); int cnt = 0, sv = tp, d = 0;
     while (tk[tp].t != TK_END) { if (is_op('{')) d++; if (is_op('}')) { if (!d) break; d--; } if (is_op(',') && !d) cnt++; tp++; }
     if (tp > sv && !(tk[tp - 1].t == TK_OP && tk[tp - 1].v == ',')) cnt++;
     tp = sv; emit(O_PUSH, cnt); emit(O_NEWA, tag); int n = 0;
-    while (!is_op('}') && tk[tp].t != TK_END) { emit(O_DUP, 0); emit(O_PUSH, n++); expr(); emit(O_ASETV, 0); emit(O_POP, 0); if (!eat(',')) break; }
+    while (!is_op('}') && tk[tp].t != TK_END) { emit(O_DUP, 0); emit(O_PUSH, n++); { int et = expr(); if (dbl && et != T_DBL) emit(O_ITOF, 0); } emit(O_ASETV, 0); emit(O_POP, 0); if (!eat(',')) break; }
     need('}', "'}' erwartet");
 }
 static int user_call(int fi, int nameidx) {
     (void)nameidx; struct fn* f = &V->fns[fi]; int na = 0;
     need('(', "'(' erwartet");
-    if (!is_op(')')) { do { expr(); na++; } while (eat(',')); }
+    if (!is_op(')')) { do { int at = expr(); if (na < 8 && f->pt[na] == T_DBL && at != T_DBL && at != T_STR) emit(O_ITOF, 0); na++; } while (eat(',')); }
     need(')', "')' erwartet");
     if (na != f->nargs) { fehler("Falsche Anzahl Argumente beim Funktionsaufruf"); return f->ret == T_VOID ? T_VOID : f->ret; }
     emit(O_CALL, fi); return f->ret;
@@ -443,11 +484,16 @@ static int primary(int* lvt) {
     *lvt = -1;
     if (t->t == TK_NUM) { tp++; emit(O_PUSH, t->v); return T_INT; }
     if (t->t == TK_CHR) { tp++; emit(O_PUSH, t->v); return T_CHR; }
+    if (t->t == TK_FLT) { tp++; emit(O_PUSH, t->v); return T_DBL; }
     if (t->t == TK_STR) { tp++; emit(O_PUSH, t->v); return T_STR; }
     if (is_op('(')) {
         /* Typumwandlung (int) (char) ... oder Klammerausdruck */
-        if (tk[tp + 1].t == TK_ID && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ')' && (type_word(idn(tp + 1)) == T_INT || type_word(idn(tp + 1)) == T_CHR) && !(tk[tp + 3].t == TK_OP && (tk[tp + 3].v == '+' || tk[tp + 3].v == '-') && 0)) {
-            int cch = type_word(idn(tp + 1)) == T_CHR; tp += 3; int ct2 = primary(lvt); return ct2 == T_STR ? T_STR : cch ? T_CHR : T_INT; }
+        if (tk[tp + 1].t == TK_ID && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ')' && (type_word(idn(tp + 1)) == T_INT || type_word(idn(tp + 1)) == T_CHR || type_word(idn(tp + 1)) == T_DBL) && !(tk[tp + 3].t == TK_OP && (tk[tp + 3].v == '+' || tk[tp + 3].v == '-') && 0)) {
+            int cw = type_word(idn(tp + 1)); tp += 3; int ct2 = primary(lvt);
+            if (ct2 == T_STR) return T_STR;
+            if (cw == T_DBL) { if (ct2 != T_DBL) emit(O_ITOF, 0); return T_DBL; }
+            if (ct2 == T_DBL) emit(O_FTOI, 0);
+            return cw == T_CHR ? T_CHR : T_INT; }
         if (tk[tp + 1].t == TK_ID && tk[tp + 2].t == TK_OP && tk[tp + 2].v == ')' && class_find(idn(tp + 1)) >= 0 &&
             (tk[tp + 3].t == TK_ID || tk[tp + 3].t == TK_NUM || tk[tp + 3].t == TK_CHR || tk[tp + 3].t == TK_STR || (tk[tp + 3].t == TK_OP && tk[tp + 3].v == '('))) {
             int cc = class_find(idn(tp + 1)); tp += 3; postfix(); return T_OBJ0 + cc; }
@@ -468,7 +514,7 @@ static int primary(int* lvt) {
         if (cur_cls < 0 || cur_static || !is_op('.') || tk[tp + 1].t != TK_ID || tk[tp + 2].t != TK_OP || tk[tp + 2].v != '(') { fehler("super.methode(...) erwartet"); return T_INT; }
         const char* mn = idn(tp + 1); tp += 2; int na = count_args(); int fi = par >= 0 ? find_method(par, mn, na) : -1;
         if (fi < 0) { fehler("Methode der Oberklasse nicht gefunden"); return T_INT; }
-        emit(O_LDL, 0); call_args(); emit(O_CALL, fi); return V->fns[fi].ret;
+        emit(O_LDL, 0); call_args_f(fi, 1); emit(O_CALL, fi); return V->fns[fi].ret;
     }
     if (gl(n, "new")) {
         tp++; if (tk[tp].t != TK_ID) { fehler("Typ nach new erwartet"); return T_INT; }
@@ -503,18 +549,17 @@ static int primary(int* lvt) {
             if (!is_op('(')) { fehler("( erwartet"); return T_INT; }
             int na = count_args(), ci = find_ctor(ncid, na);
             if (ci < 0) { fehler("Passender Konstruktor fehlt (Anzahl Argumente)"); return T_INT; }
-            emit(O_NEWO, ncid); emit(O_DUP, 0); call_args(); emit(O_CALL, ci); emit(O_POP, 0); return T_OBJ0 + ncid;
+            emit(O_NEWO, ncid); emit(O_DUP, 0); call_args_f(ci, 1); emit(O_CALL, ci); emit(O_POP, 0); return T_OBJ0 + ncid;
         }
         if (gl(tn, "Color") && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') { tp++; return call_builtin("rgb", 0); }
-        if (check_float(tn)) return T_INT;
         if (type_word(tn) < 0 || type_word(tn) == T_VOID) { fehler("Dieses Objekt (new) gibt es nicht; nur int[] und String"); return T_INT; }
         tp++; int dims = 0;
         if (is_op('[')) {
             tp++; expr(); need(']', "']' erwartet"); dims = 1;
             if (is_op('[') && tk[tp + 1].t != TK_OP) { tp++; expr(); need(']', "']' erwartet"); dims = 2; }
             else while (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') tp += 2;
-            if (dims == 2) { emit(O_NEWA2, 0); return T_ARR2; }
-            emit(O_NEWA, 0); return T_ARR;
+            if (dims == 2) { if (type_word(tn) == T_DBL) { fehler("double[][] wird nicht unterstuetzt"); return T_INT; } emit(O_NEWA2, 0); return T_ARR2; }
+            emit(O_NEWA, 0); return type_word(tn) == T_DBL ? T_DARR : T_ARR;
         }
         if (is_op('(')) { tp++; need(')', "')' erwartet"); emit(O_PUSH, 0); return T_STR; }     /* new String() */
         fehler("[ erwartet"); return T_INT;
@@ -531,7 +576,7 @@ static int primary(int* lvt) {
             if (tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') {
                 tp++; int na = count_args(), fi = find_method(cc, mn, na);
                 if (fi < 0 || !V->fns[fi].stat) { fehler("Statische Methode nicht gefunden"); return T_INT; }
-                call_args(); emit(O_CALL, fi); return V->fns[fi].ret;
+                call_args_f(fi, 0); emit(O_CALL, fi); return V->fns[fi].ret;
             }
             int g = find_static(cc, mn); if (g < 0) { fehler("Statisches Feld nicht gefunden"); return T_INT; }
             tp++; emit(O_LDG, g); return lv_type_g(g);
@@ -545,7 +590,7 @@ static int primary(int* lvt) {
             if (fi >= 0) {
                 int st = V->fns[fi].stat; if (!st && cur_static) { fehler("Nicht-statische Methode aus statischem Kontext"); return T_INT; }
                 if (!st) emit(O_LDL, 0);
-                call_args(); emit(st ? O_CALL : O_CALLM, fi); return V->fns[fi].ret;
+                call_args_f(fi, st ? 0 : 1); emit(st ? O_CALL : O_CALLM, fi); return V->fns[fi].ret;
             }
             tp--;
         }
@@ -571,7 +616,8 @@ static int primary(int* lvt) {
     if (tk[tp + 1].t == TK_OP && tk[tp + 1].v == '.') {
         while (tk[tp].t == TK_ID && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '.' && tk[tp + 2].t == TK_ID) { tp += 2; if (tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') break; }
         if (tk[tp].t == TK_ID && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') { const char* mn = idn(tp); int f2 = find_fn(mn); tp++; if (f2 >= 0) return user_call(f2, tp - 1); return call_builtin(mn, 0); }
-        if (gl(idn(tp), "PI")) { tp++; emit(O_PUSH, 3); return T_INT; }
+        if (gl(idn(tp), "PI")) { tp++; emit(O_PUSH, 205887); return T_DBL; }
+        if (gl(idn(tp), "E")) { tp++; emit(O_PUSH, 178145); return T_DBL; }
         fehler("Unbekannter Name nach Punkt"); tp++; return T_INT;
     }
     if (tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') { tp++; return call_builtin(n, 0); }
@@ -582,8 +628,8 @@ static int postfix(void) {
     int start = ncur, lvt; int ty = primary(&lvt);
     for (;;) {
         if (is_op('[')) {
-            if (ty != T_ARR && ty != T_ARR2 && !is_oarr(ty)) { fehler("[ ] nur bei Feldern (int[])"); return T_INT; }
-            tp++; expr(); need(']', "']' erwartet"); emit(O_AGET, 0); ty = ty == T_ARR2 ? T_ARR : is_oarr(ty) ? T_OBJ0 + (ty - T_OARR0) : T_INT;
+            if (ty != T_ARR && ty != T_ARR2 && ty != T_DARR && !is_oarr(ty)) { fehler("[ ] nur bei Feldern (int[])"); return T_INT; }
+            tp++; expr(); need(']', "']' erwartet"); emit(O_AGET, 0); ty = ty == T_DARR ? T_DBL : ty == T_ARR2 ? T_ARR : is_oarr(ty) ? T_OBJ0 + (ty - T_OARR0) : T_INT;
         } else if (is_op('.') && tk[tp + 1].t == TK_ID) {
             const char* mn = idn(tp + 1);
             if (is_oarr(ty) && gl(mn, "length")) { tp += 2; emit(O_ALEN, 0); ty = T_INT; }
@@ -615,13 +661,13 @@ static int postfix(void) {
                     int mi2, mt2;
                     if (fi < 0 && (gl(mn, "getMessage") || gl(mn, "toString")) && na == 0 && find_field(cid, "$msg", &mi2, &mt2) == 0) { call_args(); emit(O_GETF, mi2); ty = T_STR; continue; }
                     if (fi < 0 || V->fns[fi].stat) { fehler("Diese Methode gibt es in der Klasse nicht"); return T_INT; }
-                    call_args(); emit(O_CALLM, fi); ty = V->fns[fi].ret;
+                    call_args_f(fi, 1); emit(O_CALLM, fi); ty = V->fns[fi].ret;
                 } else {
                     int fidx, fty2; if (find_field(cid, mn, &fidx, &fty2) < 0) { fehler("Dieses Feld gibt es in der Klasse nicht"); return T_INT; }
                     tp += 2; emit(O_GETF, fidx); ty = fty2;
                 }
             }
-            else if (ty == T_ARR && gl(mn, "length")) { tp += 2; emit(O_ALEN, 0); ty = T_INT; }
+            else if ((ty == T_ARR || ty == T_DARR) && gl(mn, "length")) { tp += 2; emit(O_ALEN, 0); ty = T_INT; }
             else if (ty == T_ARR2 && gl(mn, "length")) { tp += 2; emit(O_ALEN, 0); ty = T_INT; }
             else if (ty == T_STR) { tp += 2; ty = call_builtin(mn, 1); }
             else { fehler("Diese Methode gibt es nicht"); return T_INT; }
@@ -630,36 +676,46 @@ static int postfix(void) {
     (void)start; return ty;
 }
 
-static void incdec(int kind, int arg, int add, int nachher) {          /* kind aus lv_kind; Lesebefehl ist schon entfernt (bei Feld: arr idx liegt auf dem Stapel) */
+static void incdec(int kind, int arg, int add, int nachher, int one) {          /* kind aus lv_kind; Lesebefehl ist schon entfernt (bei Feld: arr idx liegt auf dem Stapel) */
     int op = add ? O_ADD : O_SUB;
-    if (kind == 4) { emit(O_DUP, 0); emit(O_GETF, arg); emit(O_PUSH, 1); emit(op, 0); emit(O_SETF, arg); if (nachher) { emit(O_PUSH, 1); emit(add ? O_SUB : O_ADD, 0); } return; }
-    if (kind == 3) { emit(O_DUP2, 0); emit(O_AGET, 0); emit(O_PUSH, 1); emit(op, 0); emit(O_ASETV, 0); return; }
+    if (kind == 4) { emit(O_DUP, 0); emit(O_GETF, arg); emit(O_PUSH, one); emit(op, 0); emit(O_SETF, arg); if (nachher) { emit(O_PUSH, one); emit(add ? O_SUB : O_ADD, 0); } return; }
+    if (kind == 3) { emit(O_DUP2, 0); emit(O_AGET, 0); emit(O_PUSH, one); emit(op, 0); emit(O_ASETV, 0); return; }
     int ld = kind == 1 ? O_LDL : O_LDG, st = kind == 1 ? O_STL : O_STG;
-    if (nachher) { emit(ld, arg); emit(ld, arg); emit(O_PUSH, 1); emit(op, 0); emit(st, arg); }
-    else { emit(ld, arg); emit(O_PUSH, 1); emit(op, 0); emit(O_DUP, 0); emit(st, arg); }
+    if (nachher) { emit(ld, arg); emit(ld, arg); emit(O_PUSH, one); emit(op, 0); emit(st, arg); }
+    else { emit(ld, arg); emit(O_PUSH, one); emit(op, 0); emit(O_DUP, 0); emit(st, arg); }
 }
 
 static int unary(void) {
-    if (is_op('-')) { tp++; if (tk[tp].t == TK_NUM) { emit(O_PUSH, -tk[tp].v); tp++; return T_INT; } unary(); emit(O_NEG, 0); return T_INT; }
+    if (is_op('-')) { tp++; if (tk[tp].t == TK_NUM) { emit(O_PUSH, -tk[tp].v); tp++; return T_INT; } int nt = unary(); emit(O_NEG, 0); return nt == T_DBL ? T_DBL : T_INT; }
     if (is_op('+')) { tp++; return unary(); }
     if (is_op('!')) { tp++; unary(); emit(O_NOT, 0); return T_INT; }
     if (is_op('~')) { tp++; unary(); emit(O_BNOT, 0); return T_INT; }
     if (is_op(OP2('+', '+')) || is_op(OP2('-', '-'))) {
         int add = is_op(OP2('+', '+')); tp++; int start = ncur; int ty = unary(); int k = lv_kind(start);
         if (!k) { fehler("++ / -- braucht eine Variable"); return ty; }
-        int arg = arg_at(ncur - 1); ncur--; incdec(k, arg, add, 0); return T_INT;
+        int arg = arg_at(ncur - 1); ncur--; incdec(k, arg, add, 0, ty == T_DBL ? 65536 : 1); return ty == T_DBL ? T_DBL : T_INT;
     }
     int start = ncur; int ty = postfix();
     if (is_op(OP2('+', '+')) || is_op(OP2('-', '-'))) {
         int add = is_op(OP2('+', '+')); int k = lv_kind(start);
         if (!k) { fehler("++ / -- braucht eine Variable"); tp++; return ty; }
-        tp++; int arg = arg_at(ncur - 1); ncur--; incdec(k, arg, add, 1); return T_INT;
+        tp++; int arg = arg_at(ncur - 1); ncur--; incdec(k, arg, add, 1, ty == T_DBL ? 65536 : 1); return ty == T_DBL ? T_DBL : T_INT;
     }
     return ty;
 }
+static int promote(int tl, int tr) {                 /* nach dem rechten Operanden: gemischte int/double angleichen; Ergebnis double? */
+    if (tl != T_DBL && tr != T_DBL) return 0;
+    if (tl == T_DBL && tr != T_DBL) emit(O_ITOF, 0);
+    else if (tl != T_DBL && tr == T_DBL) emit(O_ITOF2, 0);
+    return 1;
+}
 static int mul_(void) {
     int t = unary();
-    while (is_op('*') || is_op('/') || is_op('%')) { int o = tk[tp].v; tp++; unary(); emit(o == '*' ? O_MUL : o == '/' ? O_DIV : O_MOD, 0); t = T_INT; }
+    while (is_op('*') || is_op('/') || is_op('%')) {
+        int o = tk[tp].v; tp++; int tr = unary();
+        if (promote(t, tr)) { emit(o == '*' ? O_FMUL : o == '/' ? O_FDIV : O_MOD, 0); t = T_DBL; }
+        else { emit(o == '*' ? O_MUL : o == '/' ? O_DIV : O_MOD, 0); t = T_INT; }
+    }
     return t;
 }
 static int add_(void) {
@@ -668,8 +724,8 @@ static int add_(void) {
         int o = tk[tp].v; tp++;
         if (o == '+' && (t == T_STR)) { int t2 = mul_(); int fl = scat_rhs(t2); emit(O_SCAT, fl); t = T_STR; continue; }
         int pc = ncur; (void)pc; int t2 = mul_();
-        if (o == '+' && t2 == T_STR) { emit(O_SCAT, t == T_CHR ? 3 : 1); t = T_STR; continue; }
-        emit(o == '+' ? O_ADD : O_SUB, 0); t = T_INT;
+        if (o == '+' && t2 == T_STR) { emit(O_SCAT, t == T_CHR ? 3 : t == T_DBL ? 4 : 1); t = T_STR; continue; }
+        t = promote(t, t2) ? T_DBL : T_INT; emit(o == '+' ? O_ADD : O_SUB, 0);
     }
     return t;
 }
@@ -681,7 +737,7 @@ static int shift_(void) {
 static int rel_(void) {
     int t = shift_();
     for (;;) {
-        if (is_op('<') || is_op('>') || is_op(OP2('<', '=')) || is_op(OP2('>', '='))) { int o = tk[tp].v; tp++; shift_(); emit(o == '<' ? O_LT : o == '>' ? O_GT : o == OP2('<', '=') ? O_LE : O_GE, 0); t = T_INT; }
+        if (is_op('<') || is_op('>') || is_op(OP2('<', '=')) || is_op(OP2('>', '='))) { int o = tk[tp].v; tp++; int tr = shift_(); promote(t, tr); emit(o == '<' ? O_LT : o == '>' ? O_GT : o == OP2('<', '=') ? O_LE : O_GE, 0); t = T_INT; }
         else if (is_id("instanceof")) { tp++; int cc = tk[tp].t == TK_ID ? class_find(idn(tp)) : -1; if (cc < 0) { fehler("Klasse nach instanceof unbekannt"); return T_INT; } tp++; emit(O_INSTOF, cc); t = T_INT; }
         else break;
     }
@@ -692,7 +748,7 @@ static int eq_(void) {
     while (is_op(OP2('=', '=')) || is_op(OP2('!', '='))) {
         int o = tk[tp].v; tp++; int t2 = rel_();
         if (t == T_STR && t2 == T_STR) { emit(O_SEQ, 0); if (o == OP2('!', '=')) emit(O_NOT, 0); }
-        else emit(o == OP2('=', '=') ? O_EQ : O_NE, 0);
+        else { promote(t, t2); emit(o == OP2('=', '=') ? O_EQ : O_NE, 0); }
         t = T_INT;
     }
     return t;
@@ -732,7 +788,7 @@ static int assign(void) {
     tp++; int arg = arg_at(ncur - 1); ncur--; want_ty = t;
     if (k == 4) {
         if (comp) { emit(O_DUP, 0); emit(O_GETF, arg); }
-        int rt = assign();
+        int rt = assign(); coerce_rhs(t, rt, &bop);
         if (comp) { if (bop == O_ADD && t == T_STR) { int fl = scat_rhs(rt); emit(O_SCAT, fl); } else emit(bop, 0); }
         else if (t == T_STR && rt != T_STR) emit(O_ITOS, 0);
         emit(O_SETF, arg); return t;
@@ -740,10 +796,10 @@ static int assign(void) {
     int ld = k == 1 ? O_LDL : O_LDG, st = k == 1 ? O_STL : O_STG;
     if (k == 3) {
         if (comp) { emit(O_DUP2, 0); emit(O_AGET, 0); }
-        int rt = assign(); if (comp) emit(bop, 0); (void)rt; emit(O_ASETV, 0); return T_INT;
+        int rt = assign(); coerce_rhs(t, rt, &bop); if (comp) emit(bop, 0); emit(O_ASETV, 0); return t;
     }
     if (comp) emit(ld, arg);
-    int rt = assign();
+    int rt = assign(); coerce_rhs(t, rt, &bop);
     if (comp) { if (bop == O_ADD && t == T_STR) { int fl = scat_rhs(rt); emit(O_SCAT, fl); } else emit(bop, 0); }
     else if (t == T_STR && rt != T_STR) emit(O_ITOS, 0);
     emit(O_DUP, 0); emit(st, arg); return t;
@@ -771,7 +827,7 @@ static void decl_rest(int type) {
     do {
         if (tk[tp].t != TK_ID) { fehler("Variablenname erwartet"); return; }
         int ni = tp; tp++; int ty = type;
-        if (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; ty = T_ARR; }
+        if (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; ty = type == T_DBL ? T_DARR : T_ARR; }
         int li = add_local(ni, ty);
         if (eat('=')) {
             if (is_op('{')) {                        /* Feldliste {1,2,3} */
@@ -780,10 +836,11 @@ static void decl_rest(int type) {
                 int cnt = 0; int sv = tp; int d = 0; while (tk[tp].t != TK_END) { if (is_op('{')) d++; if (is_op('}')) { if (!d) break; d--; } if (is_op(',') && !d) cnt++; tp++; } if (tp > sv && !(tk[tp - 1].t == TK_OP && tk[tp - 1].v == ',')) cnt++;
                 tp = sv; cb[(ncur - 2) * 2 + 1] = cnt;
                 emit(O_STL, lv_[li].slot);
-                while (!is_op('}') && tk[tp].t != TK_END) { emit(O_LDL, lv_[li].slot); emit(O_PUSH, n++); expr(); emit(O_ASETV, 0); emit(O_POP, 0); if (!eat(',')) break; }
+                while (!is_op('}') && tk[tp].t != TK_END) { emit(O_LDL, lv_[li].slot); emit(O_PUSH, n++); { int et = expr(); if (ty == T_DARR && et != T_DBL) emit(O_ITOF, 0); } emit(O_ASETV, 0); emit(O_POP, 0); if (!eat(',')) break; }
                 need('}', "'}' erwartet");
             } else {
-                want_ty = ty; int rt = assign(); if (ty == T_STR && rt != T_STR) emit(O_ITOS, 0);
+                want_ty = ty; int rt = assign(); if (ty == T_STR && rt != T_STR) emit(O_ITOS, 0); if (ty == T_DBL && rt != T_DBL && rt != T_STR) emit(O_ITOF, 0);
+                else if (rt == T_DBL && ty != T_DBL && ty != T_STR) fehler("double kann nicht in eine int-Variable: bitte (int) davorsetzen");
                 emit(O_STL, lv_[li].slot);
             }
         } else if (ty == T_STR) { emit(O_PUSH, 0); emit(O_STL, lv_[li].slot); }
@@ -837,7 +894,7 @@ static void stmt(void) {
         }
         if (gl(n, "return")) {
             tp++; if (is_op(';')) { tp++; emit(O_RET, 0); return; }
-            want_ty = cur_ret; expr(); need(';', "';' erwartet"); emit(O_RETV, 0); return;
+            want_ty = cur_ret; { int rtt = expr(); if (cur_ret == T_DBL && rtt != T_DBL && rtt != T_STR) emit(O_ITOF, 0); else if (rtt == T_DBL && cur_ret != T_DBL && cur_ret != T_STR && cur_ret != T_VOID) fehler("double kann nicht als int zurueckgegeben werden: (int) davorsetzen"); } need(';', "';' erwartet"); emit(O_RETV, 0); return;
         }
         if (gl(n, "throw")) {
             tp++; int code = 0; if (is_id("new") && tk[tp + 1].t == TK_ID && class_find(idn(tp + 1)) < 0) code = exc_code(idn(tp + 1));
@@ -907,9 +964,9 @@ static void global_init(int gi, int ty) {
         tp++; int cnt = 0, sv = tp, d = 0; while (tk[tp].t != TK_END) { if (is_op('{')) d++; if (is_op('}')) { if (!d) break; d--; } if (is_op(',') && !d) cnt++; tp++; }
         if (tp > sv && !(tk[tp - 1].t == TK_OP && tk[tp - 1].v == ',')) cnt++;
         tp = sv; emit(O_PUSH, cnt); emit(O_NEWA, tag_of(ty)); emit(O_STG, gi); int n = 0;
-        while (!is_op('}') && tk[tp].t != TK_END) { emit(O_LDG, gi); emit(O_PUSH, n++); expr(); emit(O_ASETV, 0); emit(O_POP, 0); if (!eat(',')) break; }
+        while (!is_op('}') && tk[tp].t != TK_END) { emit(O_LDG, gi); emit(O_PUSH, n++); { int et = expr(); if (ty == T_DARR && et != T_DBL) emit(O_ITOF, 0); } emit(O_ASETV, 0); emit(O_POP, 0); if (!eat(',')) break; }
         need('}', "'}' erwartet");
-    } else { want_ty = ty; int rt = assign(); if (ty == T_STR && rt != T_STR) emit(O_ITOS, 0); emit(O_STG, gi); }
+    } else { want_ty = ty; int rt = assign(); if (ty == T_STR && rt != T_STR) emit(O_ITOS, 0); if (ty == T_DBL && rt != T_DBL && rt != T_STR) emit(O_ITOF, 0); emit(O_STG, gi); }
     nibuf = ncur; cb = sb; ncur = sn; cmax = sm;
 }
 
@@ -918,7 +975,7 @@ static int read_params(int* pt, int* pn) {          /* tp hinter '(' ; verbrauch
     if (!is_op(')')) {
         do { skip_mods(); int pty = read_type(); if (pty < 0 || tk[tp].t != TK_ID) { fehler("Parameter: Typ und Name erwartet"); return -1; }
              if (na < 16) { pt[na] = pty; pn[na] = tp; na++; } tp++;
-             while (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; if (na > 0 && na <= 16) pt[na - 1] = T_ARR; } } while (eat(','));
+             while (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; if (na > 0 && na <= 16) pt[na - 1] = pt[na - 1] == T_DBL ? T_DARR : T_ARR; } } while (eat(','));
     }
     need(')', "')' erwartet"); return na;
 }
@@ -927,7 +984,7 @@ static void field_inits(int cid) {
     for (int i = 0; i < C->nown; i++) if (fin_tp[cid][i] >= 0) {
         int save = tp; tp = fin_tp[cid][i]; int ty = C->ftype[i];
         emit(O_LDL, 0);
-        if (is_op('{')) array_lit(tag_of(ty)); else { want_ty = ty; int rt = assign(); if (ty == T_STR && rt != T_STR) emit(O_ITOS, 0); }
+        if (is_op('{')) array_lit(tag_of(ty), ty == T_DARR); else { want_ty = ty; int rt = assign(); if (ty == T_STR && rt != T_STR) emit(O_ITOS, 0); if (ty == T_DBL && rt != T_DBL && rt != T_STR) emit(O_ITOF, 0); }
         emit(O_SETF, off + i); emit(O_POP, 0); tp = save;
     }
 }
@@ -956,7 +1013,7 @@ static void class_body(int pass, int cid) {
         if (gl(n, C->name) && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') {          /* Konstruktor */
             tp += 2; int pt[16], pn[16]; int na = read_params(pt, pn); if (na < 0) return;
             while (!is_op('{') && tk[tp].t != TK_END) tp++;
-            has_ctor = 1; int fi = reg_method(cid, "<init>", na + 1, T_VOID, 0);
+            has_ctor = 1; int fi = reg_method(cid, "<init>", na + 1, T_VOID, 0); for (int q = 0; q < 7; q++) V->fns[fi].pt[q + 1] = q < na ? (uint8_t)pt[q] : 0;
             if (pass == 1) { skip_body(); continue; }
             nlv = 0; nloc_max = 0; nlp = 0; add_this(cid); for (int i = 0; i < na; i++) add_local(pn[i], pt[i]);
             if (nlv > nloc_max) nloc_max = nlv;
@@ -966,7 +1023,7 @@ static void class_body(int pass, int cid) {
             if (is_id("super") && tk[tp + 1].t == TK_OP && tk[tp + 1].v == '(') {
                 tp++; int sa = count_args(); int par = C->parent; int ci = par >= 0 ? find_ctor(par, sa) : -1;
                 if (par >= 0 && ci < 0) { fehler("Konstruktor der Oberklasse passt nicht"); return; }
-                emit(O_LDL, 0); call_args(); if (ci >= 0) { emit(O_CALL, ci); emit(O_POP, 0); } else if (C->isex && par < 0 && sa == 1) { emit(O_SETF, 0); emit(O_POP, 0); } else for (int i = 0; i <= sa; i++) emit(O_POP, 0);
+                emit(O_LDL, 0); call_args_f(ci, 1); if (ci >= 0) { emit(O_CALL, ci); emit(O_POP, 0); } else if (C->isex && par < 0 && sa == 1) { emit(O_SETF, 0); emit(O_POP, 0); } else for (int i = 0; i <= sa; i++) emit(O_POP, 0);
                 eat(';');
             } else parent_ctor0(cid);
             field_inits(cid);
@@ -980,7 +1037,7 @@ static void class_body(int pass, int cid) {
         if (is_op('(')) {                                                       /* Methode */
             tp++; int pt[16], pn[16]; int na = read_params(pt, pn); if (na < 0) return;
             while (!is_op('{') && !is_op(';') && tk[tp].t != TK_END) tp++;
-            int nargs = na + (st ? 0 : 1); int fi = reg_method(cid, idn(ni), nargs, ty, st);
+            int nargs = na + (st ? 0 : 1); int fi = reg_method(cid, idn(ni), nargs, ty, st); for (int q = 0; q < 8; q++) { int qi = q + (st ? 0 : 1); if (qi < 8) V->fns[fi].pt[qi] = q < na ? (uint8_t)pt[q] : 0; }
             if (pass == 1 || !is_op('{')) { if (is_op('{')) skip_body(); else tp++; continue; }
             nlv = 0; nloc_max = 0; nlp = 0; if (!st) add_this(cid); for (int i = 0; i < na; i++) add_local(pn[i], pt[i]);
             if (nlv > nloc_max) nloc_max = nlv;
@@ -994,7 +1051,7 @@ static void class_body(int pass, int cid) {
         do {
             if (tk[tp].t != TK_ID) { fehler("Variablenname erwartet"); return; }
             int vi = tp; tp++; int vt = ty;
-            if (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; vt = ty >= T_OBJ0 && ty < T_OARR0 ? T_OARR0 + (ty - T_OBJ0) : T_ARR; }
+            if (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; vt = ty == T_DBL ? T_DARR : ty >= T_OBJ0 && ty < T_OARR0 ? T_OARR0 + (ty - T_OBJ0) : T_ARR; }
             if (fst) {
                 char m[44]; mangle(m, cid, idn(vi));
                 if (pass == 1) { add_global(m, vt); if (eat('=')) skip_init(); }
@@ -1039,14 +1096,14 @@ static void toplevel(int pass) {
             nlv = 0; nloc_max = 0; int na = 0; int pt[16], pn[16]; tp++;
             if (!is_op(')')) {
                 do { skip_mods(); int pty = read_type(); if (pty < 0 || tk[tp].t != TK_ID) { fehler("Parameter: Typ und Name erwartet"); return; } if (na < 16) { pt[na] = pty; pn[na] = tp; na++; } tp++;
-                     while (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; if (na > 0 && na <= 16) pt[na - 1] = T_ARR; } } while (eat(','));
+                     while (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; if (na > 0 && na <= 16) pt[na - 1] = pt[na - 1] == T_DBL ? T_DARR : T_ARR; } } while (eat(','));
             }
             need(')', "')' erwartet");
             while (!is_op('{') && !is_op(';') && tk[tp].t != TK_END) tp++;     /* throws ... */
             if (pass == 1) {
                 const char* fname = idn(ni); int fi = find_fn(fname);
                 if (fi < 0) { if (V->nfn >= NFN_MAX) { fehler("Zu viele Funktionen"); return; } fi = V->nfn++; kop(V->fns[fi].name, fname, 44); V->fns[fi].cls = -1; V->fns[fi].stat = 1; V->fns[fi].synth = 0; V->fns[fi].mh = hash_(fname); }
-                V->fns[fi].nargs = na; V->fns[fi].ret = ty; V->fns[fi].def = 1; V->fns[fi].pc = -1;
+                V->fns[fi].nargs = na; V->fns[fi].ret = ty; V->fns[fi].def = 1; V->fns[fi].pc = -1; for (int q = 0; q < 8; q++) V->fns[fi].pt[q] = q < na ? (uint8_t)pt[q] : 0;
                 if (is_op('{')) skip_body(); else tp++;
             } else {
                 int fi = find_fn(idn(ni)); if (fi < 0) { fehler("interner Fehler: Funktion unbekannt"); return; }
@@ -1065,7 +1122,7 @@ static void toplevel(int pass) {
         do {
             if (tk[tp].t != TK_ID) { fehler("Variablenname erwartet"); return; }
             int vi = tp; tp++; int vt = ty;
-            if (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; vt = T_ARR; }
+            if (is_op('[') && tk[tp + 1].t == TK_OP && tk[tp + 1].v == ']') { tp += 2; vt = ty == T_DBL ? T_DARR : T_ARR; }
             if (pass == 1) { add_global(idn(vi), vt); if (eat('=')) skip_init(); }
             else { int gi = find_global(idn(vi)); if (eat('=')) global_init(gi, V->gtype[gi]); }
         } while (eat(','));
@@ -1156,6 +1213,18 @@ static void gc(struct zjv* v) {
     v->hp = np; v->nstr = nh; v->spn = v->spconst + tn;
 }
 
+#define F_PI 205887
+#define F_2PI 411775
+#define F_HPI 102943
+static int fm_(int a, int b) { return (int)(((long long)a * b) >> 16); }
+static int fsin_(long long x) {
+    x %= F_2PI; if (x > F_PI) x -= F_2PI; if (x < -F_PI) x += F_2PI;
+    if (x > F_HPI) x = F_PI - x; if (x < -F_HPI) x = -F_PI - x;
+    int xx = (int)x, x2 = fm_(xx, xx), t = xx, r = xx;
+    t = -fm_(t, x2) / 6; r += t; t = -fm_(t, x2) / 20; r += t; t = -fm_(t, x2) / 42; r += t; t = -fm_(t, x2) / 72; r += t;
+    return r;
+}
+static int fsqrt_(int a) { if (a <= 0) return 0; unsigned long long n = (unsigned long long)a << 16, x = 0, bit = 1ULL << 46; while (bit > n) bit >>= 2; while (bit) { if (n >= x + bit) { n -= x + bit; x = (x >> 1) + bit; } else x >>= 1; bit >>= 2; } return (int)x; }
 static const int SINT[91] = {0,17,35,52,70,87,105,122,139,156,174,191,208,225,242,259,276,292,309,326,342,358,375,391,407,423,438,454,469,485,500,515,530,545,559,574,588,602,616,629,643,656,669,682,695,707,719,731,743,755,766,777,788,799,809,819,829,839,848,857,866,875,883,891,899,906,914,921,927,934,940,946,951,956,961,966,970,974,978,982,985,988,990,993,995,996,998,999,999,1000,1000};
 static int sin_deg(int d) { d %= 360; if (d < 0) d += 360; int neg = 0; if (d >= 180) { d -= 180; neg = 1; } if (d > 90) d = 180 - d; return neg ? -SINT[d] : SINT[d]; }
 static uint32_t rgbc(int c) { return (uint32_t)c & 0x00FFFFFFu; }
@@ -1202,6 +1271,20 @@ static void builtin(struct zjv* v, int id) {
     case B_GETX: r = v->ex; break;
     case B_GETY: r = v->ey; break;
     case B_GETKEY: r = v->ekey; break;
+    case B_FTOS: { char t[24]; ftoa(t, S[--v->sp]); r = s_neu(v, t, slen(t)); if (!r) rt_fehler(v, "Textspeicher voll"); break; }
+    case B_FSQRT: r = fsqrt_(S[--v->sp]); break;
+    case B_FSIN: r = fsin_(S[--v->sp]); break;
+    case B_FCOS: r = fsin_((long long)S[--v->sp] + F_HPI); break;
+    case B_FTAN: { int x = S[--v->sp]; int c = fsin_((long long)x + F_HPI); if (!c) c = 1; r = (int)((((long long)fsin_(x)) << 16) / c); break; }
+    case B_FFLOOR: r = (int)((unsigned)S[--v->sp] & 0xFFFF0000u); break;
+    case B_FCEIL: r = (int)(((unsigned)S[--v->sp] + 65535u) & 0xFFFF0000u); break;
+    case B_FROUND: r = (S[--v->sp] + 32768) >> 16; break;
+    case B_FRAND: v->rnd ^= v->rnd << 13; v->rnd ^= v->rnd >> 17; v->rnd ^= v->rnd << 5; r = (int)(v->rnd & 0xFFFF); break;
+    case B_FPOW: { int e = S[--v->sp], b = S[--v->sp];
+        if (!(e & 0xFFFF)) { int n = e >> 16, neg = n < 0; if (neg) n = -n; if (n > 64) n = 64; r = 65536; for (int i = 0; i < n; i++) r = fm_(r, b); if (neg) { if (!r) { rt_fehler(v, "Division durch null"); break; } r = (int)((1LL << 32) / r); } }
+        else if (e == 32768) r = fsqrt_(b);
+        else { rt_fehler(v, "pow: nur ganzzahlige Exponenten und 0.5"); r = 0; }
+        break; }
     case B_TOCHR: { char c[2]; c[0] = (char)S[--v->sp]; c[1] = 0; r = s_neu(v, c, 1); break; }
     default: break;
     }
@@ -1356,13 +1439,18 @@ static int call_fn(struct zjv* v, int fi, int a, int b) {
         case O_GE: { int b2 = S[--v->sp]; S[v->sp - 1] = S[v->sp - 1] >= b2; break; }
         case O_EQ: { int b2 = S[--v->sp]; S[v->sp - 1] = S[v->sp - 1] == b2; break; }
         case O_NE: { int b2 = S[--v->sp]; S[v->sp - 1] = S[v->sp - 1] != b2; break; }
+        case O_ITOF: S[v->sp - 1] = (int)((unsigned)S[v->sp - 1] << 16); break;
+        case O_ITOF2: S[v->sp - 2] = (int)((unsigned)S[v->sp - 2] << 16); break;
+        case O_FTOI: S[v->sp - 1] = S[v->sp - 1] / 65536; break;
+        case O_FMUL: { int b2 = S[--v->sp]; S[v->sp - 1] = (int)(((long long)S[v->sp - 1] * b2) >> 16); break; }
+        case O_FDIV: { int b2 = S[--v->sp]; if (!b2) { rt_fehler(v, "Division durch null"); break; } S[v->sp - 1] = (int)((((long long)S[v->sp - 1]) << 16) / b2); break; }
         case O_NEG: S[v->sp - 1] = (int)(0u - (unsigned)S[v->sp - 1]); break;
         case O_NOT: S[v->sp - 1] = !S[v->sp - 1]; break;
         case O_BNOT: S[v->sp - 1] = ~S[v->sp - 1]; break;
         case O_ITOS: { char t[16]; dezi(t, S[v->sp - 1]); int h = s_neu(v, t, slen(t)); if (!h) { rt_fehler(v, "Textspeicher voll"); break; } S[v->sp - 1] = h; break; }
         case O_SCAT: {
-            int b2 = S[--v->sp], a2 = S[v->sp - 1]; char t1[16], t2[16]; const char* x = s_text(v, a2); const char* y = s_text(v, b2);
-            if (ar == 1) { dezi(t1, a2); x = t1; } if (ar == 3) { t1[0] = (char)a2; t1[1] = 0; x = t1; } if (ar == 2) { dezi(t2, b2); y = t2; }
+            int b2 = S[--v->sp], a2 = S[v->sp - 1]; char t1[20], t2[20]; const char* x = s_text(v, a2); const char* y = s_text(v, b2);
+            if (ar == 1) { dezi(t1, a2); x = t1; } if (ar == 3) { t1[0] = (char)a2; t1[1] = 0; x = t1; } if (ar == 4) { ftoa(t1, a2); x = t1; } if (ar == 2) { dezi(t2, b2); y = t2; } if (ar == 5) { ftoa(t2, b2); y = t2; }
             static char buf[900]; int l = 0; for (int i = 0; x[i] && l < 880; i++) buf[l++] = x[i]; for (int i = 0; y[i] && l < 899; i++) buf[l++] = y[i];
             int h = s_neu(v, buf, l); if (!h && l) { rt_fehler(v, "Textspeicher voll"); break; } S[v->sp - 1] = h; break; }
         case O_SEQ: { int b2 = S[--v->sp], a2 = S[v->sp - 1]; S[v->sp - 1] = gl(s_text(v, a2), s_text(v, b2)); break; }

@@ -45,6 +45,7 @@
 #include "hda.h"
 #include "webseite.h"
 #include "zynjava.h"
+extern void hardware_info(void);
 #include "browser.h"
 
 extern void kprint(const char* str);
@@ -282,7 +283,7 @@ static void cmd_help(void) {
     kprint("  syncreate <n>  synai <n>  synwrite <n> <text>\n");
     kprint("  syncat <n>  syndel <n>  syntag <n> <tag>  synfind <tag>  synuntag <n> <tag>\n  Objekte: obj <tag> [tag2 ..] (alle Tags muessen passen)  zeit (zuletzt geaenderte Dateien)\n  Snapshots: snap neu <n>  snap liste  snap zurueck <n>  snap loeschen <n>\n");
     kprint("  .synbin: synrun <n>  synhdr <n>  syngrant <0-3>\n");
-    kprint("  Netz: net  dhcp  ping <ip|name>  dns <name>  http <adresse> [fingerabdruck]  wget <adresse> <name>\n  https:// = TLS 1.3 mit Root-CA-Pruefung (cas, casadd <datei.der>); Fingerabdruck = Pinning\n  Geraete: pci  block  usb  mouse  tastatur ch|us  synmount <dev>  synformat <dev> ja\n");
+    kprint("  Netz: net  dhcp  ping <ip|name>  dns <name>  http <adresse> [fingerabdruck]  wget <adresse> <name>\n  https:// = TLS 1.3 mit Root-CA-Pruefung (cas, casadd <datei.der>); Fingerabdruck = Pinning\n  Geraete: pci  hardware  block  usb  mouse  tastatur ch|us  synmount <dev>  synformat <dev> ja\n");
 }
 
 static void cmd_about(void) {
@@ -497,6 +498,7 @@ static void run_legacy(char* cmd) {
         if (tn == 0 || synfs_list_tags(tp, tn) <= 0) kprint("  (keine)\n");
     }
     else if (streq(cmd, "pci")) pci_list();
+    else if (streq(cmd, "hardware")) hardware_info();
     else if (streq(cmd, "usb")) usb_list();
     else if (streq(cmd, "net")) net_info();
     else if (streq(cmd, "wifi")) wifi_info();

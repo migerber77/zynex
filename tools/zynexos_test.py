@@ -126,7 +126,7 @@ def basis():
               "syncreate bar", "syntag foo a1", "syntag foo a2", "syntag foo a3", "syntag foo a4", "syntag foo a5", "syntag bar ai",
               "obj ai a5", "obj ai", "synuntag foo a5", "obj a5", "syntag bar zz", "zeit", "syntag foo a6", "syntag foo a7", "syntag foo a8",
               "syntag foo a9", "syninfo", "aidemo", "ps", "uptime",
-              "pci", "block",
+              "pci", "hardware", "block",
               "synhdr hallo.synbin", "synrun hallo.synbin", "synrun rechnen.synbin",
               "synrun zeit.synbin", "syngrant 3", "synrun zeit.synbin", "synrun schleife.synbin",
               "synstress 300 2 schreiben", "synstress 1 1024 schreiben", "syninfo", "snap neu gross", "synstress 300 2 loeschen", "synstress 300 2 pruefen",
@@ -142,6 +142,7 @@ def basis():
     pruefe("Text auf dem Bildschirm sichtbar (%d helle Pixel)" % hell, hell > 500)
     for name, muster, anzahl in [
         ("Shell antwortet auf help", "syncreate", 1),
+        ("Hardware-Uebersicht listet Geraete mit Treiber", "Hardware-Uebersicht", 1),
         ("SynFS: Datei gelesen", "hallo welt", 1),
         ("SynFS: Tag-Suche findet foo", "foo", 2),
         (".synbin: Programm laeuft (6*7)", "6 mal 7 = 42", 1),
@@ -916,7 +917,7 @@ def browser():
         "HashMap<String, Integer> hm = new HashMap<>();\n"
         "void tick() { }\nvoid mouseUp(int x, int y) { }\n"
         "void keyTyped(int k) { }\n"
-        "int dummy = initMap();\nint initMap() { char c = 'x'; hm.put(\"a\" + c, 7); System.out.println(\"ZJ MAP \" + hm.get(\"ax\") + \" \" + hm.size() + c); return 0; }\n"
+        "double dd = 1.5; double sq(double x) { return x * x; }\nint dummy2 = initDbl();\nint initDbl() { double r = sq(dd) + Math.sqrt(4) + 1; System.out.println(\"ZJ DBL \" + r + \" \" + (int)(r * 2) + \" \" + Math.pow(2, 3)); return 0; }\nint dummy = initMap();\nint initMap() { char c = 'x'; hm.put(\"a\" + c, 7); System.out.println(\"ZJ MAP \" + hm.get(\"ax\") + \" \" + hm.size() + c); return 0; }\n"
         "</applet></body></html>")
     worte = " ".join("Wort%d" % i for i in range(60000))
     open(www + "/gross.html", "w").write("<html><title>Grosse Seite</title><body><p>" + worte + "</p></body></html>")
@@ -945,6 +946,7 @@ def browser():
     pruefe("Browser: Programm mit Klassen, Vererbung und Objektfeldern (ZynJava)", "[ZYNJAVA] ZJ OOP 84 sq1 shape2" in out)
     pruefe("Browser: ArrayList und try/catch/finally (ZynJava)", "[ZYNJAVA] ZJ LISTE 30 4 fang+fin" in out)
     pruefe("Browser: HashMap und char als Zeichen (ZynJava)", "[ZYNJAVA] ZJ MAP 7 1x" in out)
+    pruefe("Browser: float/double als Festkomma (ZynJava)", "[ZYNJAVA] ZJ DBL 5.25 10 8.0" in out)
     m = re.search(r"\[WEB\] Seite: Grosse Seite \((\d+) Woerter", out)
     pruefe("Browser: grosse Seite (500 KB) vollstaendig", bool(m) and int(m.group(1)) >= 59000)
 
