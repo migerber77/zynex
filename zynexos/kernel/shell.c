@@ -44,6 +44,7 @@
 #include "krypto.h"
 #include "hda.h"
 #include "webseite.h"
+#include "zynjava.h"
 #include "browser.h"
 
 extern void kprint(const char* str);
@@ -561,6 +562,13 @@ static void run_legacy(char* cmd) {
             int ok = 0, n = 0; for (int i = 0; i < wd_nbild; i++) { if (wd_bild[i].status) continue; n++; if (wd_bild_laden(i) == 0) { ok++; kprint("[WEB] Bild "); kprint_dec((uint32_t)wd_bild[i].dw); kprint("x"); kprint_dec((uint32_t)wd_bild[i].dh); kprint("\n"); } }
             wd_layout(900);
             kprint("[WEB] Bilder geladen: "); kprint_dec((uint32_t)ok); kprint(" von "); kprint_dec((uint32_t)n); kprint(", Hoehe "); kprint_dec((uint32_t)wd_hoehe); kprint("\n");
+            for (int i = 0; i < wd_napp; i++) {                         /* Programme in der Seite (ZynJava) */
+                wd_app_quelle(i);
+                if (zj_laden(i, wd_app[i].quelle, wd_app[i].w, wd_app[i].h) != 0) { kprint("[WEB] Programm "); kprint_dec((uint32_t)i); kprint(": Fehler: "); kprint(zj_fehler(i)); kprint("\n"); continue; }
+                zj_ereignis(i, ZJ_TICK, 0, 0); zj_ereignis(i, ZJ_TICK, 0, 0); zj_ereignis(i, ZJ_MDOWN, 5, 7); zj_ereignis(i, ZJ_KEY, 65, 0);
+                const uint32_t* px = zj_pixel(i); int bunt = 0; for (int q = 0; q < zj_breite(i) * zj_hoehe(i); q++) if (px[q] != 0x00FFFFFFu) bunt++;
+                kprint("[WEB] Programm "); kprint_dec((uint32_t)i); kprint(": ok, gezeichnete Pixel "); kprint_dec((uint32_t)bunt); kprint(zj_fehler(i)[0] ? ", Laufzeitfehler\n" : "\n");
+            }
             for (int i = 0; i < wd_nfeld; i++) if (wd_feld[i].typ == 0) { kopiere(wd_feld[i].wert, "zynex test", 200); char f[400]; if (wd_form_url(i, f, 400) == 0) { kprint("[WEB] Formular: "); kprint(f); kprint("\n"); } break; }
         }
     }

@@ -1446,6 +1446,7 @@ static int pdf_drucken(const char* titel, const char* text) {
     return nseiten;
 }
 
+#include "zynjava.h"
 #include "browser_ui.inc"
 
 /* ---------- Rechtsklick-Menue ---------- */
@@ -2896,6 +2897,7 @@ static void tick(void) {
     { static uint32_t lmin; static uint32_t lt; if (zustand != Z_LOGIN && flaeche == 0 && nwid && !fdrag && !menu.offen && t - lt > 300) { lt = t; uint32_t ymd, hm; rtc_get(&ymd, &hm); if (hm != lmin) { if (lmin) zeichne_desktop(); lmin = hm; } } }
     { static uint32_t lf; int wi = fenster_idx(FT_EINST); if (wi >= 0 && wi == nfen - 1 && flaeche == 0 && zustand != Z_LOGIN && !fdrag && !menu.offen && t / 5 != lf) { lf = t / 5; lader(fen[wi].x + fen[wi].w - 60, fen[wi].y + fen[wi].h - 56, 34, lf, C_BG); } }
     { static uint32_t lw; if (qh == qt && !fdrag && !menu.offen && t - lw > 15) { lw = t; web_bilder_tick(); } }       /* Bilder im Browser nachladen */
+    { static uint32_t la; if (!fdrag && !menu.offen && t - la >= 3) { la = t; web_app_tick(); } }     /* Programme (ZynJava) im Browser */
     { static uint32_t lsek; if (zustand == Z_DESK && flaeche == 1 && t / 100 != lsek) { lsek = t / 100; gfx_begin(); sys_k_zeit(); gfx_end(); } }
 }
 

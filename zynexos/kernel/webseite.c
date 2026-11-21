@@ -69,7 +69,8 @@ void wd_aufloesen(const char* basis, const char* href, char* out, int max) {
 
 static int pool_neu;                                          /* neue Seite: Bildspeicher von vorn */
 /* ---------- Bausteine ---------- */
-enum { T_WORT = 1, T_BR, T_ABS, T_HR, T_BILD, T_FELD, T_LI, T_EINR, T_TAB_AN, T_TAB_AUS, T_TR_AN, T_TR_AUS, T_TD_AN, T_TD_AUS, T_PRE_AN, T_PRE_AUS };
+enum { T_WORT = 1, T_BR, T_ABS, T_HR, T_BILD, T_FELD, T_LI, T_EINR, T_TAB_AN, T_TAB_AUS, T_TR_AN, T_TR_AUS, T_TD_AN, T_TD_AUS, T_PRE_AN, T_PRE_AUS, T_APP };
+struct wapp wd_app[WD_APPS]; int wd_napp;
 struct wtok { uint8_t typ, font, deko, sp; int16_t link, a; uint32_t farbe, off; };
 #define TOK_MAX 110000
 static struct wtok tok[TOK_MAX]; static int ntok;
@@ -282,7 +283,7 @@ static void tag(const char* t, int zu) {
 }
 
 int wd_html(const char* h, uint32_t len, const char* basis) {
-    ntok = 0; txtn = 0; wd_nlinks = 0; wd_nbild = 0; wd_nfeld = 0; wd_nform = 0; wd_titel[0] = 0; wd_hg = 0x00FFFFFFu;
+    ntok = 0; txtn = 0; wd_nlinks = 0; wd_nbild = 0; wd_napp = 0; wd_nfeld = 0; wd_nform = 0; wd_titel[0] = 0; wd_hg = 0x00FFFFFFu;
     fett = kopf = mono = klein = vor = sp_offen = liste_tiefe = in_title = unterstr = 0; link_ = -1; tab_tiefe = 0; nfarbe = 0; form_akt = sel_feld = ta_feld = -1; skip_tiefe = 0; wl = 0;
     basis_url = basis; pool_neu = 1;
     latin1 = 0; { uint32_t m = len < 3000 ? len : 3000; for (uint32_t i = 0; i + 12 < m; i++) if (praef(h + i, "charset=")) { const char* c = h + i + 8; while (*c == '"' || *c == '\'' || *c == ' ') c++; if (praef(c, "iso-8859") || praef(c, "windows-125") || praef(c, "latin")) latin1 = 1; break; } }
@@ -296,6 +297,31 @@ int wd_html(const char* h, uint32_t len, const char* basis) {
             while (j < len && (q || h[j] != '>')) { if (h[j] == '"' || h[j] == '\'') q = (q == h[j]) ? 0 : (q ? q : h[j]); if (k < 599) buf[k++] = h[j]; j++; }
             buf[k] = 0; i = j;
             if (buf[0] == '!' || buf[0] == '?') continue;
+            /* Programme: <applet>, <zynjava>, <script type="text/java"> -> Quelltext merken */
+            if (!zu && !skip_tiefe && (praef(buf, "applet") || praef(buf, "zynjava") || praef(buf, "script"))) {
+                int isapp = praef(buf, "applet") || praef(buf, "zynjava");
+                const char* rest_ = buf; while (*rest_ && *rest_ != ' ' && *rest_ != '\t' && *rest_ != '\n') rest_++;
+                char ty[60]; ty[0] = 0; if (!isapp) { attr(rest_, "type", ty, 60); if (!(enthaelt(ty, "java") && !enthaelt(ty, "javascript") && !enthaelt(ty, "ecmascript"))) isapp = 0; else isapp = 1; }
+                if (isapp && wd_napp < WD_APPS) {
+                    struct wapp* ap = &wd_app[wd_napp]; char a[120]; ap->quelle[0] = 0; ap->url[0] = 0; ap->status = 0;
+                    ap->w = (int16_t)(attr(rest_, "width", a, 20) ? zahl(a) : 480); ap->h = (int16_t)(attr(rest_, "height", a, 20) ? zahl(a) : 320);
+                    if (ap->w < 80) ap->w = 480; if (ap->h < 60) ap->h = 320;
+                    if (attr(rest_, "src", a, 120) && a[0]) wd_aufloesen(basis_url, a, ap->url, 300);
+                    const char* e = praef(buf, "script") ? "</script" : praef(buf, "applet") ? "</applet" : "</zynjava";
+                    int q = 0; uint32_t j2 = i + 1;
+                    while (j2 < len && !(h[j2] == '<' && praef(h + j2, e))) {
+                        if (q < (int)sizeof(ap->quelle) - 2) {
+                            char c2 = h[j2];
+                            if (c2 == '&') { if (praef(h + j2, "&lt;")) { c2 = '<'; j2 += 3; } else if (praef(h + j2, "&gt;")) { c2 = '>'; j2 += 3; } else if (praef(h + j2, "&amp;")) { c2 = '&'; j2 += 4; } else if (praef(h + j2, "&quot;")) { c2 = '"'; j2 += 5; } }
+                            ap->quelle[q++] = c2;
+                        }
+                        j2++;
+                    }
+                    ap->quelle[q] = 0; while (j2 < len && h[j2] != '>') j2++; i = j2;
+                    if (q > 3 || ap->url[0]) { wort_ende(); t_neu(T_ABS, 8); t_neu(T_APP, wd_napp); wd_napp++; t_neu(T_ABS, 8); }
+                    continue;
+                }
+            }
             /* Rohtext-Elemente: bis zum Ende-Tag ueberspringen */
             if (!zu && (praef(buf, "script") || praef(buf, "style")) && (buf[6] == ' ' || buf[6] == '>' || !buf[6] || buf[5] == ' ' || !buf[5])) {
                 const char* e = praef(buf, "style") ? "</style" : "</script";
@@ -384,6 +410,11 @@ void wd_layout(int breite) {
             platz(w, h + 4, t->sp ? 4 : 0);
             int e = el_neu(WE_BILD, L_cx, 0, w, h + 4); if (e >= 0) { wd_el[e].ref = t->a; wd_el[e].link = t->link; }
             L_cx += w; break; }
+        case T_APP: {
+            struct wapp* ap = &wd_app[t->a]; int w = ap->w, h = ap->h; int maxw = L_x1 - L_x0 - L_ein; if (maxw > 40 && w > maxw) { h = h * maxw / w; w = maxw; }
+            if (!L_leer) zeile_fertig(); luecke_anwenden(); platz(w, h + 4, 0);
+            int e = el_neu(WE_APP, L_cx, 0, w, h + 4); if (e >= 0) wd_el[e].ref = t->a;
+            L_cx += w; break; }
         case T_FELD: {
             struct wfeld* f = &wd_feld[t->a]; int w = f->typ == 2 ? gfx_text_fw(f->wert[0] ? f->wert : "Senden", F_FETT) + 32 : f->breite; if (w > L_x1 - L_x0) w = L_x1 - L_x0;
             platz(w, 40, t->sp ? 6 : 0);
@@ -450,6 +481,13 @@ int wd_laden(const char* url) {
         wort_ende(); t_neu(T_PRE_AUS, 0); vor = 0; mono = 0; return 0;
     }
     return wd_html(body, bl, u);
+}
+
+int wd_app_quelle(int i) {
+    if (i < 0 || i >= wd_napp) return -1; struct wapp* ap = &wd_app[i];
+    if (ap->quelle[0] || !ap->url[0]) return ap->quelle[0] ? 0 : -1;
+    const char* body; uint32_t bl; if (holen(ap->url, 0, &body, &bl, 0, 0) != 0) return -1;
+    if (bl >= sizeof(ap->quelle)) bl = sizeof(ap->quelle) - 1; for (uint32_t k = 0; k < bl; k++) ap->quelle[k] = body[k]; ap->quelle[bl] = 0; return 0;
 }
 
 /* ---------- Bilder ---------- */

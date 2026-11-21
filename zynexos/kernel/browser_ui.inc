@@ -1,5 +1,6 @@
 /* ---------- Browser-Oberflaeche (Chrome-artig): Tabs, Adressleiste, Lesezeichenleiste, Startseite; Seiten aus der eigenen Engine (webseite.c) ---------- */
 #include "webseite.h"
+static int app_fokus = -1, app_down = -1, app_lx, app_ly, app_ox, app_oy; static char app_fehler[WD_APPS][120];
 #include "browser.h"
 #undef web_text
 #define web_text wd_text
@@ -133,6 +134,19 @@ static void web_seite_zeichnen(void) {
             struct wbild* b = &wd_bild[e->ref];
             if (b->status == 1 && b->px) { int w = e->w < b->dw ? e->w : b->dw, h = e->h - 4 < b->dh ? e->h - 4 : b->dh; gfx_bild(x, y, w, h, b->px, b->dw, wy0, unten); }
             else { web_rect(x, y, e->w, e->h - 4, 0x00E8EAEDu); if (b->alt[0] && y + 22 < unten && y > wy0) { char a[80]; scopy(a, b->alt, 80); int mc = (e->w - 16) / 7; if (mc < 2) a[0] = 0; else if (slen(a) > mc) a[mc] = 0; gfx_text_f(x + 8, y + 5, a, 0x005F6368u, 12); } }
+        } else if (e->typ == WE_APP) {
+            struct wapp* ap = &wd_app[e->ref]; int w = e->w, h = e->h - 4;
+            if (ap->status == 1) {
+                int vw = zj_breite(e->ref), vh = zj_hoehe(e->ref); int dw = w < vw ? w : vw, dh = h < vh ? h : vh;
+                gfx_bild(x, y, dw, dh, zj_pixel(e->ref), vw, wy0, unten);
+                if (e->ref == app_fokus) { web_rect(x - 1, y - 1, dw + 2, 2, B_BLAU); web_rect(x - 1, y + dh - 1, dw + 2, 2, B_BLAU); web_rect(x - 1, y - 1, 2, dh + 2, B_BLAU); web_rect(x + dw - 1, y - 1, 2, dh + 2, B_BLAU); }
+            } else {
+                web_rect(x, y, w, h, ap->status == 2 ? 0x00FDECEAu : 0x00E8EAEDu);
+                if (y + 40 < unten && y > wy0 - 4) {
+                    if (ap->status == 2) { gtxt(x + 10, y + 10, TR("Programm konnte nicht gestartet werden:", "Program could not be started:"), 0x00C42B1Cu, 1); char m[120]; scopy(m, app_fehler[e->ref], 120); int mc = (w - 20) / 8; if (mc > 8 && slen(m) > mc) { char r2[120]; scopy(r2, m + mc, 120); m[mc] = 0; gtxt(x + 10, y + 56, r2, 0x00C42B1Cu, 1); } gtxt(x + 10, y + 34, m, 0x00C42B1Cu, 1); }
+                    else gtxt(x + 10, y + 10, TR("Programm wird gestartet ...", "Starting program ..."), B_ICON, 1);
+                }
+            }
         } else if (e->typ == WE_FELD) {
             if (y < wy0 || y + e->h > unten) continue;
             struct wfeld* f = &wd_feld[e->ref];
@@ -326,8 +340,59 @@ static int web_klick(int id) {                                   /* Knoepfe des 
     else return 0;
     return 1;
 }
+static int app_bei(int px, int py) {
+    int ox = wx0 + wlinks, oy = wy0 - wscroll + 6;
+    for (int i = 0; i < wd_nel; i++) { struct wel* e = &wd_el[i]; if (e->typ == WE_APP && px >= ox + e->x && px < ox + e->x + e->w && py >= oy + e->y && py < oy + e->y + e->h - 4) { app_ox = ox + e->x; app_oy = oy + e->y; return e->ref; } }
+    return -1;
+}
+static void web_app_start(int i) {
+    struct wapp* ap = &wd_app[i]; if (ap->status) return; ap->status = 2; app_fehler[i][0] = 0;
+    if (!ap->quelle[0]) wd_app_quelle(i);
+    if (!ap->quelle[0]) { scopy(app_fehler[i], TR("Quelltext nicht gefunden (src=...)", "Source not found (src=...)"), 120); return; }
+    int r = zj_laden(i, ap->quelle, ap->w, ap->h);
+    if (r == 0) { ap->status = 1; kprint("[WEB] Programm gestartet\n"); } else scopy(app_fehler[i], zj_fehler(i), 120);
+}
+static void web_app_tick(void) {
+    if (!wok || wlauf || fenster_idx(FT_WEB) != nfen - 1 || flaeche != 0 || wd_napp == 0) return;
+    int ox = wx0 + wlinks, oy = wy0 - wscroll + 6; static uint32_t lt;
+    uint32_t t = timer_get_ticks(); int neu = 0, sichtbar[WD_APPS] = { 0, 0 };
+    for (int i = 0; i < wd_nel; i++) { struct wel* e = &wd_el[i]; if (e->typ == WE_APP && e->ref >= 0 && e->ref < WD_APPS && oy + e->y + e->h >= wy0 && oy + e->y <= wy0 + wh) sichtbar[e->ref] = 1; }
+    for (int i = 0; i < wd_napp && i < WD_APPS; i++) if (sichtbar[i] && wd_app[i].status == 0) { web_app_start(i); neu = 1; }
+    if (neu) { zeichne_web(0); return; }
+    int zeichnen = 0;
+    if (app_down >= 0 && app_down < wd_napp && wd_app[app_down].status == 1) {                 /* Ziehen und Loslassen */
+        const struct usb_pointer* p = usb_pointer_state();
+        if (p && p->present) {
+            if (!(p->buttons & 1)) { zj_ereignis(app_down, ZJ_MUP, app_lx, app_ly); app_down = -1; zeichnen = 1; }
+            else { int mx = p->x - app_ox, my = p->y - app_oy; if (mx != app_lx || my != app_ly) { app_lx = mx; app_ly = my; if (zj_hat(app_down, ZJ_MMOVE)) { zj_ereignis(app_down, ZJ_MMOVE, mx, my); zeichnen = 1; } } }
+        }
+    } else app_down = -1;
+    if (t - lt >= 4) {
+        lt = t;
+        for (int i = 0; i < wd_napp && i < WD_APPS; i++) if (sichtbar[i] && wd_app[i].status == 1 && zj_hat(i, ZJ_TICK)) { zj_ereignis(i, ZJ_TICK, 0, 0); zeichnen = 1; if (!zj_fehler(i)[0]) continue; scopy(app_fehler[i], zj_fehler(i), 120); wd_app[i].status = 2; }
+    }
+    (void)ox; if (zeichnen) zeichne_web(0);
+}
+static int app_taste(uint8_t k, int shift, int altgr) {                  /* 1 = Taste gehoert dem Programm */
+    if (app_fokus < 0 || app_fokus >= wd_napp || wd_app[app_fokus].status != 1) return 0;
+    if (k == 0x29) { app_fokus = -1; zeichne_web(0); return 1; }
+    if (!zj_hat(app_fokus, ZJ_KEY)) return 0;
+    int code = k == 0x28 || k == 0x58 ? 10 : k == 0x2A ? 8 : k == 0x2B ? 9 : k == 0x50 ? 37 : k == 0x52 ? 38 : k == 0x4F ? 39 : k == 0x51 ? 40 : 0;
+    if (!code) { char c = usb_key_char(k, shift, altgr); if ((c >= 32 && c < 127) || (unsigned char)c >= 0xA0) code = (unsigned char)c; }
+    if (!code) return 0;
+    zj_ereignis(app_fokus, ZJ_KEY, code, 0);
+    if (zj_fehler(app_fokus)[0]) { scopy(app_fehler[app_fokus], zj_fehler(app_fokus), 120); wd_app[app_fokus].status = 2; }
+    zeichne_web(0); return 1;
+}
 static void web_maus(int x, int y) {                              /* Klick in die Seite */
     if (wok && wd_hoehe > wh && x >= wx0 + ww - 14 && y >= wy0 && y < wy0 + wh) { wscroll = (y - wy0) * (wd_hoehe - wh) / (wh ? wh : 1); web_scroll(0); return; }
+    { int a = wok ? app_bei(x, y) : -1;
+      if (a >= 0 && a < wd_napp) {
+          app_fokus = a; wfeld = -1; adr_fokus = 0; nsug = 0;
+          if (wd_app[a].status == 1) { app_lx = x - app_ox; app_ly = y - app_oy; app_down = a; zj_ereignis(a, ZJ_MDOWN, app_lx, app_ly); if (zj_fehler(a)[0]) { scopy(app_fehler[a], zj_fehler(a), 120); wd_app[a].status = 2; } }
+          zeichne_web(0); return;
+      }
+      if (app_fokus >= 0) app_fokus = -1; }
     int f = web_feld_bei(x, y);
     if (f >= 0) { if (wd_feld[f].typ == 2) web_senden(f); else { wfeld = f; adr_fokus = 0; nsug = 0; zeichne_web(0); } return; }
     int l = web_link_bei(x, y); if (l >= 0) { char u[300]; scopy(u, wd_links[l], 300); web_gehe(u, 1); return; }
@@ -354,6 +419,7 @@ static void web_taste(uint8_t k, int shift, int altgr) {
         if (strg_taste(k)) return;
     }
     if (k == 0x3E) { web_klick(K_WR); return; }                                    /* F5 */
+    if (app_taste(k, shift, altgr)) return;
     if (wfeld >= 0) {                                                              /* Formularfeld */
         struct wfeld* f = &wd_feld[wfeld]; int n = slen(f->wert);
         if (k == 0x29) wfeld = -1;

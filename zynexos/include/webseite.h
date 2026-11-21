@@ -4,7 +4,7 @@
  * Zynex-Browser-Engine: HTML -> Bausteine -> Layout (Pixel) mit Schriftgroessen, fett, Farben, Links, Listen, Tabellen,
  * Bildern (PNG/JPEG/GIF, nachgeladen) und einfachen Formularen (GET). Kein JavaScript, keine Stilvorlagen-Dateien.
  */
-enum { WE_TEXT = 1, WE_LINIE, WE_BILD, WE_FELD, WE_PUNKT, WE_RAHMEN, WE_FLAECHE };
+enum { WE_TEXT = 1, WE_LINIE, WE_BILD, WE_FELD, WE_PUNKT, WE_RAHMEN, WE_FLAECHE, WE_APP };
 struct wel { uint8_t typ, font, deko, pad; int16_t link, ref; int32_t x, y; int16_t w, h; uint32_t farbe; uint32_t off; };
 struct wbild { char url[300]; int16_t aw, ah;      /* Groesse laut HTML (0 = unbekannt) */
                int16_t dw, dh;                      /* Anzeigegroesse */
@@ -13,6 +13,12 @@ struct wbild { char url[300]; int16_t aw, ah;      /* Groesse laut HTML (0 = unb
 struct wfeld { int16_t form; uint8_t typ;           /* 0 Text, 1 versteckt, 2 Senden */
                char name[48]; char wert[200]; char ph[64]; int16_t breite; };
 struct wform { char action[300]; uint8_t post; };
+
+/* Programme in Seiten (ZynJava): <applet>, <zynjava> oder <script type="text/java"> */
+#define WD_APPS 2
+struct wapp { char quelle[9000]; char url[300]; int16_t w, h; uint8_t status; /* 0 neu, 1 laeuft, 2 Fehler */ };
+extern struct wapp wd_app[]; extern int wd_napp;
+int wd_app_quelle(int i);                              /* Quelltext aus src= nachladen (falls noetig); 0 ok */
 
 #define WD_EL    90000
 #define WD_LINKS 900

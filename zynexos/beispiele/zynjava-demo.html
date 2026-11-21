@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>ZynJava-Demo</title></head>
+<body>
+<h1>ZynJava im Zynex-Browser</h1>
+<p>Der Ball springt von selbst. Klicke ins Feld: dort erscheint ein Punkt. Mit den Pfeiltasten (Feld anklicken, Esc = loslassen) bewegst du das Quadrat.</p>
+<applet width="480" height="300">
+public class Demo {
+    int bx = 40, by = 40, vx = 3, vy = 2;     // Ball
+    int qx = 220, qy = 130;                   // Quadrat (Pfeiltasten)
+    int[] px = new int[50]; int[] py = new int[50]; int np = 0;
+    int klicks = 0;
+
+    void tick() {
+        bx += vx; by += vy;
+        if (bx < 10 || bx > getWidth() - 30) vx = -vx;
+        if (by < 10 || by > getHeight() - 30) vy = -vy;
+    }
+    void mouseDown(int x, int y) {
+        klicks++;
+        if (np < 50) { px[np] = x; py[np] = y; np++; }
+    }
+    void keyPressed(int k) {
+        if (k == 37) qx -= 8; if (k == 39) qx += 8; if (k == 38) qy -= 8; if (k == 40) qy += 8;
+    }
+    void paint(Graphics g) {
+        g.setColor(Color.WHITE); g.clear();
+        g.setColor(Color.RED); g.fillOval(bx, by, 20, 20);
+        g.setColor(0, 120, 255); g.fillRect(qx, qy, 24, 24);
+        g.setColor(Color.BLACK);
+        for (int i = 0; i < np; i++) g.fillOval(px[i] - 3, py[i] - 3, 6, 6);
+        g.drawString("Klicks: " + klicks, 8, 6);
+    }
+}
+</applet>
+</body>
+</html>

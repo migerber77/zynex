@@ -892,6 +892,15 @@ def browser():
         "<ul><li>Eins</li><li>Zwei</li></ul><table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>"
         "<img src='a.png' alt='PNG'><img src='/b.jpg' width='160' alt='JPEG'><img src='c.gif'>"
         "<form action='/suche' method='get'><input type='hidden' name='q0' value='x'><input name='q' placeholder='Suche'><input type='submit' value='Los'></form></body></html>")
+    open(www + "/app.html", "w", encoding="utf-8").write(
+        "<html><title>Programmseite</title><body><h1>Rechner</h1>"
+        "<applet width='200' height='100'>int n = 0; int[] f = new int[5];\n"
+        "int fib(int k) { if (k < 2) return k; return fib(k - 1) + fib(k - 2); }\n"
+        "void init() { f[2] = fib(12); System.out.println(\"ZJ fib=\" + f[2] + \" \" + \"abc\".length()); }\n"
+        "void paint(Graphics g) { g.setColor(Color.RED); g.fillRect(10, 10, 60, 30); g.setColor(0, 0, 255); g.fillOval(90, 20, 50, 50); g.drawString(\"n=\" + n, 5, 75); }\n"
+        "void tick() { n++; }\nvoid mouseDown(int x, int y) { n += x + y; }\n"
+        "</applet><script type='text/javascript'>var x = 1 < 2;</script>"
+        "<script type='text/java'>void paint() { fillRect(0, 0, 10, 10); } int kaputt( {</script></body></html>")
     worte = " ".join("Wort%d" % i for i in range(60000))
     open(www + "/gross.html", "w").write("<html><title>Grosse Seite</title><body><p>" + worte + "</p></body></html>")
     srv = subprocess.Popen([sys.executable, "-m", "http.server", "8090", "--bind", "0.0.0.0", "--directory", www], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -900,6 +909,8 @@ def browser():
     for b in ["net", "webtest http://10.0.2.2:8090/index.html"]:
         vm.tippe(b, 3.0)
     vm.warte("[WEB] Bilder geladen", 60)
+    vm.tippe("webtest http://10.0.2.2:8090/app.html", 3.0)
+    vm.warte("[WEB] Programm 1", 30)
     vm.tippe("webtest http://10.0.2.2:8090/gross.html", 3.0)
     vm.warte("Grosse Seite", 60); time.sleep(2)
     out = vm.log(); vm.ende(); srv.kill()
@@ -909,6 +920,9 @@ def browser():
     pruefe("Browser: PNG, JPEG und GIF dekodiert", "[WEB] Bilder geladen: 3 von 3" in out)
     pruefe("Browser: Bildgroesse aus width-Attribut (160x90)", "[WEB] Bild 160x90" in out)
     pruefe("Browser: Formular als GET-Adresse", "[WEB] Formular: http://10.0.2.2:8090/suche?q0=x&q=zynex+test" in out)
+    pruefe("Browser: Programm in der Seite (ZynJava) berechnet fib(12)=144", "[ZYNJAVA] ZJ fib=144 3" in out)
+    pruefe("Browser: Programm zeichnet auf die Flaeche", re.search(r"\[WEB\] Programm 0: ok, gezeichnete Pixel (\d+)", out) is not None and int(re.search(r"\[WEB\] Programm 0: ok, gezeichnete Pixel (\d+)", out).group(1)) > 3000)
+    pruefe("Browser: Programmfehler wird gemeldet (Zeile), JavaScript bleibt ignoriert", "[WEB] Programm 1: Fehler: Zeile 1:" in out)
     m = re.search(r"\[WEB\] Seite: Grosse Seite \((\d+) Woerter", out)
     pruefe("Browser: grosse Seite (500 KB) vollstaendig", bool(m) and int(m.group(1)) >= 59000)
 
