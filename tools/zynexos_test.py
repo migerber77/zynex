@@ -322,7 +322,7 @@ def installieren():
         vm.tippe(b, 2.0)
     vm.mon("sendkey esc"); time.sleep(2.0)
     for b in ["rechne 12*7", "was ist 19/3", "19 geteilt durch 3", "Hauptstadt von Italien", "system", "dateien", "quanten", "sicherheit", "hilfe", "briefing", "agent wartung", "aufgabe milch kaufen", "arbeitsflaeche system", "firewall"]:
-        vm.tippe(b, 2.0)
+        vm.tippe(b, 6.0 if b in ("briefing", "agent wartung", "aufgabe milch kaufen", "arbeitsflaeche system") else 2.0)
     vm.tippe("browser", 3.0)
     vm.mon("sendkey esc"); time.sleep(2.0)
     vm.tippe("widget uhr", 2.0)

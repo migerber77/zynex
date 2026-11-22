@@ -62,7 +62,7 @@ int virtiogpu_aktiv(void) { return ready; }
 
 int virtiogpu_init(void) {
     struct pci_dev* d = 0;
-    for (int i = 0; i < pci_count(); i++) { struct pci_dev* x = pci_get(i); if (x->vendor == 0x1AF4 && x->device == 0x1050 && !(x->cls == 3 && x->sub == 0)) { d = x; break; } }
+    for (int i = 0; i < pci_count(); i++) { struct pci_dev* x = pci_get(i); if (x->vendor == 0x1AF4 && x->device == 0x1050) { d = x; break; } }
     if (!d || !gfx_available()) return -1;
     pci_enable(d);
     uint32_t cp = pci_read32(d, 0x34) & 0xFF; int hc = 0, hn = 0;
