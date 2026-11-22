@@ -39,6 +39,7 @@
 #include "pci.h"
 #include "nvme.h"
 #include "virtioblk.h"
+#include "virtiogpu.h"
 #include "zlk.h"
 #include "ahci.h"
 #include "net.h"
@@ -113,7 +114,8 @@ static void scroll(void){
     }
     cursor_y=rows-1;
 }
-static void newline(void){cursor_x=0;cursor_y++;if(cursor_y>=rows)scroll();}
+extern void virtiogpu_tick(void);
+static void newline(void){cursor_x=0;cursor_y++;if(cursor_y>=rows)scroll();virtiogpu_tick();}
 static void put_cell(int x,int y,char c){
     if(mode==1) fb_glyph(x,y,c);
     else if(mode==2) ((volatile uint16_t*)fb)[y*cols+x]=(uint16_t)(unsigned char)c|(0x0A<<8);
@@ -142,8 +144,15 @@ int  gfx_available(void){ return mode==1; }
 void gfx_size(int* w,int* h){ *w=(int)fb_w; *h=(int)fb_h; }
 void gfx_console(int an){ con_aus=!an; if(an&&mode==1){ fb_clear(); cursor_x=0; cursor_y=0; } }
 uint32_t* gfx_fbptr(uint32_t* pitch_px){ if(mode!=1) return 0; *pitch_px=fb_pitch/4; return (uint32_t*)fb; }
+extern void virtiogpu_tick(void);
+/* Anzeige umleiten (z. B. virtio-gpu): Bildinhalt in den neuen Speicher uebernehmen, ab jetzt wird dort gezeichnet */
+void gfx_umleiten(void* neu,uint32_t pitch_bytes){
+    if(mode!=1) return;
+    for(uint32_t y=0;y<fb_h;y++){ uint32_t* s=(uint32_t*)(fb+(uint64_t)y*fb_pitch); uint32_t* d=(uint32_t*)((uint8_t*)neu+(uint64_t)y*pitch_bytes); for(uint32_t x=0;x<fb_w;x++) d[x]=s[x]; }
+    fb=(uint8_t*)neu; fb_pitch=pitch_bytes;
+}
 void gfx_begin(void){ if(mode==1&&cur_x>=0) cursor_xor(cur_x,cur_y); }
-void gfx_end(void){ if(mode==1&&cur_x>=0) cursor_xor(cur_x,cur_y); }
+void gfx_end(void){ if(mode==1&&cur_x>=0) cursor_xor(cur_x,cur_y); virtiogpu_tick(); }
 void gfx_rect(int x,int y,int w,int h,uint32_t c){
     if(mode!=1) return;
     c=pc(c);
@@ -315,6 +324,7 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr){
     desktop_splash(-1, 30, "NVMe geprueft");
     ahci_init();
     virtioblk_init();
+    virtiogpu_init();
     desktop_splash(-1, 34, "SATA geprueft");
     usb_init();
     desktop_splash(-1, 38, "USB geprueft");

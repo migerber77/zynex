@@ -29,7 +29,7 @@ jobs:
         run: python3 tools/zynexos_test.py zynexos-test.iso uefi usbaudio
       - name: Test UEFI
         run: |
-          python3 tools/zynexos_test.py zynexos-test.iso uefi basis platte sata virtio usb layout netz installer usbnet ps2
+          python3 tools/zynexos_test.py zynexos-test.iso uefi basis platte sata virtio vgpu usb layout netz installer usbnet ps2
           ZYNEX_GUI_ISO=zynexos-os.iso python3 tools/zynexos_test.py zynexos-test.iso uefi grafik
       - uses: actions/upload-artifact@v4
         if: always() && hashFiles('zynex-sb.cer') != ''

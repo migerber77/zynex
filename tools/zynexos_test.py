@@ -260,6 +260,27 @@ def virtio_blk():
     platte("vblk0", "VirtIO-Blk", extra, img, "vblk0 bereit")
 
 
+def vgpu():
+    print("\n===== Szenario vgpu (VirtIO-GPU als einzige Anzeige) =====")
+    if MODUS != "uefi":
+        print("uebersprungen (nur UEFI: ohne VGA gibt es unter BIOS keinen Bildschirm)")
+        return
+    vm = VM(["-vga", "none", "-device", "virtio-gpu-pci"])
+    start = vm.warte("All systems online", 150)
+    time.sleep(4)
+    out = vm.log()
+    vm.mon("screendump " + PPM, 1.0)
+    try:
+        px = open(PPM, "rb").read().split(b"\n", 3)[3]
+        hell = sum(1 for i in range(0, len(px) - 2, 3) if px[i] + px[i + 1] + px[i + 2] > 120)
+    except Exception:
+        hell = 0
+    vm.ende()
+    pruefe("VirtIO-GPU: Kernel startet mit virtio-gpu als einziger Anzeige", start)
+    pruefe("VirtIO-GPU: Treiber richtet die Anzeige ein", "[VirtIO-GPU] Anzeige" in out and "bereit" in out)
+    pruefe("VirtIO-GPU: Bildschirm zeigt Inhalt (Screendump nicht schwarz: %d helle Pixel)" % hell, hell > 500)
+
+
 def sata():
     img = "/tmp/zynex-sata.img"
     extra = ["-drive", "file=%s,if=none,id=satadisk,format=raw" % img, "-device", "ide-hd,drive=satadisk,bus=ide.0"]
@@ -1106,6 +1127,6 @@ def manip():
 
 
 for s in SZEN:
-    {"browser": browser, "stick": stick, "boot": boot, "manip": manip, "audio": audio, "sicherboot": sicherboot, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "virtio": virtio_blk, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
+    {"browser": browser, "stick": stick, "boot": boot, "manip": manip, "audio": audio, "sicherboot": sicherboot, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "virtio": virtio_blk, "vgpu": vgpu, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
 
 sys.exit(0 if all(ergebnis) else 1)

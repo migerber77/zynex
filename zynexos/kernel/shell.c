@@ -47,6 +47,7 @@
 #include "zynjava.h"
 extern void hardware_info(void);
 #include "zlk.h"
+#include "virtiogpu.h"
 #include "wissen.h"
 #include "browser.h"
 
@@ -841,5 +842,5 @@ void shell_init(void) {
 }
 
 void shell_run(void) {
-    for (;;) { if (hv_aktiv()) __asm__ volatile("pause"); else __asm__ volatile("hlt"); usb_poll(); net_poll(); if (tick_fn) tick_fn(); zlk_tick(); usb_hotplug(); }
+    for (;;) { if (hv_aktiv()) __asm__ volatile("pause"); else __asm__ volatile("hlt"); usb_poll(); net_poll(); if (tick_fn) tick_fn(); zlk_tick(); virtiogpu_tick(); usb_hotplug(); }
 }
