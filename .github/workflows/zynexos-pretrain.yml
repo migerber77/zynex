@@ -6,6 +6,12 @@ on:
       minuten:
         description: "Trainingszeit in Minuten"
         default: "60"
+      lr0:
+        description: "Lernrate am Anfang (Tausendstel)"
+        default: "15"
+      lr1:
+        description: "Lernrate am Ende (Tausendstel)"
+        default: "2"
       wiki:
         description: "Anzahl Wikipedia-Abrufe (je 20 Artikel)"
         default: "600"
@@ -24,7 +30,7 @@ jobs:
       - name: Trainer bauen
         run: gcc -O3 -march=native -ffast-math -DNN_OHNE_START=1 -Wa,-Izynexos -Izynexos/include -o /tmp/pre tools/nn_pretrain.c zynexos/kernel/nn.c -lm
       - name: Trainieren
-        run: /tmp/pre /tmp/korpus.txt /tmp/nn_start.bin $(( ${{ inputs.minuten }} * 60 )) 60 6 | tee /tmp/train.log | grep -E "Korpus|Durchgang|geschrieben"
+        run: /tmp/pre /tmp/korpus.txt /tmp/nn_start.bin $(( ${{ inputs.minuten }} * 60 )) ${{ inputs.lr0 }} ${{ inputs.lr1 }} | tee /tmp/train.log | grep -E "Korpus|Durchgang|geschrieben"
       - name: Startmodell einchecken
         run: |
           cp /tmp/nn_start.bin zynexos/kernel/nn_start.bin
