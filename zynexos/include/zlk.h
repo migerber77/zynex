@@ -16,6 +16,8 @@ int  zlk_sicherheit(void);                            /* mittlere Bits je Zeiche
 int  zlk_kosten(void);                                 /* mittlere Bits je Zeichen der letzten Lerneingabe (x100); 800 = nichts gelernt */
 int  zlk_speichern(void);                              /* Modell als modell.zyki im SynFS sichern (falls eingehaengt) */
 void zlk_laden(void);                                  /* modell.zyki wieder einspielen */
+#include "nn.h"
+#define ZLK_ZYKI_MAX (65536 + 16 + 8 + 2 * NN_PARAMS + 16)   /* groesste moegliche .zyki-Datei */
 int  zlk_zyki_bauen(uint8_t* out, int max);            /* Modell als .zyki-Bytes; Laenge oder <0 */
 int  zlk_zyki_einlesen(const uint8_t* in, int len, int zusammenfuehren);   /* 1 = mit dem eigenen Modell zusammenfuehren; <0 ungueltig */
 void zlk_loeschen(void);                               /* Modell samt Datei entfernen: nur durch einen Administrator */

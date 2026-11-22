@@ -44,7 +44,7 @@ n_wiki = int(sys.argv[2]) if len(sys.argv) > 2 else 400
 with cf.ThreadPoolExecutor(6) as ex:
     for ps in ex.map(buch, list(buecher())[:14]): docs += ps
 print("Buchabsaetze:", len(docs), flush=True)
-t_ende = time.time() + 10 * 60                                          # Wikipedia hoechstens 20 Minuten lang
+t_ende = time.time() + 25 * 60                                          # Wikipedia hoechstens 25 Minuten lang
 for i, l in enumerate(["de"] * (n_wiki * 3 // 4) + ["en"] * (n_wiki // 4)):   # Wikipedia bittet um sequentielle Abrufe
     if time.time() > t_ende: print("Wikipedia-Zeitlimit erreicht nach", i, "Abrufen"); break
     docs += wiki(l); time.sleep(1.0)

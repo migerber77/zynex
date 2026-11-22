@@ -8,10 +8,10 @@ extern const char nn_start_bin[], nn_start_ende[];
 #ifndef NN_OHNE_START
 #define NN_OHNE_START 0
 #endif
-#define NW 8
-#define NE 16
+#define NW 16
+#define NE 12
 #define NI (NW * NE)
-#define NH 128
+#define NH 256
 #define NV 256
 
 static float emb[NV][NE], W1[NH][NI], b1[NH], W2[NV][NH], b2[NV];
@@ -52,9 +52,9 @@ void nn_init(void) {
 }
 void nn_training(int an) { trainiert = an; }
 
-void nn_vorbereiten(uint64_t hist) {
+void nn_vorbereiten(uint64_t hist, uint64_t hist2) {
     if (!bereit) nn_init();
-    for (int k = 0; k < NW; k++) { int b = (int)((hist >> (8 * k)) & 255); bytes_[k] = b; for (int e = 0; e < NE; e++) x[k * NE + e] = emb[b][e]; }
+    for (int k = 0; k < NW; k++) { int b = k < 8 ? (int)((hist >> (8 * k)) & 255) : (int)((hist2 >> (8 * (k - 8))) & 255); bytes_[k] = b; for (int e = 0; e < NE; e++) x[k * NE + e] = emb[b][e]; }
     for (int j = 0; j < NH; j++) { float s = b1[j]; const float* w = W1[j]; for (int i = 0; i < NI; i++) s += w[i] * x[i]; h[j] = ftanh(s); }
     float mx = -1e30f; static float lg[NV];
     for (int v = 0; v < NV; v++) { float s = b2[v]; const float* w = W2[v]; for (int j = 0; j < NH; j++) s += w[j] * h[j]; lg[v] = s; if (s > mx) mx = s; }

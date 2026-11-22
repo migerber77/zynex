@@ -18,15 +18,15 @@ int main(int argc, char** argv) {
     nn_init(); double t0 = jetzt(); long done = 0; int ep = 0;
     printf("Korpus %ld Bytes, Training %ld, Pruefung %ld, Zeitlimit %.0f s\n", n, ntr, hold, limit); fflush(stdout);
     for (;;) {
-        uint64_t h = 0; double s = 0; long c = 0; int stop = 0;
+        uint64_t h = 0, h2 = 0; double s = 0; long c = 0; int stop = 0;
         for (long i = 0; i < ntr; i++) {
             double el = jetzt() - t0; if ((i & 1023) == 0) { if (el > limit) { stop = 1; break; } }
             double fr = el / limit; int lr = lr0 + (int)((lr1 - lr0) * fr); if (lr < 1) lr = 1;
-            nn_vorbereiten(h); nn_lerne(t[i], lr); h = (h << 8) | t[i]; done++;
+            nn_vorbereiten(h, h2); nn_lerne(t[i], lr); h2 = (h2 << 8) | (h >> 56); h = (h << 8) | t[i]; done++;
             if ((done % 50000) == 0) { printf("  %ld Bytes, %.0f s, Verlust %.2f Bit/Zeichen, lr %d\n", done, el, nn_verlust() / 100.0, lr); fflush(stdout); }
         }
         ep++;
-        nn_training(0); uint64_t g = 0; double b = 0; for (long i = ntr; i < n; i++) { nn_vorbereiten(g); int k = t[i]; int c0 = 1; double bits = 0; for (int q = 7; q >= 0; q--) { int y = (k >> q) & 1, p = nn_bitprob(c0); double pp = (y ? p : 4096 - p) / 4096.0; bits -= __builtin_log2(pp); c0 = (c0 << 1) | y; } b += bits; g = (g << 8) | t[i]; c++; } nn_training(1);
+        nn_training(0); uint64_t g = 0, g2 = 0; double b = 0; for (long i = ntr; i < n; i++) { nn_vorbereiten(g, g2); int k = t[i]; int c0 = 1; double bits = 0; for (int q = 7; q >= 0; q--) { int y = (k >> q) & 1, p = nn_bitprob(c0); double pp = (y ? p : 4096 - p) / 4096.0; bits -= __builtin_log2(pp); c0 = (c0 << 1) | y; } b += bits; g2 = (g2 << 8) | (g >> 56); g = (g << 8) | t[i]; c++; } nn_training(1);
         printf("Durchgang %d: Pruefverlust (unbekannter Text) %.3f Bit/Zeichen\n", ep, b / c); fflush(stdout);
         if (stop) break;
     }

@@ -61,7 +61,7 @@ static void bytegrenze(void) {
     h[7] = hm(((uint64_t)wh << 32) | pwh, 8);
     h[8] = hm(hist, 9);
     h[9] = hm(hist ^ hm(hist2, 11) * 0x9E3779B97F4A7C15ull, 10);
-    nn_vorbereiten(hist);                                   /* das Netz sagt das ganze naechste Byte voraus */
+    nn_vorbereiten(hist, hist2);                                   /* das Netz sagt das ganze naechste Byte voraus */
 }
 
 void zlk_init(void) {                                  /* nur beim Start und beim Laden; fuer Anwender gibt es keinen Reset */
@@ -187,7 +187,7 @@ int zlk_ergaenze(const char* anfang, char* out, int max, int temp) {
         if (n >= 3 && temp <= 0) { int rep = 1; for (int i = 1; i <= 2; i++) if (out[n - 1] != out[n - 1 - i]) rep = 0; if (rep) break; }
     }
     out[n] = 0; sicher_bits = kn ? (int)(ksum / kn) : 800;
-    ng_learn = 1; hist = sh; hist2 = sh2; wh = swh; pwh = spw; c0 = sc0; for (int i = 0; i < NCTX; i++) h[i] = sh_[i]; nn_vorbereiten(hist);
+    ng_learn = 1; hist = sh; hist2 = sh2; wh = swh; pwh = spw; c0 = sc0; for (int i = 0; i < NCTX; i++) h[i] = sh_[i]; nn_vorbereiten(hist, hist2);
     return n;
 }
 
@@ -197,7 +197,7 @@ int zlk_pruefe(const char* text) {                 /* mittlere Bits x100 je Zeic
     hist = hist2 = 0; wh = pwh = 0; c0 = 1; bytegrenze(); ng_learn = 0;
     uint32_t cost = 0, n = 0;
     for (int k = 0; text[k]; k++) { uint8_t c = (uint8_t)text[k]; for (int b = 7; b >= 0; b--) { int y = (c >> b) & 1, p = vorhersage(); cost += bitkosten(p, y); bit_weiter(y); } n++; }
-    ng_learn = 1; hist = sh; hist2 = sh2; wh = swh; pwh = spw; c0 = sc0; for (int i = 0; i < NCTX; i++) h[i] = sh_[i]; nn_vorbereiten(hist);
+    ng_learn = 1; hist = sh; hist2 = sh2; wh = swh; pwh = spw; c0 = sc0; for (int i = 0; i < NCTX; i++) h[i] = sh_[i]; nn_vorbereiten(hist, hist2);
     return n ? (int)(cost / n) : 800;
 }
 uint32_t zlk_gelernt(void) { return nlern; }
@@ -210,7 +210,7 @@ int zlk_sicherheit(void) { return sicher_bits; }
  * zusammenfuehren (der Lernkern lernt dann auch das, was andere gelernt haben). */
 static uint32_t fnv32(const uint8_t* p, int n) { uint32_t x = 2166136261u; for (int i = 0; i < n; i++) { x ^= p[i]; x *= 16777619u; } return x; }
 static int16_t nnbuf[NN_PARAMS];
-#define ZYKI_MAX (LOGMAX + 16 + 8 + 2 * NN_PARAMS)
+#define ZYKI_MAX ZLK_ZYKI_MAX
 int zlk_zyki_bauen(uint8_t* out, int max) {
     if (max < ZYKI_MAX) return -1;
     out[0] = 'Z'; out[1] = 'Y'; out[2] = 'K'; out[3] = 'I'; out[4] = 2; out[5] = out[6] = out[7] = 0;
@@ -243,7 +243,7 @@ int zlk_zyki_einlesen(const uint8_t* in, int len, int zusammenfuehren) {
     if (hat_netz) {
         nn_training(1);
         for (int i = 0; i < NN_PARAMS; i++) nnbuf[i] = (int16_t)((uint16_t)in[o + 4 + 2 * i] | ((uint16_t)in[o + 4 + 2 * i + 1] << 8));
-        nn_importieren(nnbuf, NN_PARAMS); nn_vorbereiten(hist);
+        nn_importieren(nnbuf, NN_PARAMS); nn_vorbereiten(hist, hist2);
     }
     return (int)l;
 }
