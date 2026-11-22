@@ -5,11 +5,11 @@ import json, random, sys, urllib.request, urllib.parse, concurrent.futures as cf
 import time
 def get(u, t=90):
     err = None
-    for k in range(5):
+    for k in range(3):
         try:
             with urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "ZynexKorpus/1.0 (https://github.com/migerber77/zynex; Lernprojekt)"}), timeout=t) as r: return r.read()
         except urllib.error.HTTPError as e:
-            err = e; time.sleep(float(e.headers.get("Retry-After") or 5 * (k + 1)))
+            err = e; time.sleep(min(30.0, float(e.headers.get("Retry-After") or 5 * (k + 1))))
         except Exception as e: err = e; time.sleep(3 * (k + 1))
     print("Fehler", u[:90], err, file=sys.stderr); return b""
 docs = []
@@ -43,9 +43,12 @@ def wiki(lang):
 n_wiki = int(sys.argv[2]) if len(sys.argv) > 2 else 400
 with cf.ThreadPoolExecutor(6) as ex:
     for ps in ex.map(buch, list(buecher())): docs += ps
-print("Buchabsaetze:", len(docs))
-for l in ["de"] * (n_wiki * 3 // 4) + ["en"] * (n_wiki // 4):          # Wikipedia bittet um sequentielle Abrufe
+print("Buchabsaetze:", len(docs), flush=True)
+t_ende = time.time() + 20 * 60                                          # Wikipedia hoechstens 20 Minuten lang
+for i, l in enumerate(["de"] * (n_wiki * 3 // 4) + ["en"] * (n_wiki // 4)):   # Wikipedia bittet um sequentielle Abrufe
+    if time.time() > t_ende: print("Wikipedia-Zeitlimit erreicht nach", i, "Abrufen"); break
     docs += wiki(l); time.sleep(1.0)
+    if i % 50 == 0: print("Wikipedia-Abruf", i, "Absaetze", len(docs), flush=True)
 print("Absaetze gesamt:", len(docs))
 random.seed(1); random.shuffle(docs)
 txt = "\n".join(docs) + "\n"
