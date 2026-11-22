@@ -518,8 +518,8 @@ static void run_legacy(char* cmd) {
     }
     else if (starts_with(cmd, "zyki ") || streq(cmd, "zyki")) {
         const char* a = cmd[4] ? cmd + 5 : "";
-        static uint8_t zb[65536 + 64];
-        if (streq(a, "speichern")) { zlk_speichern(); kprint("[ZYKI] Modell als modell.zyki gesichert\n"); }
+        static uint8_t zb[200000];
+        if (streq(a, "speichern")) { int r = zlk_speichern(); kprint(r == 0 ? "[ZYKI] Modell als modell.zyki gesichert\n" : "[ZYKI] Sichern fehlgeschlagen (SynFS nicht eingehaengt oder voll)\n"); }
         else if (starts_with(a, "server ")) { zdb_put("zyki.url", a + 7); kprint("[ZYKI] Freigabe gemerkt (z. B. http://nas/zyki/modell.zyki)\n"); }
         else if (starts_with(a, "holen") || streq(a, "sync") || starts_with(a, "sync ")) {
             const char* u = starts_with(a, "holen ") ? a + 6 : starts_with(a, "sync ") ? a + 5 : zdb_get("zyki.url");

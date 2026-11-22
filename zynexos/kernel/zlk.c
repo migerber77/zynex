@@ -2,11 +2,12 @@
 #include "zlk.h"
 #include "synfs.h"
 #include "qubit.h"
+#include "nn.h"
 
 extern void kprint(const char* str);
 extern void kprint_dec(uint32_t val);
 
-#define NIN 11                     /* Eingaenge: Ordnung 0,1,2,3,4,6, Wort, Wort+Vorwort, Ordnung 8, 16, Konstante */
+#define NIN 12                     /* Eingaenge: Ordnung 0,1,2,3,4,6, Wort, Wort+Vorwort, Ordnung 8, 16, neuronales Netz, Konstante */
 #define NCTX 10                     /* Gedaechtnisse (ohne Konstante) */
 #define BITS 18
 #define SLOTS (1u << BITS)
@@ -60,13 +61,15 @@ static void bytegrenze(void) {
     h[7] = hm(((uint64_t)wh << 32) | pwh, 8);
     h[8] = hm(hist, 9);
     h[9] = hm(hist ^ hm(hist2, 11) * 0x9E3779B97F4A7C15ull, 10);
+    nn_vorbereiten(hist);                                   /* das Netz sagt das ganze naechste Byte voraus */
 }
 
 void zlk_init(void) {                                  /* nur beim Start und beim Laden; fuer Anwender gibt es keinen Reset */
     if (!ready_tab) tabellen();
     for (int i = 0; i < NCTX; i++) for (uint32_t j = 0; j < SLOTS; j++) { T[i][j].p = 32768; T[i][j].n = 0; T[i][j].chk = 0; }
-    for (int s = 0; s < NSET; s++) for (int i = 0; i < NIN; i++) W[s][i] = 20000;
+    for (int s = 0; s < NSET; s++) for (int i = 0; i < NIN; i++) W[s][i] = (i == NCTX) ? 6000 : 20000;
     hist = hist2 = 0; wh = pwh = 0; c0 = 1; nlern = 0; kost = 800; loglen = 0; ng_learn = 1; rnd = 2463534242u;
+    nn_init();
     bytegrenze();
 }
 
@@ -78,7 +81,8 @@ static int vorhersage(void) {
         if (s->chk != chkv[i]) { if (ng_learn) { s->p = 32768; s->n = 0; s->chk = chkv[i]; } in[i] = 0; continue; }
         in[i] = STRETCH[s->p >> 4];
     }
-    in[NCTX] = 256;
+    { int pn = nn_bitprob((int)c0); in[NCTX] = STRETCH[pn]; }
+    in[NCTX + 1] = 256;
     { int match = 0;                                                   /* wie viele Zeichen-/Wort-Kontexte kennen die Lage schon? */
       for (int k = 1; k < NCTX; k++) { struct slot* t = &T[k][idx[k]]; if (t->chk == chkv[k] && t->n > 0) match++; }
       if (match > 11) match = 11; int bp = 0; while ((c0 >> (bp + 1)) != 0) bp++;
@@ -126,6 +130,7 @@ void zlk_lerne(const char* text, int len) {
     uint32_t cost = 0; ng_learn = 1;
     for (int k = 0; k < len; k++) {
         uint8_t c = (uint8_t)text[k];
+        nn_lerne(c, 60);                                    /* Netz: ein Lernschritt (Verteilung fuer diesen Kontext liegt schon bereit) */
         for (int b = 7; b >= 0; b--) {
             int y = (c >> b) & 1, p = vorhersage();
             cost += bitkosten(p, y);
@@ -182,7 +187,7 @@ int zlk_ergaenze(const char* anfang, char* out, int max, int temp) {
         if (n >= 3 && temp <= 0) { int rep = 1; for (int i = 1; i <= 2; i++) if (out[n - 1] != out[n - 1 - i]) rep = 0; if (rep) break; }
     }
     out[n] = 0; sicher_bits = kn ? (int)(ksum / kn) : 800;
-    ng_learn = 1; hist = sh; hist2 = sh2; wh = swh; pwh = spw; c0 = sc0; for (int i = 0; i < NCTX; i++) h[i] = sh_[i];
+    ng_learn = 1; hist = sh; hist2 = sh2; wh = swh; pwh = spw; c0 = sc0; for (int i = 0; i < NCTX; i++) h[i] = sh_[i]; nn_vorbereiten(hist);
     return n;
 }
 
@@ -192,7 +197,7 @@ int zlk_pruefe(const char* text) {                 /* mittlere Bits x100 je Zeic
     hist = hist2 = 0; wh = pwh = 0; c0 = 1; bytegrenze(); ng_learn = 0;
     uint32_t cost = 0, n = 0;
     for (int k = 0; text[k]; k++) { uint8_t c = (uint8_t)text[k]; for (int b = 7; b >= 0; b--) { int y = (c >> b) & 1, p = vorhersage(); cost += bitkosten(p, y); bit_weiter(y); } n++; }
-    ng_learn = 1; hist = sh; hist2 = sh2; wh = swh; pwh = spw; c0 = sc0; for (int i = 0; i < NCTX; i++) h[i] = sh_[i];
+    ng_learn = 1; hist = sh; hist2 = sh2; wh = swh; pwh = spw; c0 = sc0; for (int i = 0; i < NCTX; i++) h[i] = sh_[i]; nn_vorbereiten(hist);
     return n ? (int)(cost / n) : 800;
 }
 uint32_t zlk_gelernt(void) { return nlern; }
@@ -204,28 +209,50 @@ int zlk_sicherheit(void) { return sicher_bits; }
  * Das Modell entsteht beim Laden durch erneutes Einspielen des Protokolls; deshalb laesst sich eine .zyki-Datei von mehreren Clients
  * zusammenfuehren (der Lernkern lernt dann auch das, was andere gelernt haben). */
 static uint32_t fnv32(const uint8_t* p, int n) { uint32_t x = 2166136261u; for (int i = 0; i < n; i++) { x ^= p[i]; x *= 16777619u; } return x; }
+static int16_t nnbuf[NN_PARAMS];
+#define ZYKI_MAX (LOGMAX + 16 + 8 + 2 * NN_PARAMS)
 int zlk_zyki_bauen(uint8_t* out, int max) {
-    if (max < 16 + loglen) return -1;
-    out[0] = 'Z'; out[1] = 'Y'; out[2] = 'K'; out[3] = 'I'; out[4] = 1; out[5] = out[6] = out[7] = 0;
+    if (max < ZYKI_MAX) return -1;
+    out[0] = 'Z'; out[1] = 'Y'; out[2] = 'K'; out[3] = 'I'; out[4] = 2; out[5] = out[6] = out[7] = 0;
     uint32_t l = (uint32_t)loglen, c = fnv32((const uint8_t*)logbuf, loglen);
     for (int i = 0; i < 4; i++) { out[8 + i] = (uint8_t)(l >> (8 * i)); out[12 + i] = (uint8_t)(c >> (8 * i)); }
     for (int i = 0; i < loglen; i++) out[16 + i] = (uint8_t)logbuf[i];
-    return 16 + loglen;
+    int o = 16 + loglen;
+    int n = nn_exportieren(nnbuf, NN_PARAMS); if (n != NN_PARAMS) return o;      /* ohne Netz: wie Version 1 lesbar */
+    out[4] = 2;
+    uint8_t* w = out + o + 4; for (int i = 0; i < n; i++) { w[2 * i] = (uint8_t)(nnbuf[i] & 255); w[2 * i + 1] = (uint8_t)((nnbuf[i] >> 8) & 255); }
+    uint32_t cn = fnv32(w, 2 * n);
+    for (int i = 0; i < 4; i++) { out[o + i] = (uint8_t)((uint32_t)n >> (8 * i)); out[o + 4 + 2 * n + i] = (uint8_t)(cn >> (8 * i)); }
+    return o + 4 + 2 * n + 4;
 }
 int zlk_zyki_einlesen(const uint8_t* in, int len, int zusammenfuehren) {
-    if (len < 16 || in[0] != 'Z' || in[1] != 'Y' || in[2] != 'K' || in[3] != 'I' || in[4] != 1) return -1;
+    if (len < 16 || in[0] != 'Z' || in[1] != 'Y' || in[2] != 'K' || in[3] != 'I' || (in[4] != 1 && in[4] != 2)) return -1;
     uint32_t l = 0, c = 0; for (int i = 0; i < 4; i++) { l |= (uint32_t)in[8 + i] << (8 * i); c |= (uint32_t)in[12 + i] << (8 * i); }
     if (l > LOGMAX || (int)l + 16 > len || fnv32(in + 16, (int)l) != c) return -2;
+    int hat_netz = 0; int o = 16 + (int)l;
+    if (in[4] == 2 && !zusammenfuehren && len >= o + 8) {                                  /* Netz-Abschnitt pruefen */
+        uint32_t n = 0, cn = 0; for (int i = 0; i < 4; i++) n |= (uint32_t)in[o + i] << (8 * i);
+        if (n == NN_PARAMS && len >= o + 8 + 2 * (int)n) {
+            for (int i = 0; i < 4; i++) cn |= (uint32_t)in[o + 4 + 2 * n + i] << (8 * i);
+            if (fnv32(in + o + 4, (int)(2 * n)) == cn) hat_netz = 1;
+        }
+    }
     if (!zusammenfuehren) zlk_init();
+    if (hat_netz) nn_training(0);                                                         /* Gewichte kommen aus der Datei: nicht noch einmal trainieren */
     zlk_lerne((const char*)in + 16, (int)l);
+    if (hat_netz) {
+        nn_training(1);
+        for (int i = 0; i < NN_PARAMS; i++) nnbuf[i] = (int16_t)((uint16_t)in[o + 4 + 2 * i] | ((uint16_t)in[o + 4 + 2 * i + 1] << 8));
+        nn_importieren(nnbuf, NN_PARAMS); nn_vorbereiten(hist);
+    }
     return (int)l;
 }
-static uint8_t zybuf[LOGMAX + 16];
-void zlk_speichern(void) {
-    if (!synfs_is_mounted() || !loglen) return;
-    int n = zlk_zyki_bauen(zybuf, sizeof(zybuf)); if (n < 0) return;
+static uint8_t zybuf[ZYKI_MAX];
+int zlk_speichern(void) {
+    if (!synfs_is_mounted()) return -1;
+    int n = zlk_zyki_bauen(zybuf, sizeof(zybuf)); if (n < 0) return -2;
     synfs_create("modell.zyki", 0);
-    synfs_write("modell.zyki", zybuf, (uint32_t)n);
+    return synfs_write("modell.zyki", zybuf, (uint32_t)n) < 0 ? -3 : 0;
 }
 void zlk_laden(void) {
     if (!synfs_is_mounted()) return;
@@ -237,5 +264,5 @@ void zlk_loeschen(void) {                          /* nur fuer Administratoren (
 }
 void zlk_info(void) {
     kprint("[ZLK] Lernkern: "); kprint_dec(nlern); kprint(" Zeichen gelernt, mittlere Kosten letzte Eingabe: ");
-    kprint_dec((uint32_t)kost / 100); kprint(" Bit/Zeichen (8 = nichts gelernt); Zufall: 4-Qubit-Register (Simulation), Modell: modell.zyki\n");
+    kprint_dec((uint32_t)kost / 100); kprint(" Bit/Zeichen (8 = nichts gelernt); Netz-Verlust: "); kprint_dec((uint32_t)nn_verlust() / 100); kprint(" Bit/Zeichen; Zufall: 4-Qubit-Register (Simulation), Modell: modell.zyki\n");
 }
