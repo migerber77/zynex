@@ -571,7 +571,7 @@ static void zynie(int cx, int cy, uint32_t ph) {
     uint32_t t = timer_get_ticks();
     int spricht = t < sprech_bis, ruhe = ruhend();
     int puls = (int)((ph / 3) % 16); if (puls > 8) puls = 16 - puls;
-    int blink = !ruhe && ((ph % 24) == 0 || (ph % 24) == 1);
+    int blink = !ruhe && (ph % 12) == 0;
     uint32_t bgc = hg_zeile(cy);
     uint32_t glow = ruhe ? 0x00206A80u : mix(0x0000A8C8u, C_CYAN, puls * 32);
     uint32_t akz = spricht ? C_VIOLET : glow;
@@ -2982,8 +2982,8 @@ static void tick(void) {
     if (rad.offen) return;                                                       /* solange das Rad offen ist, nichts darunter neu zeichnen */
     static int war_ruhe;
     int r = ruhend(); if (r != war_ruhe) { war_ruhe = r; kprint(r ? "[DESKTOP] Zynie: Ruhemodus\n" : "[DESKTOP] Zynie: wach\n"); }
-    uint32_t ph = t / (t < sprech_bis ? 6 : r ? 30 : 12);
-    if (ph != robot_phase) { robot_phase = ph; if (zustand != Z_LOGIN && !zdrag && !fdrag && !menu.offen && flaeche == 0 && !deckt(zr_x() - 4, zr_y() - 4, zr_w() + 8, zr_h() + 8)) zeichne_robot(); }
+    uint32_t ph = t / (t < sprech_bis ? 12 : r ? 60 : 24);
+    if (ph != robot_phase && qh == qt) { robot_phase = ph; if (zustand != Z_LOGIN && !zdrag && !fdrag && !menu.offen && flaeche == 0 && !deckt(zr_x() - 4, zr_y() - 4, zr_w() + 8, zr_h() + 8)) zeichne_robot(); }
     { static uint32_t lmin; static uint32_t lt; if (zustand != Z_LOGIN && flaeche == 0 && nwid && !fdrag && !menu.offen && t - lt > 300) { lt = t; uint32_t ymd, hm; rtc_get(&ymd, &hm); if (hm != lmin) { if (lmin) zeichne_desktop(); lmin = hm; } } }
     { static uint32_t lf; int wi = fenster_idx(FT_EINST); if (wi >= 0 && wi == nfen - 1 && flaeche == 0 && zustand != Z_LOGIN && !fdrag && !menu.offen && t / 5 != lf) { lf = t / 5; lader(fen[wi].x + fen[wi].w - 60, fen[wi].y + fen[wi].h - 56, 34, lf, C_BG); } }
     { static uint32_t lw; if (qh == qt && !fdrag && !menu.offen && t - lw > 15) { lw = t; web_bilder_tick(); } }       /* Bilder im Browser nachladen */
