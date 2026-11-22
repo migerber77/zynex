@@ -126,7 +126,7 @@ def basis():
               "syncreate bar", "syntag foo a1", "syntag foo a2", "syntag foo a3", "syntag foo a4", "syntag foo a5", "syntag bar ai",
               "obj ai a5", "obj ai", "synuntag foo a5", "obj a5", "syntag bar zz", "zeit", "syntag foo a6", "syntag foo a7", "syntag foo a8",
               "syntag foo a9", "syninfo", "aidemo", "ps", "uptime",
-              "pci", "hardware", "zlern das wetter wird heute schoen", "zlern das wetter wird heute schoen", "zlern das wetter wird heute schoen", "zsag das wetter wird h", "block",
+              "pci", "hardware", "zlern das wetter wird heute schoen", "zlern das wetter wird heute schoen", "zlern das wetter wird heute schoen", "zsag das wetter wird h", "wissen merke Wie weit ist der Mond von der Erde entfernt? = Der Mond ist rund 384400 Kilometer von der Erde entfernt.", "wissen wie weit ist der mond von der erde entfernt", "block",
               "synhdr hallo.synbin", "synrun hallo.synbin", "synrun rechnen.synbin",
               "synrun zeit.synbin", "syngrant 3", "synrun zeit.synbin", "synrun schleife.synbin",
               "synstress 300 2 schreiben", "synstress 1 1024 schreiben", "syninfo", "snap neu gross", "synstress 300 2 loeschen", "synstress 300 2 pruefen",
@@ -143,6 +143,7 @@ def basis():
     for name, muster, anzahl in [
         ("Shell antwortet auf help", "syncreate", 1),
         ("Hardware-Uebersicht listet Geraete mit Treiber", "Hardware-Uebersicht", 1),
+        ("Wissen: Antwort kommt aus dem Lernkern", "[WISSEN] (Lernkern) Der Mond ist rund 384400 Kilometer", 1),
         ("Lernkern lernt aus Eingaben und ergaenzt", "[ZLK] das wetter wird heute schoen", 1),
         ("SynFS: Datei gelesen", "hallo welt", 1),
         ("SynFS: Tag-Suche findet foo", "foo", 2),

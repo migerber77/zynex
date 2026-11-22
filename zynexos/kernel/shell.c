@@ -47,6 +47,7 @@
 #include "zynjava.h"
 extern void hardware_info(void);
 #include "zlk.h"
+#include "wissen.h"
 #include "browser.h"
 
 extern void kprint(const char* str);
@@ -504,6 +505,17 @@ static void run_legacy(char* cmd) {
     else if (starts_with(cmd, "zsag ")) { static char zo[256]; int n = zlk_ergaenze(cmd + 5, zo, sizeof(zo), 0); kprint("[ZLK] "); kprint(cmd + 5); kprint(n ? zo : "(keine Ahnung - noch nichts dazu gelernt)"); kprint("\n"); }
     else if (starts_with(cmd, "zfrei ")) { static char zo2[256]; zlk_ergaenze(cmd + 6, zo2, sizeof(zo2), 70); kprint("[ZLK] "); kprint(cmd + 6); kprint(zo2); kprint("\n"); }
     else if (streq(cmd, "zinfo")) zlk_info();
+    else if (streq(cmd, "wissen an") || streq(cmd, "wissen aus")) { zdb_put("wissen.an", streq(cmd, "wissen an") ? "1" : "0"); kprint(streq(cmd, "wissen an") ? "[WISSEN] Lernschleife an: Chat fragt erst den Lernkern, dann das Internet\n" : "[WISSEN] Lernschleife aus\n"); }
+    else if (starts_with(cmd, "wissen merke ")) {
+        const char* q = cmd + 13; int eq = -1; for (int i = 0; q[i]; i++) if (q[i] == '=') { eq = i; break; }
+        if (eq < 1) kprint("Benutzung: wissen merke <frage> = <antwort>\n");
+        else { static char fq[160]; int n = eq < 159 ? eq : 159; for (int i = 0; i < n; i++) fq[i] = q[i]; fq[n] = 0; const char* an = q + eq + 1; while (*an == ' ') an++; kprint(wissen_merke(fq, an) == 0 ? "[WISSEN] gelernt\n" : "[WISSEN] nichts zu lernen\n"); }
+    }
+    else if (starts_with(cmd, "wissen ")) {
+        static char wo[400]; int hk = 0; int n = wissen_frage(cmd + 7, "de", wo, sizeof(wo), &hk);
+        if (n > 0) { kprint("[WISSEN] ("); kprint(hk == WISSEN_ENGINE ? "Lernkern" : "Web, neu gelernt"); kprint(") "); kprint(wo); kprint("\n"); }
+        else kprint(n == -1 ? "[WISSEN] Unbekannt und kein Internet erreichbar\n" : n == -2 ? "[WISSEN] Im Internet nichts Passendes gefunden\n" : "[WISSEN] Das ist keine Frage (z. B. mit wie, was, wer, wo, wann ...?)\n");
+    }
     else if (streq(cmd, "zvergessen")) { zlk_init(); zlk_speichern(); kprint("[ZLK] Lernkern auf null zurueckgesetzt\n"); }
     else if (streq(cmd, "usb")) usb_list();
     else if (streq(cmd, "net")) net_info();

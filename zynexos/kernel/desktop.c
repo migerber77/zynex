@@ -11,6 +11,7 @@
 #include "zyndb.h"
 #include "layouts.h"
 #include "extki.h"
+#include "wissen.h"
 #include "fakten.h"
 #include "chats.h"
 #include "gedaechtnis.h"
@@ -2248,6 +2249,11 @@ static void ki_antwort(const char* frage) {
     static char roh[600]; char fq[330];
     if (lang != 0) { scopy(fq, "Answer in ", 330); cat(fq, LENG[lang], 330); cat(fq, ". ", 330); cat(fq, frage, 330); } else { scopy(fq, "Antworte kurz auf Deutsch. ", 330); cat(fq, frage, 330); }
     busy_tick();
+    {   /* Lernschleife: erst der Lernkern, sonst Internet-Nachschlagen und dabei lernen (nur wenn keine externe KI gewaehlt ist) */
+        static const char* const WL[5] = { "de", "en", "fr", "it", "es" }; int hk = 0;
+        int wn = (zdb_geti("wissen.an", 1) && !ext_quelle()) ? wissen_frage(frage, WL[lang >= 0 && lang < 5 ? lang : 0], roh, sizeof(roh), &hk) : -3;
+        if (wn > 0) { ki_teil(roh, wn); ki_text[ki_len] = 0; ki_zeilen(); busy_ende(); sprech_bis = timer_get_ticks() + 100; kprint("[DESKTOP] Wissen ("); kprint(hk == WISSEN_ENGINE ? "Lernkern" : "Web, neu gelernt"); kprint("): "); kprint(ki_text); kprint("\n"); return; }
+    }
     static char gk[560], ef[800];
     int teilen = zdb_geti("ged.extern", 0) != 0;                              /* Erinnerungen gehen nur mit Erlaubnis an externe Anbieter */
     int gkl = ged_kontext(frage, gk, sizeof(gk), ext_quelle() ? teilen : 1);

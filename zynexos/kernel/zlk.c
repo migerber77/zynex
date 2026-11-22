@@ -5,23 +5,25 @@
 extern void kprint(const char* str);
 extern void kprint_dec(uint32_t val);
 
-#define NIN 9                      /* Eingaenge: Ordnung 0,1,2,3,4,6, Wort, Wort+Vorwort, Konstante */
-#define NCTX 8                     /* Gedaechtnisse (ohne Konstante) */
-#define BITS 16
+#define NIN 11                     /* Eingaenge: Ordnung 0,1,2,3,4,6, Wort, Wort+Vorwort, Ordnung 8, 16, Konstante */
+#define NCTX 10                     /* Gedaechtnisse (ohne Konstante) */
+#define BITS 18
 #define SLOTS (1u << BITS)
-#define LOGMAX 8192
+#define LOGMAX 65536
+#define NSET (12 * 8)
 
 struct slot { uint16_t p; uint8_t n, chk; };
 
 static struct slot T[NCTX][SLOTS];
-static int32_t W[256][NIN];
+static int32_t W[NSET][NIN];
+static uint32_t wset;
 static uint16_t RECIP[256];
 static int16_t STRETCH[4096];
 static int ready_tab;
 
 static uint32_t h[NCTX];           /* Kontext-Hashes am Bytegrenze */
 static uint32_t c0;                /* bisher gesehene Bits des aktuellen Bytes (mit fuehrender 1) */
-static uint64_t hist;              /* letzte 8 Bytes */
+static uint64_t hist, hist2;       /* letzte 8 Bytes, davor weitere 8 */
 static uint32_t wh, pwh;           /* aktuelles Wort / Vorwort */
 static uint32_t idx[NCTX]; static uint8_t chkv[NCTX];
 static int32_t in[NIN]; static int pr;
@@ -55,13 +57,15 @@ static void bytegrenze(void) {
     h[5] = hm(hist & 0xFFFFFFFFFFFFull, 6);
     h[6] = hm(wh, 7);
     h[7] = hm(((uint64_t)wh << 32) | pwh, 8);
+    h[8] = hm(hist, 9);
+    h[9] = hm(hist ^ hm(hist2, 11) * 0x9E3779B97F4A7C15ull, 10);
 }
 
 void zlk_init(void) {
     if (!ready_tab) tabellen();
     for (int i = 0; i < NCTX; i++) for (uint32_t j = 0; j < SLOTS; j++) { T[i][j].p = 32768; T[i][j].n = 0; T[i][j].chk = 0; }
-    for (int s = 0; s < 256; s++) for (int i = 0; i < NIN; i++) W[s][i] = 20000;
-    hist = 0; wh = pwh = 0; c0 = 1; nlern = 0; kost = 800; loglen = 0; ng_learn = 1; rnd = 2463534242u;
+    for (int s = 0; s < NSET; s++) for (int i = 0; i < NIN; i++) W[s][i] = 20000;
+    hist = hist2 = 0; wh = pwh = 0; c0 = 1; nlern = 0; kost = 800; loglen = 0; ng_learn = 1; rnd = 2463534242u;
     bytegrenze();
 }
 
@@ -74,7 +78,11 @@ static int vorhersage(void) {
         in[i] = STRETCH[s->p >> 4];
     }
     in[NCTX] = 256;
-    int64_t dot = 0; for (int i = 0; i < NIN; i++) dot += (int64_t)in[i] * W[c0][i];
+    { int match = 0;                                                   /* wie viele Zeichen-/Wort-Kontexte kennen die Lage schon? */
+      for (int k = 1; k < NCTX; k++) { struct slot* t = &T[k][idx[k]]; if (t->chk == chkv[k] && t->n > 0) match++; }
+      if (match > 11) match = 11; int bp = 0; while ((c0 >> (bp + 1)) != 0) bp++;
+      wset = (uint32_t)(match * 8 + bp); }
+    int64_t dot = 0; for (int i = 0; i < NIN; i++) dot += (int64_t)in[i] * W[wset][i];
     pr = squash((int)(dot >> 16));
     if (pr < 1) pr = 1; if (pr > 4094) pr = 4094;
     return pr;
@@ -82,7 +90,7 @@ static int vorhersage(void) {
 
 static void bit_lernen(int y) {
     int err = ((y << 12) - pr) * 7;
-    for (int i = 0; i < NIN; i++) W[c0][i] += (in[i] * err + 0x8000) >> 16;
+    for (int i = 0; i < NIN; i++) W[wset][i] += (in[i] * err + 0x8000) >> 16;
     for (int i = 0; i < NCTX; i++) {
         struct slot* s = &T[i][idx[i]];
         if (s->chk != chkv[i]) { s->p = 32768; s->n = 0; s->chk = chkv[i]; }
@@ -96,13 +104,19 @@ static void bit_weiter(int y) {
     c0 = (c0 << 1) | (uint32_t)y;
     if (c0 >= 256) {
         uint8_t c = (uint8_t)(c0 & 0xFF);
-        hist = (hist << 8) | c;
+        hist2 = (hist2 << 8) | (hist >> 56); hist = (hist << 8) | c;
         int buchst = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 128 || (c >= '0' && c <= '9');
         if (buchst) { char l = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c; wh = (wh + (uint32_t)(uint8_t)l + 1) * 0x2F0B4A27u; }
         else if (wh) { pwh = wh; wh = 0; }
         c0 = 1; bytegrenze();
     }
 }
+
+static uint32_t bitkosten(int p, int y) {      /* -log2(Wahrscheinlichkeit des gesehenen Bits) x100 */
+    uint32_t q = (uint32_t)(y ? p : 4096 - p) * 16; int fl = 0; while ((q >> (fl + 1)) != 0) fl++;
+    int l2 = fl * 100 + (int)((q * 100u) >> fl) - 100; return (uint32_t)(1600 - l2);
+}
+static int sicher_bits = 800;
 
 void zlk_lerne(const char* text, int len) {
     if (!ready_tab) zlk_init();
@@ -113,12 +127,15 @@ void zlk_lerne(const char* text, int len) {
         uint8_t c = (uint8_t)text[k];
         for (int b = 7; b >= 0; b--) {
             int y = (c >> b) & 1, p = vorhersage();
-            uint32_t q = (uint32_t)(y ? p : 4096 - p) * 16; int fl = 0; while ((q >> (fl + 1)) != 0) fl++;   /* -log2(q/65536) x100, linear in der Mantisse */
-            int l2 = fl * 100 + (int)((q * 100u) >> fl) - 100; cost += (uint32_t)(1600 - l2);
+            cost += bitkosten(p, y);
             bit_lernen(y); bit_weiter(y);
         }
         nlern++;
-        if (loglen < LOGMAX) logbuf[loglen++] = (char)c;
+        if (loglen >= LOGMAX) {                                  /* Protokoll voll: aeltere Haelfte (bis zum Zeilenende) verwerfen */
+            int cut = LOGMAX / 2; while (cut < loglen && logbuf[cut] != '\n') cut++; if (cut < loglen) cut++;
+            for (int i = cut; i < loglen; i++) logbuf[i - cut] = logbuf[i]; loglen -= cut;
+        }
+        logbuf[loglen++] = (char)c;
     }
     kost = (int)(cost / (uint32_t)len);
 }
@@ -128,30 +145,41 @@ static uint32_t zufall(void) { rnd ^= rnd << 13; rnd ^= rnd >> 17; rnd ^= rnd <<
 int zlk_ergaenze(const char* anfang, char* out, int max, int temp) {
     if (!ready_tab) zlk_init();
     /* Zustand sichern: Erzeugen darf das Gelernte nicht veraendern, nur den Kontext */
-    uint64_t sh = hist; uint32_t swh = wh, spw = pwh; uint32_t sc0 = c0; uint32_t sh_[NCTX]; for (int i = 0; i < NCTX; i++) sh_[i] = h[i];
-    hist = 0; wh = pwh = 0; c0 = 1; bytegrenze();
+    uint64_t sh = hist, sh2 = hist2; uint32_t swh = wh, spw = pwh; uint32_t sc0 = c0; uint32_t sh_[NCTX]; for (int i = 0; i < NCTX; i++) sh_[i] = h[i];
+    hist = hist2 = 0; wh = pwh = 0; c0 = 1; bytegrenze();
     ng_learn = 0;
     for (int k = 0; anfang[k]; k++) { uint8_t c = (uint8_t)anfang[k]; for (int b = 7; b >= 0; b--) { vorhersage(); bit_weiter((c >> b) & 1); } }
-    int n = 0;
+    int n = 0; uint32_t ksum = 0, kn = 0;
     while (n < max - 1) {
         int c = 0;
         for (int b = 0; b < 8; b++) {
-            int p = vorhersage(), y;
+            int p = vorhersage(), y, praw = p;
             if (temp <= 0) y = p >= 2048;
             else { int st = STRETCH[p] * 100 / temp; p = squash(st); y = (int)(zufall() % 4096) < p; }
-            c = (c << 1) | y; bit_weiter(y);
+            ksum += bitkosten(praw, y); c = (c << 1) | y; bit_weiter(y);
         }
+        kn++;
         if (c == 0 || c == '\n') break;
         out[n++] = (char)c;
         if (n >= 3 && temp <= 0) { int rep = 1; for (int i = 1; i <= 2; i++) if (out[n - 1] != out[n - 1 - i]) rep = 0; if (rep) break; }
     }
-    out[n] = 0;
-    ng_learn = 1; hist = sh; wh = swh; pwh = spw; c0 = sc0; for (int i = 0; i < NCTX; i++) h[i] = sh_[i];
+    out[n] = 0; sicher_bits = kn ? (int)(ksum / kn) : 800;
+    ng_learn = 1; hist = sh; hist2 = sh2; wh = swh; pwh = spw; c0 = sc0; for (int i = 0; i < NCTX; i++) h[i] = sh_[i];
     return n;
 }
 
+int zlk_pruefe(const char* text) {                 /* mittlere Bits x100 je Zeichen, ohne zu lernen und ohne den Kontext zu stoeren */
+    if (!ready_tab) zlk_init();
+    uint64_t sh = hist, sh2 = hist2; uint32_t swh = wh, spw = pwh, sc0 = c0; uint32_t sh_[NCTX]; for (int i = 0; i < NCTX; i++) sh_[i] = h[i];
+    hist = hist2 = 0; wh = pwh = 0; c0 = 1; bytegrenze(); ng_learn = 0;
+    uint32_t cost = 0, n = 0;
+    for (int k = 0; text[k]; k++) { uint8_t c = (uint8_t)text[k]; for (int b = 7; b >= 0; b--) { int y = (c >> b) & 1, p = vorhersage(); cost += bitkosten(p, y); bit_weiter(y); } n++; }
+    ng_learn = 1; hist = sh; hist2 = sh2; wh = swh; pwh = spw; c0 = sc0; for (int i = 0; i < NCTX; i++) h[i] = sh_[i];
+    return n ? (int)(cost / n) : 800;
+}
 uint32_t zlk_gelernt(void) { return nlern; }
 int zlk_kosten(void) { return kost; }
+int zlk_sicherheit(void) { return sicher_bits; }
 
 void zlk_speichern(void) {
     if (!synfs_is_mounted() || !loglen) return;
