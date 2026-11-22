@@ -69,7 +69,7 @@ static void thema_anwenden(int n) {
     const uint32_t* c = THEMEN[n < 0 || n > 5 ? 0 : n].c;
     th_bg = c[0]; th_card = c[1]; th_border = c[2]; th_text = c[3]; th_muted = c[4]; th_acc = c[5]; th_acc2 = c[6]; th_field = c[7]; th_off = c[8]; th_hg1 = c[9]; th_hg2 = c[10]; th_gl1 = c[11]; th_gl2 = c[12];
 }
-static void th_laden(void) { th_nr = zdb_geti("ui.schema", 0); if (th_nr < 0 || th_nr > 5) th_nr = 0; hg_nr = zdb_geti("ui.hintergrund", 4); if (hg_nr < 0 || hg_nr > 5) hg_nr = 4; { const char* d = zdb_get("ui.hgbild"); int i = 0; while (d && d[i] && i < 31) { hg_datei[i] = d[i]; i++; } hg_datei[i] = 0; } if (hg_nr == 5 && !hg_datei[0]) hg_nr = 4; thema_anwenden(th_nr); }
+static void th_laden(void) { th_nr = zdb_geti("ui.schema", 0); if (th_nr < 0 || th_nr > 5) th_nr = 0; hg_nr = zdb_geti("ui.hintergrund", 4); if (hg_nr < 0 || hg_nr > 6) hg_nr = 4; { const char* d = zdb_get("ui.hgbild"); int i = 0; while (d && d[i] && i < 31) { hg_datei[i] = d[i]; i++; } hg_datei[i] = 0; } if (hg_nr == 5 && !hg_datei[0]) hg_nr = 4; thema_anwenden(th_nr); }
 #define C_BG     th_bg
 #define C_CARD   th_card
 #define C_BORDER th_border
@@ -282,11 +282,44 @@ static void wand_futur(uint32_t* b) {
     for (int k = 1; k <= 16; k++) { int yk = hz + (H - hz) * k * k / 256; if (yk >= H) break; int t = 60 + k * 12; for (int x = 0; x < W; x++) { b[yk * W + x] = wmix(b[yk * W + x], 0x0022D3EEu, t); if (yk + 1 < H) b[(yk + 1) * W + x] = wmix(b[(yk + 1) * W + x], 0x0022D3EEu, t / 3); } }
     for (int i = -30; i <= 30; i++) { int xb = W / 2 + i * W / 9; for (int y = hz; y < H; y++) { int x = W / 2 + (xb - W / 2) * (y - hz) / (H - hz); if (x < 0 || x >= W) continue; int t = (y - hz) * 230 / (H - hz) + 20; b[y * W + x] = wmix(b[y * W + x], 0x00A855F7u, t); } }
 }
+/* Wasser-Hintergrund: tiefes Blau, Kaustiken (Lichtnetz wie unter einer Wasseroberflaeche), Lichtschein von oben */
+static void wand_wasser(uint32_t* b) {
+    int sk = W / 4 + 1, sh = H / 4 + 1; if (sk > 961) sk = 961; if (sh > 541) sh = 541;
+    int z0 = W / 7 > 40 ? W / 7 : 40;
+    for (int y = 0; y < sh; y++) for (int x = 0; x < sk; x++) {
+        int X = x * 4, Y = y * 4;
+        int wx = vrausch(X + 311, Y, z0, 21) - 512, wy = vrausch(X, Y + 977, z0, 22) - 512;                       /* Verwirbelung */
+        int cs = 0;
+        for (int o = 0; o < 2; o++) {                                                                              /* zwei Lagen Wellenlinien */
+            int n = vrausch(X + wx * (o + 1) / 3 + o * 541, Y + wy * (o + 1) / 3, z0 / (o + 1) + 8, 23 + o);
+            int g = 1023 - (n > 512 ? n - 512 : 512 - n) * 2;                                                      /* 1023 auf der Linie */
+            g = g * g >> 10; g = g * g >> 10;                                                                       /* scharf */
+            cs += g * 2 / 5;
+        }
+        neb1[y * sk + x] = (uint16_t)(cs > 1023 ? 1023 : cs);
+        neb2[y * sk + x] = (uint16_t)vrausch(X + 123, Y + 321, z0 * 2, 27);
+    }
+    for (int y = 0; y < H; y++) {
+        int qy = y / 4, fy = (y % 4) * 256 / 4; if (qy >= sh - 1) qy = sh - 2;
+        int lt = 256 - y * 256 / H;                                                                              /* oben hell */
+        uint32_t basis = wmix(0x00041226u, 0x000C5A86u, lt * lt / 256);
+        for (int x = 0; x < W; x++) {
+            int qx = x / 4, fx = (x % 4) * 256 / 4; if (qx >= sk - 1) qx = sk - 2;
+            int ca = ((neb1[qy * sk + qx] * (256 - fx) + neb1[qy * sk + qx + 1] * fx) * (256 - fy) + (neb1[(qy + 1) * sk + qx] * (256 - fx) + neb1[(qy + 1) * sk + qx + 1] * fx) * fy) >> 16;
+            int m = ((neb2[qy * sk + qx] * (256 - fx) + neb2[qy * sk + qx + 1] * fx) * (256 - fy) + (neb2[(qy + 1) * sk + qx] * (256 - fx) + neb2[(qy + 1) * sk + qx + 1] * fx) * fy) >> 16;
+            uint32_t c = wmix(basis, 0x00087A8Cu, m / 6);                                                         /* tuerkise Schlieren */
+            int dx = x - W / 2; int strahl = 256 - (dx < 0 ? -dx : dx) * 256 / (W / 2 + 1);                        /* Lichtkegel von oben */
+            c = wmix(c, 0x007FDFF5u, ca * (lt * 2 / 3 + 40) / 1024 * (strahl + 128) / 384);
+            b[y * W + x] = c;
+        }
+    }
+}
 static int wand_bereit(void) {                                           /* 1 = Hintergrundbild im Speicher passend zur Wahl */
     if (hg_nr < 4) return 0;
     if (!wand) { uint32_t s = ((uint32_t)W * (uint32_t)H * 4 + 4095) / 4096; if (pmm_get_free_pages() < s + 8192) return 0; wand = (uint32_t*)pmm_alloc_pages(s); if (!wand) return 0; }
-    if (wand_art == hg_nr && (hg_nr == 4 || ueq(wand_name, hg_datei))) return 1;
+    if (wand_art == hg_nr && (hg_nr == 4 || hg_nr == 6 || ueq(wand_name, hg_datei))) return 1;
     if (hg_nr == 5) { if (wand_bild(hg_datei, wand) != 0) { kprint("[DESKTOP] Hintergrundbild nicht lesbar: "); kprint(hg_datei); kprint("\n"); hg_nr = 4; } else { scopy(wand_name, hg_datei, 32); wand_art = 5; kprint("[DESKTOP] Hintergrundbild: "); kprint(hg_datei); kprint("\n"); return 1; } }
+    if (hg_nr == 6) { wand_wasser(wand); wand_art = 6; kprint("[DESKTOP] Wasser-Hintergrund berechnet\n"); return 1; }
     wand_futur(wand); wand_art = 4; kprint("[DESKTOP] Futuristischer Hintergrund berechnet\n");
     return 1;
 }
@@ -319,6 +352,42 @@ static int isin(int deg) {
     return sg * (lo + (hi - lo) * (deg % 5) / 5);
 }
 static int icos(int deg) { return isin(deg + 90); }
+/* Welle: ein Ring laeuft vom Klick nach aussen und verzerrt das Bild darunter (Bildausschnitt wird gesichert und danach wiederhergestellt) */
+extern uint32_t* gfx_fbptr(uint32_t* pitch_px);
+static uint32_t wsnap[520 * 520];
+static int isqw(int v) { int r = 0; for (int b = 1 << 15; b; b >>= 1) { int t = r | b; if (t * t <= v) r = t; } return r; }
+static void wasser_welle(int cx, int cy) {
+    uint32_t pp; uint32_t* f = gfx_fbptr(&pp); if (!f) return;
+    int R = W / 9; if (R < 100) R = 100; if (R > 255) R = 255;
+    int x0 = cx - R, y0 = cy - R, x1 = cx + R, y1 = cy + R;
+    if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 > W) x1 = W; if (y1 > H) y1 = H;
+    int w = x1 - x0, h = y1 - y0; if (w <= 8 || h <= 8) return;
+    gfx_begin();
+    for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) wsnap[y * w + x] = f[(uint64_t)(y0 + y) * pp + x0 + x];
+    const int N = 20, W0 = 34;
+    for (int fr = 1; fr <= N; fr++) {
+        uint32_t t0 = timer_get_ticks();
+        int r = fr * (R + W0) / N, A = 3 + 11 * (N - fr) / N;                      /* Frontradius, Wellenhoehe in Pixeln */
+        for (int y = 0; y < h; y++) {
+            uint32_t* row = f + (uint64_t)(y0 + y) * pp + x0; int dy = (y0 + y) - cy;
+            int dmin = r - W0, dmax = r + W0;
+            for (int x = 0; x < w; x++) {
+                int dx = (x0 + x) - cx, d2 = dx * dx + dy * dy;
+                if ((dmin > 0 && d2 < dmin * dmin) || d2 > dmax * dmax) { row[x] = wsnap[y * w + x]; continue; }
+                int d = isqw(d2); int u = d - r; int au = u < 0 ? -u : u;
+                if (au >= W0 || d == 0) { row[x] = wsnap[y * w + x]; continue; }
+                int off = isin(u * 11) * A / 1024 * (W0 - au) / W0;
+                int sx = x + dx * off / d, sy = y + dy * off / d;
+                if (sx < 0) sx = 0; if (sx >= w) sx = w - 1; if (sy < 0) sy = 0; if (sy >= h) sy = h - 1;
+                uint32_t c = wsnap[sy * w + sx];
+                row[x] = off > 0 ? mix(c, 0x00FFFFFFu, off * 10) : off < 0 ? mix(c, 0x00000000u, -off * 7) : c;
+            }
+        }
+        while (timer_get_ticks() - t0 < 3) __asm__ volatile ("pause");
+    }
+    for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) f[(uint64_t)(y0 + y) * pp + x0 + x] = wsnap[y * w + x];
+    gfx_end();
+}
 static void lader(int cx, int cy, int R, uint32_t fr, uint32_t bg) {
     static const uint32_t farbe[3] = { 0x0022D3EEu, 0x00A78BFAu, 0x006F90FBu };
     gfx_begin();
@@ -503,31 +572,46 @@ static void zynie(int cx, int cy, uint32_t ph) {
     int spricht = t < sprech_bis, ruhe = ruhend();
     int puls = (int)((ph / 3) % 16); if (puls > 8) puls = 16 - puls;
     int blink = !ruhe && ((ph % 24) == 0 || (ph % 24) == 1);
+    uint32_t bgc = hg_zeile(cy);
     uint32_t glow = ruhe ? 0x00206A80u : mix(0x0000A8C8u, C_CYAN, puls * 32);
-    /* Blickrichtung: beim Sprechen zur Antwortkarte (rechts/unten), sonst langsam umherschauen, im Ruhemodus geradeaus */
+    uint32_t akz = spricht ? C_VIOLET : glow;
+    hg(zr_x(), zr_y(), zr_w(), zr_h());
+    /* Blickrichtung: beim Sprechen zur Antwortkarte, sonst langsam umherschauen, im Ruhemodus geradeaus */
     static const int bx[8] = { 0, 5, 0, -5, 4, -4, 0, 3 }, by[8] = { 0, 0, 3, 0, -2, 2, -3, 1 };
     int k = (int)((t / 150) % 8), ex = ruhe ? 0 : spricht ? 4 : bx[k], ey = ruhe ? 2 : spricht ? 2 : by[k];
     static const int lipp[6] = { 3, 12, 18, 8, 14, 5 };
-    int mh = spricht ? lipp[(t / 6) % 6] : (ruhe ? 3 : 4);
-    hg(zr_x(), zr_y(), zr_w(), zr_h());
-    rrect(cx - SC(2), cy - SC(92), SC(4), SC(24), SC(2), 0x003B82F6u);                              /* Antenne */
-    rrect(cx - SC(8), cy - SC(104), SC(16), SC(16), SC(8), spricht ? C_VIOLET : glow);
-    rrect(cx - SC(72), cy - SC(40), SC(12), SC(34), SC(6), 0x001E3A66u); rrect(cx + SC(60), cy - SC(40), SC(12), SC(34), SC(6), 0x001E3A66u);   /* Ohren */
-    rrect(cx - SC(60), cy - SC(70), SC(120), SC(100), SC(30), 0x002B3A57u);                         /* Kopf */
-    rrect(cx - SC(57), cy - SC(67), SC(114), SC(94), SC(28), 0x00DCE9F8u);
-    rrect(cx - SC(46), cy - SC(54), SC(92), SC(62), SC(20), 0x000A1428u);                           /* Visier */
-    int eh = blink ? 3 : ruhe ? 8 : 24;
-    rrect(cx - SC(30) + SC(ex), cy - SC(36) + SC((24 - eh) / 2 + ey), SC(16), SC(eh) < 2 ? 2 : SC(eh), SC(6), glow);                 /* Augen */
-    rrect(cx + SC(14) + SC(ex), cy - SC(36) + SC((24 - eh) / 2 + ey), SC(16), SC(eh) < 2 ? 2 : SC(eh), SC(6), glow);
-    int mw = SC(28);                                                                                /* Mund mit Lippen */
-    rrect(cx - mw / 2, cy - SC(4) - SC(mh) / 2, mw, SC(mh) + SC(4), SC(5), mix(0x0000A8C8u, C_VIOLET, 140));
-    if (mh > 6) rrect(cx - mw / 2 + SC(3), cy - SC(4) - SC(mh) / 2 + SC(2), mw - SC(6), SC(mh) - SC(0), SC(4), 0x00050A14u);
-    rrect(cx - SC(40), cy + SC(34), SC(80), SC(62), SC(20), 0x00DCE9F8u);                           /* Koerper */
-    rrect(cx - SC(37), cy + SC(37), SC(74), SC(56), SC(18), 0x00B6CCE6u);
-    rrect(cx - SC(16), cy + SC(50), SC(32), SC(16), SC(8), 0x000A1428u);
-    rrect(cx - SC(12), cy + SC(54), SC(24), SC(8), SC(4), glow);                                    /* Brustleuchte */
-    int arm = spricht ? (int)((t / 10) % 6) - 3 : 0;                                                /* Arme gestikulieren leicht */
-    rrect(cx - SC(62), cy + SC(42), SC(16), SC(44), SC(8), 0x00DCE9F8u); rrect(cx + SC(46), cy + SC(42 + arm), SC(16), SC(44), SC(8), 0x00DCE9F8u);
+    int bob = ruhe ? 0 : isin((int)((t / 5) % 360)) * SC(5) / 1024;                    /* schwebt sanft auf und ab */
+    int sy0 = cy;                                                                      /* Bodenlinie fuer den Schatten */
+    cy += bob;
+    rrect(cx - SC(34) + bob / 2, sy0 + SC(112), SC(68) - bob, SC(8), SC(4), mix(bgc, 0x00000000u, 70));       /* weicher Schatten, schrumpft beim Aufsteigen */
+    rrect(cx - SC(22), cy - SC(100), SC(44), SC(14), SC(7), mix(bgc, akz, 70));                               /* Leuchtscheibe ueber dem Kopf */
+    rrect(cx - SC(12), cy - SC(97), SC(24), SC(8), SC(4), akz);
+    /* Koerper: Perle mit Glanz (aussen dunkel, innen hell, Licht von oben links) */
+    rrect(cx - SC(38), cy + SC(36), SC(76), SC(66), SC(30), 0x001B2A4Au);
+    rrect(cx - SC(36), cy + SC(37), SC(72), SC(61), SC(28), 0x0058779Eu);
+    rrect(cx - SC(33), cy + SC(38), SC(63), SC(52), SC(24), 0x00B4CCE6u);
+    rrect(cx - SC(30), cy + SC(40), SC(40), SC(24), SC(12), 0x00E9F2FCu);
+    rrect(cx - SC(15), cy + SC(62), SC(30), SC(12), SC(6), 0x000A1428u);                                      /* Brustleuchte */
+    rrect(cx - SC(11), cy + SC(65), SC(22), SC(6), SC(3), akz);
+    int a1 = spricht ? (int)((t / 10) % 6) - 3 : 0;                                                          /* schwebende Haende */
+    rrect(cx - SC(64), cy + SC(52) + SC(a1) / 2 + bob / 2, SC(20), SC(20), SC(10), 0x0058779Eu); rrect(cx - SC(62), cy + SC(53) + SC(a1) / 2 + bob / 2, SC(15), SC(15), SC(8), 0x00D7E6F7u);
+    rrect(cx + SC(44), cy + SC(52) - SC(a1) / 2 - bob / 2, SC(20), SC(20), SC(10), 0x0058779Eu); rrect(cx + SC(46), cy + SC(53) - SC(a1) / 2 - bob / 2, SC(15), SC(15), SC(8), 0x00D7E6F7u);
+    /* Kopf */
+    rrect(cx - SC(62), cy - SC(76), SC(124), SC(108), SC(46), 0x001B2A4Au);
+    rrect(cx - SC(59), cy - SC(73), SC(118), SC(102), SC(44), 0x0058779Eu);
+    rrect(cx - SC(55), cy - SC(70), SC(106), SC(94), SC(40), 0x00B4CCE6u);
+    rrect(cx - SC(50), cy - SC(68), SC(70), SC(30), SC(15), 0x00E9F2FCu);                                    /* Glanzlicht */
+    rrect(cx - SC(48), cy - SC(52), SC(96), SC(60), SC(24), mix(0x000A1428u, akz, 60));                      /* Visier mit leuchtendem Rand */
+    rrect(cx - SC(46), cy - SC(50), SC(92), SC(56), SC(22), 0x000A1428u);
+    int eh = blink ? 3 : ruhe ? 8 : 24; int ew = SC(16); int eyy = cy - SC(36) + SC((24 - eh) / 2 + ey);
+    rrect(cx - SC(34) + SC(ex), eyy - 3, ew + 8, (SC(eh) < 2 ? 2 : SC(eh)) + 6, SC(10), mix(0x000A1428u, glow, 70));        /* Augen mit Hof */
+    rrect(cx + SC(10) + SC(ex), eyy - 3, ew + 8, (SC(eh) < 2 ? 2 : SC(eh)) + 6, SC(10), mix(0x000A1428u, glow, 70));
+    rrect(cx - SC(30) + SC(ex), eyy, ew, SC(eh) < 2 ? 2 : SC(eh), SC(6), glow);
+    rrect(cx + SC(14) + SC(ex), eyy, ew, SC(eh) < 2 ? 2 : SC(eh), SC(6), glow);
+    if (!blink && !ruhe) { rrect(cx - SC(27) + SC(ex), eyy + 3, SC(5), SC(5), SC(2), 0x00FFFFFFu); rrect(cx + SC(17) + SC(ex), eyy + 3, SC(5), SC(5), SC(2), 0x00FFFFFFu); }
+    if (spricht) {                                                                                           /* Stimme: Balken wie bei einem Sprachassistenten */
+        for (int i = 0; i < 5; i++) { int hh = 3 + lipp[(t / 6 + i * 2) % 6] * 2 / 3; rrect(cx - SC(20) + i * SC(9), cy - SC(1) - SC(hh) / 2, SC(5), SC(hh), SC(2), mix(glow, C_VIOLET, 140)); }
+    } else rrect(cx - SC(11), cy - SC(3), SC(22), ruhe ? 3 : SC(5), SC(3), mix(0x000A1428u, glow, 190));      /* kleines Laecheln */
     if (ruhe) { gfx_text(cx + SC(66), cy - SC(80), "z", 0x00647488u, 1 + zs / 120); gfx_text(cx + SC(80), cy - SC(96), "Z", 0x00647488u, 1 + zs / 100); }
     int gx = zr_x() + zr_w() - 12, gy = zr_y() + zr_h() - 12;                                         /* Griff zum Vergroessern */
     gfx_rect(gx, gy + 10, 12, 2, 0x00475569u); gfx_rect(gx + 10, gy, 2, 12, 0x00475569u); gfx_rect(gx + 5, gy + 5, 2, 2, 0x00475569u);
@@ -1894,6 +1978,7 @@ static void einst_klick(int id) {
     else if (k == K_ETEST) { ek_feld = 0; scopy(ek_meldung, TR("Pruefe ...", "Checking ..."), 100); zeichne_einst(); ext_pruefen(); }
     else if (k >= K_ETHEMA && k < K_ETHEMA + 6) { th_nr = k - K_ETHEMA; th_speichern(); }
     else if (k >= K_EHG && k < K_EHG + 5) { hg_nr = k - K_EHG; th_speichern(); }
+    else if (k == K_EHG + 6) { hg_nr = 6; th_speichern(); }
     else if (k == K_EHG + 5) {                                              /* eigenes Bild: naechste Bilddatei */
         static const char* const END[] = { ".png", ".jpg", ".jpeg", ".gif", 0 }; char nm[32]; int i = 0, gef = -1;
         while (synfs_nte_datei(i, END, nm, 32)) { if (ueq(nm, hg_datei)) gef = i; i++; }
@@ -1946,6 +2031,7 @@ static void einst_kurztaste(uint8_t k, int shift, int altgr) {            /* Tas
     if (einst_tab == 2) {
         if (c >= '1' && c <= '6') { th_nr = c - '1'; th_speichern(); zeichne_desktop(); }
         else if (c == 'h' || c == 'H') { hg_nr = (hg_nr + 1) % 5; th_speichern(); zeichne_desktop(); }
+        else if (c == 'w' || c == 'W') { hg_nr = 6; th_speichern(); zeichne_desktop(); }
     } else if (einst_tab == 1) {
         if (c >= '0' && c <= '3') einst_klick(K_EIN0 + 10 + (c - '0'));
         else if ((c == 'm' || c == 'M') && ext_quelle()) { modell_wechsel(1); zeichne_einst(); }
@@ -2032,9 +2118,9 @@ static void zeichne_einst(void) {
         }
         y += 24 + 2 * 78 + 6;
         gtxt(x, y, T5("Hintergrund", "Background", "Arriere-plan", "Sfondo", "Fondo"), C_MUTED, 1);
-        { static const char* const hn[6][2] = { { "Verlauf", "Gradient" }, { "Aurora", "Aurora" }, { "Raster", "Grid" }, { "Einfarbig", "Solid" }, { "Futuristisch", "Futuristic" }, { "Eigenes Bild", "Own image" } };
-          int w3 = (bw - 2 * 8) / 3; for (int i = 0; i < 6; i++) knopf(K_EIN0 + K_EHG + i, hn[i][lang == 0 ? 0 : 1], x + (i % 3) * (w3 + 8), y + 22 + (i / 3) * 42, w3, i == hg_nr);
-          y += 42; if (hg_nr == 5) { char t[60]; scopy(t, TR("Bild: ", "Image: "), 60); cat(t, hg_datei, 60); cat(t, TR("  (nochmals klicken = naechstes)", "  (click again = next)"), 60); gfx_text_f(x, y + 70, t, C_MUTED, 12); }
+        { static const char* const hn[7][2] = { { "Verlauf", "Gradient" }, { "Aurora", "Aurora" }, { "Raster", "Grid" }, { "Einfarbig", "Solid" }, { "Futuristisch", "Futuristic" }, { "Eigenes Bild", "Own image" }, { "Wasser", "Water" } };
+          int w3 = (bw - 2 * 8) / 3; for (int i = 0; i < 7; i++) knopf(K_EIN0 + K_EHG + i, hn[i][lang == 0 ? 0 : 1], x + (i % 3) * (w3 + 8), y + 22 + (i / 3) * 42, w3, i == hg_nr);
+          y += 84; if (hg_nr == 5) { char t[60]; scopy(t, TR("Bild: ", "Image: "), 60); cat(t, hg_datei, 60); cat(t, TR("  (nochmals klicken = naechstes)", "  (click again = next)"), 60); gfx_text_f(x, y + 70, t, C_MUTED, 12); }
           if (ek_meldung[0] && einst_tab == 2) gfx_text_f(x, y + 88, l1(ek_meldung), 0x00F59E0Bu, 12); }
         gtxt(x, y + 70, TR("Die Aenderung ist sofort hinter dem Fenster zu sehen.", "The change is visible right away behind the window."), C_MUTED, 1);
     }
@@ -2842,7 +2928,7 @@ static void maus_runter(int x, int y) {
     if (fok) { fok = 0; zustand = Z_DESK; zeichne_desktop(); }
     if (zustand == Z_DESK && flaeche == 0 && x >= zr_x() && x < zr_x() + zr_w() && y >= zr_y() && y < zr_y() + zr_h()) {
         if (x >= zr_x() + zr_w() - 24 && y >= zr_y() + zr_h() - 24) zdrag = 2; else { zdrag = 1; zdx = x - zx; zdy = y - zy; }
-    } else klick(x, y, -1);
+    } else { if (hg_nr == 6 && zustand == Z_DESK && flaeche == 0 && y > 48) wasser_welle(x, y); klick(x, y, -1); }
 }
 
 static void tick(void) {

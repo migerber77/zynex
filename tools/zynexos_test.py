@@ -318,6 +318,8 @@ def installieren():
     vm.mon("sendkey h"); time.sleep(1.5)
     vm.mon("sendkey 1"); time.sleep(1.0)
     for _ in range(4): vm.mon("sendkey h"); time.sleep(1.5)       # Hintergrund wieder auf Futuristisch
+    vm.mon("sendkey w"); time.sleep(8.0)                  # Wasser-Hintergrund
+    for _ in range(3): vm.mon("sendkey h"); time.sleep(2.5)       # 6 -> 2 -> 3 -> 4 (Futuristisch)
     vm.mon("sendkey esc"); time.sleep(2.0)
     vm.tippe("sprache franzoesisch", 2.0)
     vm.tippe("sprache deutsch", 2.0)
@@ -406,6 +408,7 @@ def installieren():
     pruefe("Desktop: Einstellungen, Reiter KI-Modelle: Schluessel eingegeben und gespeichert", "[DESKTOP] Einstellungen: Reiter 1" in out2 and "[DESKTOP] KI-Schluessel gespeichert (15 Zeichen)" in out2)
     pruefe("Desktop: Einstellungen: Modell wechseln", "[DESKTOP] KI-Modell: claude-sonnet-5-5" in out2)
     pruefe("Desktop: Einstellungen, Reiter Aussehen: Farbschema und Hintergrund", "[DESKTOP] Einstellungen: Reiter 2" in out2 and "Farbschema Light, Hintergrund 4" in out2 and "Farbschema Light, Hintergrund 0" in out2 and "Farbschema Night, Hintergrund 0" in out2)
+    pruefe("Wasser-Hintergrund berechnet", "[DESKTOP] Wasser-Hintergrund berechnet" in out2)
     pruefe("Futuristischer Hintergrund berechnet", "[DESKTOP] Futuristischer Hintergrund berechnet" in out2)
     m = re.search(r"\[DESKTOP\] Aufloesung gespeichert: (\d+) x (\d+)\n", out2)
     pruefe("Einstellungen: Aufloesung gespeichert", bool(m))
