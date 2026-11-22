@@ -11,7 +11,7 @@ extern void kprint_dec(uint32_t val);
 #define NCTX 10                     /* Gedaechtnisse (ohne Konstante) */
 #define BITS 18
 #define SLOTS (1u << BITS)
-#define LOGMAX 65536
+#define LOGMAX 262144
 #define NSET (12 * 8)
 
 struct slot { uint16_t p; uint8_t n, chk; };

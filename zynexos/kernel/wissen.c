@@ -21,7 +21,7 @@ static void normal(const char* f, char* k, int max) {
     k[n] = 0;
 }
 
-static const char* const STOP[] = { "wie", "was", "wer", "wo", "wann", "warum", "wieso", "weshalb", "welche", "welcher", "welches", "wieviel", "wieviele", "ist", "sind", "war", "waren", "wird", "hat", "haben", "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "von", "vom", "zu", "zum", "zur", "im", "in", "an", "am", "auf", "mit", "und", "oder", "bei", "ich", "du", "mir", "mich", "sag", "kannst", "bitte", "gibt", "es",
+static const char* const STOP[] = { "wie", "was", "wer", "wo", "wann", "warum", "wieso", "weshalb", "welche", "welcher", "welches", "wieviel", "wieviele", "ist", "sind", "war", "waren", "wird", "hat", "haben", "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "von", "vom", "zu", "zum", "zur", "im", "in", "an", "am", "auf", "mit", "und", "oder", "bei", "er", "sie", "ihn", "ihm", "ihr", "dort", "ich", "du", "mir", "mich", "sag", "kannst", "bitte", "gibt", "es",
     "what", "who", "where", "when", "why", "how", "which", "is", "are", "was", "were", "the", "a", "an", "of", "to", "in", "on", "and", "or", "does", "do", "did", "from", "much", "many", "far", "me", "tell",
     "quel", "quelle", "est", "le", "la", "les", "du", "des", "de", "un", "une", "et", "che", "il", "lo", "come", "qual", "el", "los", "las", "que", "es", "como", 0 };
 static int ist_stop(const char* w, int n) { for (int i = 0; STOP[i]; i++) { int m = slen(STOP[i]); if (m == n) { int ok = 1; for (int j = 0; j < n; j++) if (w[j] != STOP[i][j]) { ok = 0; break; } if (ok) return 1; } } return 0; }
@@ -39,6 +39,15 @@ static int inhalt(const char* k, char w[10][24]) {
         w[nw][n] = 0; nw++;
     }
     return nw;
+}
+
+/* Lernschluessel: die Inhaltsworte alphabetisch sortiert. So treffen "Wie weit ist der Mond von der Erde entfernt?" und
+ * "Wie weit ist die Erde vom Mond entfernt" denselben Eintrag. */
+static void schluessel(const char* frage, char* key, int max) {
+    char k[160]; normal(frage, k, sizeof(k)); char w[10][24]; int nw = inhalt(k, w);
+    if (nw < 1) { int i = 0; for (; k[i] && i < max - 1; i++) key[i] = k[i]; key[i] = 0; return; }
+    for (int a = 1; a < nw; a++) for (int b = a; b > 0; b--) { int c = 0; for (int j = 0; w[b][j] || w[b-1][j]; j++) { if (w[b][j] != w[b-1][j]) { c = w[b][j] < w[b-1][j] ? -1 : 1; break; } } if (c < 0) { char t[24]; for (int j = 0; j < 24; j++) { t[j] = w[b][j]; w[b][j] = w[b-1][j]; w[b-1][j] = t[j]; } } else break; }
+    key[0] = 0; for (int i = 0; i < nw; i++) { if (i) kat(key, " ", max); kat(key, w[i], max); }
 }
 
 int wissen_ist_frage(const char* s) {
@@ -84,7 +93,7 @@ static void lerne_paar(const char* key, const char* ant) {
     zlk_speichern();
 }
 int wissen_merke(const char* frage, const char* antwort) {
-    char k[160]; normal(frage, k, sizeof(k)); if (!k[0] || !antwort[0]) return -1;
+    char k[160]; schluessel(frage, k, sizeof(k)); if (!k[0] || !antwort[0]) return -1;
     lerne_paar(k, antwort); return 0;
 }
 
@@ -102,10 +111,10 @@ static void urlkodiert(const char* s, char* o, int max) {
 int wissen_frage(const char* frage, const char* sprache, char* out, int max, int* herkunft) {
     out[0] = 0; if (herkunft) *herkunft = 0;
     if (!wissen_ist_frage(frage)) return -3;
-    char k[160]; normal(frage, k, sizeof(k));
+    char k[160]; normal(frage, k, sizeof(k)); char ks[160]; schluessel(frage, ks, sizeof(ks));
     /* 1. Lernkern fragen */
-    static char anf[200], ant[400], fz[200]; anf[0] = 0; kat(anf, "F:", 200); kat(anf, k, 200); kat(anf, "\nA:", 200);
-    fz[0] = 0; kat(fz, "F:", 200); kat(fz, k, 200); kat(fz, "\n", 200);
+    static char anf[200], ant[400], fz[200]; anf[0] = 0; kat(anf, "F:", 200); kat(anf, ks, 200); kat(anf, "\nA:", 200);
+    fz[0] = 0; kat(fz, "F:", 200); kat(fz, ks, 200); kat(fz, "\n", 200);
     int n = 0;
     if (zlk_pruefe(fz) < 100) n = zlk_ergaenze(anf, ant, sizeof(ant), 0);           /* kennt der Lernkern diese Frage (unter 1 Bit je Zeichen)? */
     if (n > 2 && zlk_sicherheit() < 60) { for (int i = 0; i <= n && i < max; i++) out[i] = ant[i]; out[max - 1] = 0; if (herkunft) *herkunft = WISSEN_ENGINE; return slen(out); }
@@ -124,7 +133,7 @@ int wissen_frage(const char* frage, const char* sprache, char* out, int max, int
     if (el <= 0) return -2;
     static char satz[340];
     if (wissen_satz(extrakt, frage, satz, sizeof(satz)) <= 0) return -2;
-    lerne_paar(k, satz);
+    lerne_paar(ks, satz);
     int sl = slen(satz); if (sl > max - 1) sl = max - 1;
     for (int i = 0; i < sl; i++) out[i] = satz[i];
     out[sl] = 0; if (herkunft) *herkunft = WISSEN_WEB; return sl;
