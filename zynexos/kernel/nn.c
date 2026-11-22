@@ -1,6 +1,13 @@
 /* Zynex Neuronales Netz, siehe include/nn.h. Wird mit SSE uebersetzt (Makefile); Interrupts fassen keine XMM-Register an. */
 #include "nn.h"
 
+/* Startmodell: vortrainierte Gewichte (kernel/nn_start.bin, int16, siehe tools/nn_pretrain.c und den Workflow zynexos-pretrain) */
+__asm__(".section .rodata\n.balign 4\n.globl nn_start_bin\nnn_start_bin:\n.incbin \"kernel/nn_start.bin\"\n.globl nn_start_ende\nnn_start_ende:\n.text\n");
+extern const char nn_start_bin[], nn_start_ende[];
+
+#ifndef NN_OHNE_START
+#define NN_OHNE_START 0
+#endif
 #define NW 8
 #define NE 16
 #define NI (NW * NE)
@@ -37,6 +44,11 @@ void nn_init(void) {
     for (int j = 0; j < NH; j++) { b1[j] = 0.f; for (int i = 0; i < NI; i++) W1[j][i] = 0.18f * zuf(); }
     for (int v = 0; v < NV; v++) { b2[v] = 0.f; for (int j = 0; j < NH; j++) W2[v][j] = 0.12f * zuf(); }
     bereit = 1; verlust_summe = 0; verlust_n = 0;
+    if (!NN_OHNE_START && nn_start_ende - nn_start_bin == 2 * NN_PARAMS) {                    /* vortrainierte Gewichte uebernehmen */
+        static int16_t w[NN_PARAMS]; const unsigned char* b = (const unsigned char*)nn_start_bin;
+        for (int i = 0; i < NN_PARAMS; i++) w[i] = (int16_t)((uint16_t)b[2 * i] | ((uint16_t)b[2 * i + 1] << 8));
+        nn_importieren(w, NN_PARAMS);
+    }
 }
 void nn_training(int an) { trainiert = an; }
 

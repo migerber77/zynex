@@ -1,0 +1,32 @@
+name: zynexos-pretrain
+# Vortraining des Zynex-Netzes: holt ein Textkorpus (Gutenberg + Wikipedia), trainiert und legt zynexos/kernel/nn_start.bin ab.
+on:
+  workflow_dispatch:
+    inputs:
+      minuten:
+        description: "Trainingszeit in Minuten"
+        default: "60"
+      wiki:
+        description: "Anzahl Wikipedia-Abrufe (je 20 Artikel)"
+        default: "600"
+permissions:
+  contents: write
+jobs:
+  vortraining:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - name: Korpus holen
+        run: python3 tools/nn_korpus.py /tmp/korpus.txt "${{ inputs.wiki }}"
+      - name: Trainer bauen
+        run: gcc -O3 -march=native -ffast-math -DNN_OHNE_START=1 -Wa,-Izynexos -Izynexos/include -o /tmp/pre tools/nn_pretrain.c zynexos/kernel/nn.c -lm
+      - name: Trainieren
+        run: /tmp/pre /tmp/korpus.txt /tmp/nn_start.bin $(( ${{ inputs.minuten }} * 60 )) 60 6 | tee /tmp/train.log | grep -E "Korpus|Durchgang|geschrieben"
+      - name: Startmodell einchecken
+        run: |
+          cp /tmp/nn_start.bin zynexos/kernel/nn_start.bin
+          git config user.name "zynex-bot"; git config user.email "bot@zynex.invalid"
+          git add zynexos/kernel/nn_start.bin
+          git commit -m "Startmodell fuer das Netz vortrainiert ($(grep Durchgang /tmp/train.log | tail -1))" || exit 0
+          git pull -q --rebase && git push -q origin HEAD:main
