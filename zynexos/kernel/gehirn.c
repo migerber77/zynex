@@ -26,7 +26,7 @@ int gehirn_frage(const char* frage, char* antwort, int max, void (*cb)(const cha
     if (n <= 0) {
         const char* t = n == -1 ? "Das weiss ich noch nicht, und ich habe gerade kein Internet zum Nachschlagen. Ich lerne mit jedem Gespraech dazu."
                       : n == -2 ? "Dazu habe ich im Internet nichts Passendes gefunden."
-                      : "Verstanden, ich habe es mir gemerkt.";
+                      : "Ich habe es mir gemerkt, kann damit aber noch nichts anfangen. Frag mich etwas mit wie, was, wer, wo oder wann.";
         if (n == -3) { zlk_lerne(frage, -1); zlk_lerne("\n", 1); zlk_speichern(); }
         kopie(antwort, t, max); n = slen(antwort);
     }

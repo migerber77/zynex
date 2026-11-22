@@ -435,7 +435,7 @@ def installieren():
     pruefe("Desktop: Gedaechtnis-Fenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Gedaechtnis" in out2)
     pruefe("Desktop: Sprachwechsel per Chat", out2.count("-> Fenster") >= 3)
     pruefe("Desktop: Rechner-Fenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Rechner" in out2)
-    pruefe("Desktop: Unbekanntes wird nicht verstanden", "kauderwelsch' -> nicht verstanden" in out2)
+    pruefe("Desktop: Unbekanntes antwortet der Lernkern ehrlich", "[DESKTOP] Zynie antwortet: Ich habe es mir gemerkt, kann damit aber noch nichts anfangen" in out2)
     pruefe("Desktop: Bildschirm ist belegt", hell_d > 300)
     pruefe("Desktop: Wartungs-Konsole fuer Admin", "[WARTUNG] Text-Konsole" in out2)
     pruefe("System von der Platte: Partitionen sichtbar", all(("sata0p%d" % n) in out2 for n in (1, 2)))
