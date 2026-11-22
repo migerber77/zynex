@@ -516,7 +516,29 @@ static void run_legacy(char* cmd) {
         if (n > 0) { kprint("[WISSEN] ("); kprint(hk == WISSEN_ENGINE ? "Lernkern" : "Web, neu gelernt"); kprint(") "); kprint(wo); kprint("\n"); }
         else kprint(n == -1 ? "[WISSEN] Unbekannt und kein Internet erreichbar\n" : n == -2 ? "[WISSEN] Im Internet nichts Passendes gefunden\n" : "[WISSEN] Das ist keine Frage (z. B. mit wie, was, wer, wo, wann ...?)\n");
     }
-    else if (streq(cmd, "zvergessen")) { zlk_init(); zlk_speichern(); kprint("[ZLK] Lernkern auf null zurueckgesetzt\n"); }
+    else if (starts_with(cmd, "zyki ") || streq(cmd, "zyki")) {
+        const char* a = cmd[4] ? cmd + 5 : "";
+        static uint8_t zb[65536 + 64];
+        if (streq(a, "speichern")) { zlk_speichern(); kprint("[ZYKI] Modell als modell.zyki gesichert\n"); }
+        else if (starts_with(a, "server ")) { zdb_put("zyki.url", a + 7); kprint("[ZYKI] Freigabe gemerkt (z. B. http://nas/zyki/modell.zyki)\n"); }
+        else if (starts_with(a, "holen") || streq(a, "sync") || starts_with(a, "sync ")) {
+            const char* u = starts_with(a, "holen ") ? a + 6 : starts_with(a, "sync ") ? a + 5 : zdb_get("zyki.url");
+            if (!u || !*u) kprint("Benutzung: zyki holen <url>  oder erst: zyki server <url>\n");
+            else {
+                const char *kopf, *body; uint32_t kl, bl, st;
+                if (net_seite(u, &kopf, &kl, &body, &bl, &st) != 0 || st != 200) kprint("[ZYKI] Abholen fehlgeschlagen\n");
+                else { int r = zlk_zyki_einlesen((const uint8_t*)body, (int)bl, 1); if (r < 0) kprint("[ZYKI] Datei ungueltig oder beschaedigt\n"); else { zlk_speichern(); kprint("[ZYKI] Modell von der Freigabe zusammengefuehrt\n"); } }
+                if (starts_with(a, "sync")) { int n = zlk_zyki_bauen(zb, sizeof(zb)); uint32_t s2 = 0; if (n > 0 && net_put(u, zb, (uint32_t)n, &s2) == 0 && s2 >= 200 && s2 < 300) kprint("[ZYKI] Modell zurueck auf die Freigabe geschrieben\n"); else kprint("[ZYKI] Schreiben auf die Freigabe fehlgeschlagen (Server muss HTTP PUT erlauben)\n"); }
+            }
+        }
+        else if (starts_with(a, "senden")) {
+            const char* u = starts_with(a, "senden ") ? a + 7 : zdb_get("zyki.url");
+            if (!u || !*u) kprint("Benutzung: zyki senden <url>\n");
+            else { int n = zlk_zyki_bauen(zb, sizeof(zb)); uint32_t s2 = 0; if (n > 0 && net_put(u, zb, (uint32_t)n, &s2) == 0 && s2 >= 200 && s2 < 300) kprint("[ZYKI] Modell auf die Freigabe geschrieben\n"); else kprint("[ZYKI] Schreiben fehlgeschlagen (nur http://, Server muss PUT erlauben)\n"); }
+        }
+        else if (streq(a, "loeschen ja")) { if (!require_cap(CAP_ADMIN, "zyki")) return; zlk_loeschen(); kprint("[ZYKI] Modell geloescht (nur Administrator)\n"); }
+        else kprint("zyki: speichern | holen <url> | senden <url> | sync [url] | server <url> | loeschen ja (nur Administrator)\n");
+    }
     else if (streq(cmd, "usb")) usb_list();
     else if (streq(cmd, "net")) net_info();
     else if (streq(cmd, "wifi")) wifi_info();

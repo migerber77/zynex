@@ -84,6 +84,7 @@ static void ac_laden(void) {
     int i = 0; while (b[i] && ac_nlern < 16) { int e = i; while (b[e] && b[e] != '\n') e++; if (e > i && e - i < 95) { for (int k = i; k < e; k++) ac_lern[ac_nlern][k - i] = b[k]; ac_lern[ac_nlern][e - i] = 0; ac_nlern++; } i = b[e] ? e + 1 : e; }
 }
 static void ac_lerne(const char* s) {                          /* fertigen Satz merken (mindestens drei Woerter) */
+    zlk_lerne(s, -1); zlk_lerne("\n", 1); zlk_speichern();                    /* der Lernkern lernt jeden fertigen Satz */
     ac_laden();
     int l = slen(s), w = 1; if (l < 12 || l > 90) return;
     for (int i = 0; i < l; i++) if (s[i] == ' ') w++;
@@ -113,6 +114,18 @@ static void ac_baue(const char* ctx, const char* dok_text, int dok_len) {
         starts[ns++] = q; p = q;
         if (q == 0) break;
         if (q >= 2 && ctx[q - 1] == ' ' && (ctx[q - 2] == '.' || ctx[q - 2] == '!' || ctx[q - 2] == '?' || ctx[q - 2] == ':')) break;
+    }
+    {   /* Lernkern zuerst: Fortsetzung des Satzes bzw. des angefangenen Wortes */
+        int ws0 = L; while (ws0 > 0 && ctx[ws0 - 1] != ' ') ws0--;
+        char pre[100]; int pn = L > 80 ? 80 : L; for (int i = 0; i < pn; i++) pre[i] = ctx[L - pn + i]; pre[pn] = 0;
+        char zc[48]; int zn = zlk_ergaenze(pre, zc, sizeof(zc), 0);
+        if (zn >= 2 && zlk_sicherheit() < 150) {
+            int cut = zn; for (int i = 0; i < zn; i++) if (zc[i] == '.' || zc[i] == '!' || zc[i] == '?') { cut = i + 1; break; }
+            if (cut == zn && zn > 30) { cut = 30; while (cut > 2 && zc[cut] != ' ') cut--; }
+            zc[cut] = 0;
+            char t[96]; int er = L - ws0; scopy(t, ctx + ws0, 96); cat(t, zc, 96);
+            if (cut >= 2) ac_add(t, er, ctx + ws0);
+        }
     }
     const char* const* tab = lang == 0 ? ac_phr_de : ac_phr_en; int nt = lang == 0 ? (int)(sizeof(ac_phr_de) / sizeof(ac_phr_de[0])) : (int)(sizeof(ac_phr_en) / sizeof(ac_phr_en[0]));
     for (int si = ns - 1; si >= 0 && ac_n < AC_MAX; si--) {                         /* laengster zusammenhaengender Teil zuerst */

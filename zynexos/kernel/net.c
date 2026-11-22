@@ -976,6 +976,32 @@ int net_seite(const char* url, const char** kopf, uint32_t* kopflen, const char*
     return 0;
 }
 
+/* HTTP-PUT (nur http://, kein TLS): schickt body an die Adresse; status = Antwortcode (0 = keine Antwort gelesen). Rueckgabe 0 = gesendet */
+int net_put(const char* url, const void* body, uint32_t len, uint32_t* status) {
+    __asm__ volatile ("sti");
+    *status = 0;
+    if (!net_up()) return -1;
+    if (!(url[0]=='h' && url[1]=='t' && url[2]=='t' && url[3]=='p' && url[4]==':' && url[5]=='/' && url[6]=='/')) return -6;
+    url += 7;
+    char host[64]; int hn = 0; uint16_t port = 80;
+    while (*url && *url != '/' && *url != ':' && hn < 63) host[hn++] = *url++;
+    host[hn] = 0;
+    if (*url == ':') { url++; uint32_t p = 0; while (*url >= '0' && *url <= '9') p = p * 10 + (uint32_t)(*url++ - '0'); if (p && p < 65536) port = (uint16_t)p; }
+    const char* path = *url ? url : "/";
+    uint32_t ip;
+    if (net_parse_ip(host, &ip) != 0 && net_dns(host, &ip) != 0) return -2;
+    static char rq[400]; int n = 0; char cl[12]; { uint32_t v = len; int k = 0; char t[12]; do { t[k++] = (char)('0' + v % 10); v /= 10; } while (v); for (int i = 0; i < k; i++) cl[i] = t[k - 1 - i]; cl[k] = 0; }
+    const char* teile[] = { "PUT ", path, " HTTP/1.0\r\nHost: ", host, "\r\nUser-Agent: ZynexOS\r\nContent-Type: application/octet-stream\r\nContent-Length: ", cl, "\r\nConnection: close\r\n\r\n" };
+    for (int i = 0; i < 7; i++) for (const char* c = teile[i]; *c && n < 399; c++) rq[n++] = *c;
+    if (tcp_connect(ip, port) != 0) return -3;
+    if (tcp_write((const uint8_t*)rq, n) != 0 || tcp_write((const uint8_t*)body, (int)len) != 0) { tcp_close(); return -4; }
+    uint32_t t0 = timer_get_ticks();
+    while (!tc.fin && tc.state == T_EST && timer_get_ticks() - t0 < 600 && tc.rlen < 12) net_poll();
+    if (tc.rlen > 12 && tcp_rbuf[8] == ' ') for (int i = 9; i < 12 && tcp_rbuf[i] >= '0' && tcp_rbuf[i] <= '9'; i++) *status = *status * 10 + (uint32_t)(tcp_rbuf[i] - '0');
+    tcp_close();
+    return 0;
+}
+
 /* Kurzer Netzstatus fuer die grafische Oberflaeche: 0 = keine Karte, 1 = Karte ohne Adresse, 2 = bereit (Text enthaelt die IP) */
 int net_status(char* out, int max) {
     int n = 0;

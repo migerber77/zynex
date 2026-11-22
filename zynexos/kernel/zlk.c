@@ -1,6 +1,7 @@
 /* Zynex Lernkern, siehe include/zlk.h. Ganzzahlig, keine libc. */
 #include "zlk.h"
 #include "synfs.h"
+#include "qubit.h"
 
 extern void kprint(const char* str);
 extern void kprint_dec(uint32_t val);
@@ -61,7 +62,7 @@ static void bytegrenze(void) {
     h[9] = hm(hist ^ hm(hist2, 11) * 0x9E3779B97F4A7C15ull, 10);
 }
 
-void zlk_init(void) {
+void zlk_init(void) {                                  /* nur beim Start und beim Laden; fuer Anwender gibt es keinen Reset */
     if (!ready_tab) tabellen();
     for (int i = 0; i < NCTX; i++) for (uint32_t j = 0; j < SLOTS; j++) { T[i][j].p = 32768; T[i][j].n = 0; T[i][j].chk = 0; }
     for (int s = 0; s < NSET; s++) for (int i = 0; i < NIN; i++) W[s][i] = 20000;
@@ -140,7 +141,24 @@ void zlk_lerne(const char* text, int len) {
     kost = (int)(cost / (uint32_t)len);
 }
 
-static uint32_t zufall(void) { rnd ^= rnd << 13; rnd ^= rnd >> 17; rnd ^= rnd << 5; return rnd; }
+/* Zufall aus dem 4-Qubit-Register: alle vier Qubits per Hadamard in gleichmaessige Ueberlagerung, dann messen (4 Bit je Messung).
+ * Die Wahrscheinlichkeiten laufen im Qubit-Festkomma Q16.16 (Q_EINS = 65536). Dies ist eine klassische Simulation (16 Amplituden). */
+static uint32_t qzufall16(void) {
+    uint32_t v = 0;
+    for (int k = 0; k < 4; k++) {
+        qubit_reset(4);
+        for (int q = 0; q < 4; q++) qubit_gate('h', q);
+        int m = qubit_messen_alle(); if (m < 0) m = (int)(rnd = rnd * 1664525u + 1013904223u) >> 8;
+        v = (v << 4) | (uint32_t)(m & 15);
+    }
+    return v & 0xFFFF;
+}
+static int squash16(int d) {                     /* wie squash(), aber mit 16 Bit Aufloesung (Q16) statt 12 */
+    static const int t[33] = {1,2,3,6,10,16,27,45,73,120,194,310,488,747,1101,1546,2047,2549,2994,3348,3607,3785,3901,3975,4022,4050,4068,4079,4085,4089,4092,4093,4094};
+    if (d > 2047) return 65535; if (d < -2047) return 1;
+    int w = d & 127; d = (d >> 7) + 16;
+    int v = (t[d] * (128 - w) + t[d + 1] * w) >> 3; return v < 1 ? 1 : v > 65535 ? 65535 : v;
+}
 
 int zlk_ergaenze(const char* anfang, char* out, int max, int temp) {
     if (!ready_tab) zlk_init();
@@ -155,7 +173,7 @@ int zlk_ergaenze(const char* anfang, char* out, int max, int temp) {
         for (int b = 0; b < 8; b++) {
             int p = vorhersage(), y, praw = p;
             if (temp <= 0) y = p >= 2048;
-            else { int st = STRETCH[p] * 100 / temp; p = squash(st); y = (int)(zufall() % 4096) < p; }
+            else { int st = STRETCH[p] * 100 / temp; y = (int)qzufall16() < squash16(st); }
             ksum += bitkosten(praw, y); c = (c << 1) | y; bit_weiter(y);
         }
         kn++;
@@ -181,18 +199,43 @@ uint32_t zlk_gelernt(void) { return nlern; }
 int zlk_kosten(void) { return kost; }
 int zlk_sicherheit(void) { return sicher_bits; }
 
+/* ---------- .zyki: das trainierte Modell als Datei ----------
+ * Aufbau: "ZYKI" | Version (1) | 3 Byte 0 | Laenge u32 | FNV-1a der Nutzlast u32 | Nutzlast = Lernprotokoll.
+ * Das Modell entsteht beim Laden durch erneutes Einspielen des Protokolls; deshalb laesst sich eine .zyki-Datei von mehreren Clients
+ * zusammenfuehren (der Lernkern lernt dann auch das, was andere gelernt haben). */
+static uint32_t fnv32(const uint8_t* p, int n) { uint32_t x = 2166136261u; for (int i = 0; i < n; i++) { x ^= p[i]; x *= 16777619u; } return x; }
+int zlk_zyki_bauen(uint8_t* out, int max) {
+    if (max < 16 + loglen) return -1;
+    out[0] = 'Z'; out[1] = 'Y'; out[2] = 'K'; out[3] = 'I'; out[4] = 1; out[5] = out[6] = out[7] = 0;
+    uint32_t l = (uint32_t)loglen, c = fnv32((const uint8_t*)logbuf, loglen);
+    for (int i = 0; i < 4; i++) { out[8 + i] = (uint8_t)(l >> (8 * i)); out[12 + i] = (uint8_t)(c >> (8 * i)); }
+    for (int i = 0; i < loglen; i++) out[16 + i] = (uint8_t)logbuf[i];
+    return 16 + loglen;
+}
+int zlk_zyki_einlesen(const uint8_t* in, int len, int zusammenfuehren) {
+    if (len < 16 || in[0] != 'Z' || in[1] != 'Y' || in[2] != 'K' || in[3] != 'I' || in[4] != 1) return -1;
+    uint32_t l = 0, c = 0; for (int i = 0; i < 4; i++) { l |= (uint32_t)in[8 + i] << (8 * i); c |= (uint32_t)in[12 + i] << (8 * i); }
+    if (l > LOGMAX || (int)l + 16 > len || fnv32(in + 16, (int)l) != c) return -2;
+    if (!zusammenfuehren) zlk_init();
+    zlk_lerne((const char*)in + 16, (int)l);
+    return (int)l;
+}
+static uint8_t zybuf[LOGMAX + 16];
 void zlk_speichern(void) {
     if (!synfs_is_mounted() || !loglen) return;
-    synfs_create("zlk.log", 0);
-    synfs_write("zlk.log", logbuf, (uint32_t)loglen);
+    int n = zlk_zyki_bauen(zybuf, sizeof(zybuf)); if (n < 0) return;
+    synfs_create("modell.zyki", 0);
+    synfs_write("modell.zyki", zybuf, (uint32_t)n);
 }
 void zlk_laden(void) {
     if (!synfs_is_mounted()) return;
-    static char buf[LOGMAX];
-    int n = synfs_read("zlk.log", buf, LOGMAX);
-    if (n > 0) { zlk_init(); zlk_lerne(buf, n); }
+    int n = synfs_read("modell.zyki", zybuf, sizeof(zybuf));
+    if (n > 0) zlk_zyki_einlesen(zybuf, n, 0);
+}
+void zlk_loeschen(void) {                          /* nur fuer Administratoren (Shell prueft das): Modell und Datei entfernen */
+    zlk_init(); if (synfs_is_mounted()) synfs_delete("modell.zyki");
 }
 void zlk_info(void) {
     kprint("[ZLK] Lernkern: "); kprint_dec(nlern); kprint(" Zeichen gelernt, mittlere Kosten letzte Eingabe: ");
-    kprint_dec((uint32_t)kost / 100); kprint(" Bit/Zeichen (8 = nichts gelernt)\n");
+    kprint_dec((uint32_t)kost / 100); kprint(" Bit/Zeichen (8 = nichts gelernt); Zufall: 4-Qubit-Register (Simulation), Modell: modell.zyki\n");
 }

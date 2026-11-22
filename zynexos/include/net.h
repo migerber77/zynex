@@ -15,3 +15,4 @@ int  net_status(char* out, int max);   /* 0 keine Karte, 1 ohne IP, 2 bereit (ou
 int  net_wget(const char* url, const char* name, const char* fp);   /* Seite ins SynFS speichern */
 int  net_seite(const char* url, const char** kopf, uint32_t* kopflen, const char** body, uint32_t* len, uint32_t* status);   /* fuer den Browser */
 int  net_post_tls(const char* host, const char* path, const char* hdr, const char* body, const char** ant, uint32_t* alen, uint32_t* status);   /* JSON-POST per HTTPS (Port 443) */
+int  net_put(const char* url, const void* body, uint32_t len, uint32_t* status);   /* HTTP-PUT (nur http://); status = Antwortcode */

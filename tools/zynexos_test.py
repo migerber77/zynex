@@ -126,7 +126,7 @@ def basis():
               "syncreate bar", "syntag foo a1", "syntag foo a2", "syntag foo a3", "syntag foo a4", "syntag foo a5", "syntag bar ai",
               "obj ai a5", "obj ai", "synuntag foo a5", "obj a5", "syntag bar zz", "zeit", "syntag foo a6", "syntag foo a7", "syntag foo a8",
               "syntag foo a9", "syninfo", "aidemo", "ps", "uptime",
-              "pci", "hardware", "zlern das wetter wird heute schoen", "zlern das wetter wird heute schoen", "zlern das wetter wird heute schoen", "zsag das wetter wird h", "wissen merke Wie weit ist der Mond von der Erde entfernt? = Der Mond ist rund 384400 Kilometer von der Erde entfernt.", "wissen wie weit ist der mond von der erde entfernt", "block",
+              "pci", "hardware", "zlern das wetter wird heute schoen", "zlern das wetter wird heute schoen", "zlern das wetter wird heute schoen", "zsag das wetter wird h", "zfrei zzz", "zyki speichern", "zyki", "wissen merke Wie weit ist der Mond von der Erde entfernt? = Der Mond ist rund 384400 Kilometer von der Erde entfernt.", "wissen wie weit ist der mond von der erde entfernt", "block",
               "synhdr hallo.synbin", "synrun hallo.synbin", "synrun rechnen.synbin",
               "synrun zeit.synbin", "syngrant 3", "synrun zeit.synbin", "synrun schleife.synbin",
               "synstress 300 2 schreiben", "synstress 1 1024 schreiben", "syninfo", "snap neu gross", "synstress 300 2 loeschen", "synstress 300 2 pruefen",
@@ -144,6 +144,9 @@ def basis():
         ("Shell antwortet auf help", "syncreate", 1),
         ("Hardware-Uebersicht listet Geraete mit Treiber", "Hardware-Uebersicht", 1),
         ("Wissen: Antwort kommt aus dem Lernkern", "[WISSEN] (Lernkern) Der Mond ist rund 384400 Kilometer", 1),
+        ("Lernkern erzeugt mit 4-Qubit-Zufall", "[ZLK] zzz", 1),
+        (".zyki-Modell wird gesichert", "[ZYKI] Modell als modell.zyki gesichert", 1),
+        ("zyki-Hilfe", "zyki: speichern | holen", 1),
         ("Lernkern lernt aus Eingaben und ergaenzt", "[ZLK] das wetter wird heute schoen", 1),
         ("SynFS: Datei gelesen", "hallo welt", 1),
         ("SynFS: Tag-Suche findet foo", "foo", 2),
@@ -439,56 +442,6 @@ def installieren():
     pruefe("System von der Platte: Programme laufen (.synbin)", "6 mal 7 = 42" in out2)
     pruefe("System von der Platte: nur Live-ISO darf installieren", "Nur von der Installations-ISO aus moeglich" in out2)
     pruefe("System von der Platte: Bildschirm zeigt Text", hell > 300)
-
-
-def kiinstall():
-    """Installation MIT Sprachmodell: Modell geht vom Stick auf die Modell-Partition; danach Start nur von der Platte, 'ki' laedt es von dort."""
-    print("\n===== Szenario kiinstall (Modell wandert vom Stick auf die Platte) =====")
-    img = "/tmp/zynex-ki.img"
-    subprocess.run(["qemu-img", "create", "-f", "raw", img, "1500M"], check=True, stdout=subprocess.DEVNULL)
-    extra = ["-drive", "file=%s,if=none,id=satadisk,format=raw" % img, "-device", "ide-hd,drive=satadisk,bus=ide.0"]
-    vm = starten(extra)
-    vm.tippe("install sata0 michel us ja", 2.0)
-    vm.tippe("geheim12", 4.0)
-    vm.tippe("geheim12", 2.0)
-    fertig = vm.warte("Fertig! Entferne", 1500)
-    time.sleep(1)
-    vm.tippe("block", 2.0)
-    vm.tippe("reboot", 3.0)
-    for _ in range(40):
-        if vm.q.poll() is not None:
-            break
-        time.sleep(0.5)
-    out1 = vm.log()
-    vm.ende()
-    vm = starten(extra, cd=False, us=False)
-    vm.warte("[DESKTOP] Anmeldebildschirm", 20)
-    for b in ["michel", "geheim12"]:
-        vm.tippe(b, 7.0 if b == "geheim12" else 2.0)
-    vm.tippe("system", 2.0)                                   # kurzer Befehl: wie bisher, ohne Modell
-    vm.tippe("wieviel ist vierzig plus zwei", 1.0)            # ganzer Satz: Zynie fragt das Sprachmodell
-    ok = vm.warte("[DESKTOP] Zynie antwortet:", 1500)
-    time.sleep(2)
-    hell_ki = vm.hell()
-    out2 = vm.log()
-    print(out1[-1500:]); print(out2[-2500:])
-    vm.ende()
-    pruefe("Modell-Installation: abgeschlossen", fertig)
-    pruefe("Modell-Installation: dritte Partition sata0p3", "sata0p3" in out1.split("zynex> block")[-1])
-    pruefe("Von der Platte: Modell wird aus der Partition geladen", "[KI] Lade Sprachmodell von sata0p3" in out2)
-    pruefe("Desktop: kurzer Befehl 'system' geht weiter an die Systemanzeige", "-> System" in out2)
-    pruefe("Desktop: ganzer Satz geht an das Sprachmodell", "-> Sprachmodell" in out2)
-    pruefe("Desktop: Bildschirm zeigt Zynies Antwort", hell_ki > 300)
-    pruefe("Von der Platte: Modell bereit", "[KI] Sprachmodell bereit" in out2)
-    pruefe("Von der Platte: Lader hat kein Modell vom Stick gelesen", "[LOADER] Lese Sprachmodell" not in out2)
-    pruefe("Desktop: Zynie antwortet", ok)
-    m = re.search(r"\[DESKTOP\] Zynie antwortet: (.*)", out2); antwort = m.group(1).strip() if m else ""
-    host, modell = os.environ.get("ZYNEX_LLM_HOST"), os.environ.get("ZYNEX_MODELL")
-    if host and modell:
-        r = subprocess.run([host, modell, "chat", "Antworte kurz auf Deutsch. wieviel ist vierzig plus zwei", "200"], capture_output=True, text=True)
-        h = re.search(r"Antwort: (.*)", r.stdout); erwartet = h.group(1).strip() if h else "?"
-        print("Platte:", antwort, "| Referenz:", erwartet)
-        pruefe("Desktop: Antwort identisch mit der Referenz (Wortlaut)", antwort.replace(" ", "") == erwartet.replace("\n", " ").replace(" ", ""))
 
 
 def layout():
@@ -1009,34 +962,6 @@ def boot():
     pruefe("Kernel: Gedaechtnis zaehlt Neuronen und Synapsen", "Synapsen-Gedaechtnis:" in out and "Erinnerungen" in out)
 
 
-def ki():
-    """Sprachmodell im Kernel: Der Lader reicht das Modell vom Stick, der Befehl 'ki' beantwortet eine Frage."""
-    print("\n===== Szenario ki (Sprachmodell im Kernel) =====")
-    vm = starten()
-    vm.tippe("ki wieviel ist vierzig plus zwei", 1.0)
-    fertig = vm.warte("[KI] Antwort:", 1500)
-    time.sleep(1)
-    out = vm.log()
-    print(out[-3000:])
-    vm.ende()
-    pruefe("KI: Lader hat das Sprachmodell gelesen", "[LOADER] Lese Sprachmodell" in out)
-    pruefe("KI: Modell geladen", "[KI] Sprachmodell bereit" in out)
-    pruefe("KI: Antwort kommt", fertig)
-    m = re.search(r"\[KI\] Antwort: (.*)", out)
-    antwort = m.group(1).strip() if m else ""
-    pruefe("KI: Antwort ist nicht leer", len(antwort) > 3)
-    # Vergleich mit dem Entwicklungsrechner-Programm (gleiche Rechnung, gleiches Modell): muss Wort fuer Wort gleich sein
-    host, modell = os.environ.get("ZYNEX_LLM_HOST"), os.environ.get("ZYNEX_MODELL")
-    if host and modell:
-        r = subprocess.run([host, modell, "chat", "wieviel ist vierzig plus zwei", "200"], capture_output=True, text=True)
-        h = re.search(r"Antwort: (.*)", r.stdout)
-        erwartet = h.group(1).strip() if h else "?"
-        print("Kernel:", antwort, "| Referenz:", erwartet)
-        try: antwort = antwort.encode("latin-1").decode("utf-8")      # das Protokoll liest UTF-8-Bytes als Latin-1
-        except (UnicodeEncodeError, UnicodeDecodeError): pass
-        pruefe("KI: Kernel-Antwort identisch mit der Referenz", antwort == erwartet)
-
-
 def audio():
     """Intel HD Audio: Ausgabe (QEMU hda-output schreibt eine WAV-Datei, die wir auf Pegel und Frequenz pruefen) und Aufnahme (hda-micro)."""
     import wave
@@ -1177,6 +1102,6 @@ def manip():
 
 
 for s in SZEN:
-    {"browser": browser, "stick": stick, "kiinstall": kiinstall, "ki": ki, "boot": boot, "manip": manip, "audio": audio, "sicherboot": sicherboot, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "virtio": virtio_blk, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
+    {"browser": browser, "stick": stick, "boot": boot, "manip": manip, "audio": audio, "sicherboot": sicherboot, "usbaudio": usbaudio, "grafik": grafik, "basis": basis, "platte": platte, "sata": sata, "virtio": virtio_blk, "usb": usb, "layout": layout, "netz": netz, "installer": installieren, "usbnet": usbnet, "ps2": ps2}[s]()
 
 sys.exit(0 if all(ergebnis) else 1)

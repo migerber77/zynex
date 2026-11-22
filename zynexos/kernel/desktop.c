@@ -12,6 +12,7 @@
 #include "layouts.h"
 #include "extki.h"
 #include "wissen.h"
+#include "zlk.h"
 #include "fakten.h"
 #include "chats.h"
 #include "gedaechtnis.h"
@@ -811,6 +812,7 @@ static void sug_suche(void) {
     const char* q = eingabe; while (*q == ' ') q++;
     if (!*q) return;
     sug_q = q; int ql = slen(q);
+    { static char zc[64]; int n = zlk_ergaenze(q, zc, sizeof(zc), 0); if (n >= 2 && zlk_sicherheit() < 150) { static char zs[96]; scopy(zs, q, 96); cat(zs, zc, 96); sug_add(zs, 4, ql); } }   /* Lernkern */
     for (int i = nhist - 1; i >= 0; i--) if (praefix(hist[i], q)) sug_add(hist[i], 2, ql);
     for (int i = 0; i < NKAT; i++) { const char* s = lang == 0 ? katalog[i].de : katalog[i].en; if (praefix(s, q)) sug_add(s, katalog[i].typ, ql); }
     for (int i = 0; i < NKAT; i++) {
@@ -946,7 +948,7 @@ static void zeichne_eingabe(void) {
             int px = bar_x + 20;
             if (pl) { gtxt(px, ry + 6, a, C_TEXT, 1); px += gtw(a, 1); }
             gtxt(px, ry + 6, sug[i] + pl, i == sugsel ? C_TEXT : C_MUTED, 1);
-            const char* tg = sugtyp[i] == 0 ? TR("Befehl", "command") : sugtyp[i] == 1 ? TR("Frage", "question") : TR("Verlauf", "history");
+            const char* tg = sugtyp[i] == 0 ? TR("Befehl", "command") : sugtyp[i] == 1 ? TR("Frage", "question") : sugtyp[i] == 4 ? TR("Lernkern", "learning core") : TR("Verlauf", "history");
             gtxt(bar_x + bar_w - 20 - gtw(tg, 1), ry + 6, tg, sugtyp[i] == 1 ? 0x00A78BFAu : sugtyp[i] == 0 ? C_ACC2 : C_MUTED, 1);
             kn_reg(K_SUG0 + i, bar_x + 6, ry, bar_w - 12, 28);
         }
@@ -1026,7 +1028,7 @@ static void sys_k_sich(void) {
     gtxt(x + 42, y + 50, sig ? TR("Startkette durch LMS-Signatur geprueft", "Boot chain verified by LMS signature") : TR("Kernel nicht durch Signatur geprueft", "Kernel not verified by signature"), C_TEXT, 1);
     scopy(z, TR("Benutzer: ", "User: "), 100); cat(z, benutzer_name(), 100); cat(z, " (", 100); cat(z, benutzer_rollentext(benutzer_rolle()), 100); cat(z, ")", 100); gtxt(x + 18, y + 84, z, C_MUTED, 1);
     rrect(x + 18, y + 118, 14, 14, 7, gehirn_vorhanden() ? C_OK : C_OFF);
-    gtxt(x + 42, y + 116, gehirn_vorhanden() ? TR("Sprachmodell bereit (laeuft lokal)", "Language model ready (runs locally)") : TR("kein Sprachmodell geladen", "no language model loaded"), C_TEXT, 1);
+    gtxt(x + 42, y + 116, gehirn_vorhanden() ? TR("Lernkern bereit (laeuft lokal)", "Learning core ready (runs locally)") : TR("kein Sprachmodell geladen", "no language model loaded"), C_TEXT, 1);
 }
 static void zeichne_f_system(void) { sys_k_speicher(); sys_k_zeit(); sys_k_netz(); sys_k_sich(); }
 
@@ -1800,7 +1802,7 @@ static void ascii_fold(char* t) {                                        /* UTF-
     t[o] = 0;
 }
 static void sprachpaket(void) {                                          /* alle bisher gesehenen Texte per KI uebersetzen und in ZynDB ablegen */
-    if (lang < 2 || !gehirn_vorhanden()) { reply1(TR("Dafuer brauche ich eine Sprache ausser Deutsch/Englisch und das Sprachmodell.", "That needs a language other than German/English and the language model.")); return; }
+    if (1) { reply1(TR("Dafuer brauche ich eine Sprache ausser Deutsch/Englisch und das Sprachmodell.", "That needs a language other than German/English and the language model.")); return; }
     int total = npend, ok = 0; static char out[160]; char p[240], key[16];
     zdb_stapel(1);
     for (int i = 0; i < total; i++) {
@@ -1996,7 +1998,7 @@ static void zeichne_einst(void) {
             gtxt(x, y, gehirn_vorhanden() ? TR("Zynie (intern) laeuft lokal. Nichts verlaesst dieses Geraet.", "Zynie (internal) runs locally. Nothing leaves this device.") : TR("Kein internes Sprachmodell geladen.", "No internal language model loaded."), C_TEXT, 1);
             gtxt(x, y + 28, TR("Das kleine lokale Modell macht Fehler. Fuer bessere Antworten", "The small local model makes mistakes. For better answers"), C_MUTED, 1);
             gtxt(x, y + 46, TR("ChatGPT, Claude oder Gemini oben waehlen und den Schluessel eintragen.", "choose ChatGPT, Claude or Gemini above and enter your key."), C_MUTED, 1);
-            if (lang >= 2 && gehirn_vorhanden()) knopf(K_EIN0 + 14, T5("Sprachpaket", "Language pack", "Pack de langue", "Pacchetto lingua", "Paquete de idioma"), x, y + 84, 220, 0);
+            if (0) knopf(K_EIN0 + 14, T5("Sprachpaket", "Language pack", "Pack de langue", "Pacchetto lingua", "Paquete de idioma"), x, y + 84, 220, 0);
         } else {
             int ch = 236; rrect_rand(x, y, bw, ch, 12, C_CARD, C_BORDER);
             { char t[100]; scopy(t, ext_name(qa), 100); cat(t, "  -  ", 100); cat(t, ANBIETER_HOST[qa], 100); gtxt(x + 14, y + 12, t, C_ACC2, 1); }
@@ -2249,11 +2251,6 @@ static void ki_antwort(const char* frage) {
     static char roh[600]; char fq[330];
     if (lang != 0) { scopy(fq, "Answer in ", 330); cat(fq, LENG[lang], 330); cat(fq, ". ", 330); cat(fq, frage, 330); } else { scopy(fq, "Antworte kurz auf Deutsch. ", 330); cat(fq, frage, 330); }
     busy_tick();
-    {   /* Lernschleife: erst der Lernkern, sonst Internet-Nachschlagen und dabei lernen (nur wenn keine externe KI gewaehlt ist) */
-        static const char* const WL[5] = { "de", "en", "fr", "it", "es" }; int hk = 0;
-        int wn = (zdb_geti("wissen.an", 1) && !ext_quelle()) ? wissen_frage(frage, WL[lang >= 0 && lang < 5 ? lang : 0], roh, sizeof(roh), &hk) : -3;
-        if (wn > 0) { ki_teil(roh, wn); ki_text[ki_len] = 0; ki_zeilen(); busy_ende(); sprech_bis = timer_get_ticks() + 100; kprint("[DESKTOP] Wissen ("); kprint(hk == WISSEN_ENGINE ? "Lernkern" : "Web, neu gelernt"); kprint("): "); kprint(ki_text); kprint("\n"); return; }
-    }
     static char gk[560], ef[800];
     int teilen = zdb_geti("ged.extern", 0) != 0;                              /* Erinnerungen gehen nur mit Erlaubnis an externe Anbieter */
     int gkl = ged_kontext(frage, gk, sizeof(gk), ext_quelle() ? teilen : 1);
@@ -2267,7 +2264,7 @@ static void ki_antwort(const char* frage) {
         if (!gkl || !teilen) { gkl = ged_kontext(frage, gk, sizeof(gk), 1); }      /* Rueckfall auf die interne KI: lokal darf sie alles wissen */
     }
     gehirn_kontext(gkl ? gk : "");
-    int n = gehirn_frage(fq, roh, sizeof(roh), ki_teil);
+    int n = gehirn_frage(frage, roh, sizeof(roh), ki_teil);
     busy_ende();
     if (n < 0) { reply1(TR("Mein Sprachmodell ist gerade nicht verfuegbar.", "My language model is not available right now.")); kprint("[DESKTOP] Zynie: Sprachmodell nicht verfuegbar: "); kprint(gehirn_status()); kprint("\n"); return; }
     ki_text[ki_len] = 0; ki_zeilen();
@@ -2330,7 +2327,7 @@ static void ausfuehren_roh(void) {
     if (ki_nutzbar() && in != I_WARTUNG && in != I_RECHNEN && in != I_AGENT && in != I_AUFGABE && in != I_FLAECHE && in != I_WEB && in != I_FENSTER) { int w = 1; for (int i = 0; s[i]; i++) if (s[i] == ' ' && s[i + 1] && s[i + 1] != ' ') w++; if (w > 3) in = I_NICHTS; }   /* ganze Saetze gehen an das Sprachmodell */
     einlen = 0; eingabe[0] = 0; nsug = 0; sugsel = -1; sel1 = 0;
     if (!k) return;
-    hist_add(roh);
+    hist_add(roh); zlk_lerne(roh, -1); zlk_lerne("\n", 1); zlk_speichern();
     if (ged_sprache(s, roh)) { kprint("[DESKTOP] Gedaechtnis\n"); zeichne_antwort(); zeichne_eingabe(); return; }
     { static char fa[160]; if (in != I_FENSTER && fakt_antwort(roh, lang, fa, sizeof(fa))) { kprint("[DESKTOP] Fakt: "); kprint(fa); kprint("\n"); reply1(fa); zeichne_antwort(); zeichne_eingabe(); return; } }
     kprint("[DESKTOP] Intent '"); kprint(roh); kprint("' -> ");
@@ -2520,6 +2517,7 @@ static void rad_baue(void) {
     const char* q = eingabe; while (*q == ' ') q++;
     if (!*q) return;
     sug_q = q;
+    { static char zc[64]; int n = zlk_ergaenze(q, zc, sizeof(zc), 0); if (n >= 2 && zlk_sicherheit() < 150) { char zs[96]; scopy(zs, q, 96); cat(zs, zc, 96); rad_add(zs, 4); } }   /* Lernkern */
     for (int i = nhist - 1; i >= 0; i--) if (praefix(hist[i], q)) rad_add(hist[i], 2);
     for (int i = 0; i < NKAT; i++) { const char* t = lang == 0 ? katalog[i].de : katalog[i].en; if (praefix(t, q)) rad_add(t, katalog[i].typ == 1 ? 1 : 0); }
     for (int i = 0; i < NKAT; i++) { const char* t = lang == 0 ? katalog[i].de : katalog[i].en; if (wortstart(t, q)) rad_add(t, katalog[i].typ == 1 ? 1 : 0); }
@@ -2543,7 +2541,7 @@ static void rad_zurueck(void) {
     uint32_t pp; uint32_t* f = gfx_fbptr(&pp); if (!f) return;
     for (int y = 0; y < RBH; y++) { int yy = rad.by + y; if (yy < 0 || yy >= H) continue; for (int x = 0; x < RBW; x++) { int xx = rad.bx + x; if (xx >= 0 && xx < W) f[(uint64_t)yy * pp + xx] = radbuf[y * RBW + x]; } }
 }
-static uint32_t rad_farbe(int typ) { return typ == 1 ? 0x00A78BFAu : typ == 2 ? 0x0094A3B8u : typ == 3 ? C_OK : C_ACC; }
+static uint32_t rad_farbe(int typ) { return typ == 4 ? 0x0034D399u : typ == 1 ? 0x00A78BFAu : typ == 2 ? 0x0094A3B8u : typ == 3 ? C_OK : C_ACC; }
 static void rad_punkt(int x, int y, int s, uint32_t c) { gfx_rect(x - s / 2, y - s / 2, s, s, c); }
 static void rad_zeichne(void) {                                                   /* zeichnet das Rad auf den (sauberen) Bildschirm */
     int cx = rad.cx, cy = rad.cy, dir = rad.dir;
