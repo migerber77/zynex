@@ -518,6 +518,7 @@ int wd_bild_laden(int i) {
     { int n = 0; for (int k = 0; k < wd_nbild; k++) if (wd_bild[k].status == 1 || wd_bild[k].status == 2) n++; if (n >= 40) { b->status = 3; return -4; } }
     const char* body; uint32_t bl; char typ[60]; char gespeichert[120]; kopie(gespeichert, wd_fehler, 120);
     int r = holen(b->url, 0, &body, &bl, typ, 60);
+    if (r) r = holen(b->url, 0, &body, &bl, typ, 60);                 /* ein zweiter Versuch: das Netz verliert gelegentlich Pakete */
     kopie(wd_fehler, gespeichert, 120);
     if (r) { b->status = 2; return -2; }
     int w, h;
