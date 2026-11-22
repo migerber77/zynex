@@ -519,7 +519,7 @@ static void run_legacy(char* cmd) {
     else if (starts_with(cmd, "zyki ") || streq(cmd, "zyki")) {
         const char* a = cmd[4] ? cmd + 5 : "";
         static uint8_t zb[ZLK_ZYKI_MAX];
-        if (streq(a, "speichern")) { int r = zlk_speichern(); kprint(r == 0 ? "[ZYKI] Modell als modell.zyki gesichert\n" : "[ZYKI] Sichern fehlgeschlagen (SynFS nicht eingehaengt oder voll)\n"); }
+        if (streq(a, "speichern")) { int r = zlk_sichern(); kprint(r == 0 ? "[ZYKI] Modell als modell.zyki gesichert\n" : "[ZYKI] Sichern fehlgeschlagen (SynFS nicht eingehaengt oder voll)\n"); }
         else if (starts_with(a, "server ")) { zdb_put("zyki.url", a + 7); kprint("[ZYKI] Freigabe gemerkt (z. B. http://nas/zyki/modell.zyki)\n"); }
         else if (starts_with(a, "holen") || streq(a, "sync") || starts_with(a, "sync ")) {
             const char* u = starts_with(a, "holen ") ? a + 6 : starts_with(a, "sync ") ? a + 5 : zdb_get("zyki.url");
@@ -723,13 +723,13 @@ static void run_legacy(char* cmd) {
     }
     else if (streq(cmd, "reboot")) {
         if (!require_cap(CAP_ADMIN,"reboot")) return;
-        synfs_sync();
+        zlk_sichern(); synfs_sync();
         kprint("Neustart ...\n");
         system_neustart();
     }
     else if (streq(cmd, "halt")) {
         if (!require_cap(CAP_ADMIN,"halt")) return;
-        synfs_sync();
+        zlk_sichern(); synfs_sync();
         kprint("Halted.\n"); for (;;) __asm__ volatile("cli;hlt");
     }
     else if (starts_with(cmd, "echo ")) { kprint(cmd+5); kprint("\n"); }
@@ -841,5 +841,5 @@ void shell_init(void) {
 }
 
 void shell_run(void) {
-    for (;;) { if (hv_aktiv()) __asm__ volatile("pause"); else __asm__ volatile("hlt"); usb_poll(); net_poll(); if (tick_fn) tick_fn(); usb_hotplug(); }
+    for (;;) { if (hv_aktiv()) __asm__ volatile("pause"); else __asm__ volatile("hlt"); usb_poll(); net_poll(); if (tick_fn) tick_fn(); zlk_tick(); usb_hotplug(); }
 }

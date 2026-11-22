@@ -14,7 +14,9 @@ uint32_t zlk_gelernt(void);                            /* Anzahl gelernter Zeich
 int  zlk_pruefe(const char* text);                     /* mittlere Bits (x100) je Zeichen, mit denen der Lernkern diesen Text erwartet, ohne zu lernen */
 int  zlk_sicherheit(void);                            /* mittlere Bits je Zeichen (x100) der letzten Ergaenzung: klein = sicher gewusst */
 int  zlk_kosten(void);                                 /* mittlere Bits je Zeichen der letzten Lerneingabe (x100); 800 = nichts gelernt */
-int  zlk_speichern(void);                              /* Modell als modell.zyki im SynFS sichern (falls eingehaengt) */
+int  zlk_speichern(void);                              /* Aenderung vormerken; schreibt hoechstens alle 20 s */
+int  zlk_sichern(void);                                /* sofort schreiben */
+void zlk_tick(void);                                   /* aus der Hauptschleife: Aufgeschobenes nachholen */
 void zlk_laden(void);                                  /* modell.zyki wieder einspielen */
 #include "nn.h"
 #define ZLK_ZYKI_MAX (262144 + 16 + 8 + 2 * NN_PARAMS + 16)   /* groesste moegliche .zyki-Datei */

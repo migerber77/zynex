@@ -3,6 +3,7 @@
 #include "synfs.h"
 #include "qubit.h"
 #include "nn.h"
+#include "timer.h"
 
 extern void kprint(const char* str);
 extern void kprint_dec(uint32_t val);
@@ -248,12 +249,23 @@ int zlk_zyki_einlesen(const uint8_t* in, int len, int zusammenfuehren) {
     return (int)l;
 }
 static uint8_t zybuf[ZYKI_MAX];
-int zlk_speichern(void) {
+/* Schreiben ist teuer (die Datei ist rund 240 KB gross). zlk_speichern() merkt sich nur "geaendert" und schreibt hoechstens alle 20 Sekunden;
+ * zlk_tick() (aus der Hauptschleife) holt Aufgeschobenes nach; zlk_sichern() schreibt sofort. */
+static int zl_dirty, zl_hat; static uint32_t zl_last;
+int zlk_sichern(void) {
     if (!synfs_is_mounted()) return -1;
     int n = zlk_zyki_bauen(zybuf, sizeof(zybuf)); if (n < 0) return -2;
     synfs_create("modell.zyki", 0);
-    return synfs_write("modell.zyki", zybuf, (uint32_t)n) < 0 ? -3 : 0;
+    int r = synfs_write("modell.zyki", zybuf, (uint32_t)n) < 0 ? -3 : 0;
+    zl_dirty = 0; zl_hat = 1; zl_last = timer_get_seconds(); return r;
 }
+int zlk_speichern(void) {
+    if (!synfs_is_mounted()) return -1;
+    zl_dirty = 1;
+    if (!zl_hat || timer_get_seconds() - zl_last >= 20) return zlk_sichern();
+    return 0;
+}
+void zlk_tick(void) { if (zl_dirty && timer_get_seconds() - zl_last >= 20) zlk_sichern(); }
 void zlk_laden(void) {
     if (!synfs_is_mounted()) return;
     int n = synfs_read("modell.zyki", zybuf, sizeof(zybuf));
