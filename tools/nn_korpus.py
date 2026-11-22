@@ -3,9 +3,9 @@
 und Einleitungen zufaelliger Wikipedia-Artikel (de ~75 %, en ~25 %). Schreibt gemischt nach argv[1]."""
 import json, random, sys, urllib.request, urllib.parse, concurrent.futures as cf
 import time
-def get(u, t=90):
+def get(u, t=40):
     err = None
-    for k in range(3):
+    for k in range(2):
         try:
             with urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "ZynexKorpus/1.0 (https://github.com/migerber77/zynex; Lernprojekt)"}), timeout=t) as r: return r.read()
         except urllib.error.HTTPError as e:
@@ -14,7 +14,7 @@ def get(u, t=90):
     print("Fehler", u[:90], err, file=sys.stderr); return b""
 docs = []
 FEST = [2229, 2407, 2591, 7205, 5323, 22367, 6343, 19460, 34811, 2403, 28235, 7206, 2074, 7500, 8911, 21858, 40737, 8238, 19008, 34972]
-def buecher(seiten=4):
+def buecher(seiten=1):
     gesehen = set()
     u = "https://gutendex.com/books/?languages=de&sort=popular"
     for _ in range(seiten):
@@ -42,13 +42,15 @@ def wiki(lang):
     return [" ".join(p["extract"].split()) for p in d.get("query", {}).get("pages", {}).values() if len(p.get("extract", "")) > 80]
 n_wiki = int(sys.argv[2]) if len(sys.argv) > 2 else 400
 with cf.ThreadPoolExecutor(6) as ex:
-    for ps in ex.map(buch, list(buecher())): docs += ps
+    for ps in ex.map(buch, list(buecher())[:14]): docs += ps
 print("Buchabsaetze:", len(docs), flush=True)
-t_ende = time.time() + 20 * 60                                          # Wikipedia hoechstens 20 Minuten lang
+t_ende = time.time() + 10 * 60                                          # Wikipedia hoechstens 20 Minuten lang
 for i, l in enumerate(["de"] * (n_wiki * 3 // 4) + ["en"] * (n_wiki // 4)):   # Wikipedia bittet um sequentielle Abrufe
     if time.time() > t_ende: print("Wikipedia-Zeitlimit erreicht nach", i, "Abrufen"); break
     docs += wiki(l); time.sleep(1.0)
-    if i % 50 == 0: print("Wikipedia-Abruf", i, "Absaetze", len(docs), flush=True)
+    if i % 50 == 0:
+        print("Wikipedia-Abruf", i, "Absaetze", len(docs), flush=True)
+        random.shuffle(docs); open(sys.argv[1], "w", encoding="utf-8").write("\n".join(docs) + "\n")     # Zwischenstand
 print("Absaetze gesamt:", len(docs))
 random.seed(1); random.shuffle(docs)
 txt = "\n".join(docs) + "\n"

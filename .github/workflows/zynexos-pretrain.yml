@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Korpus holen
         run: |
-          python3 -u tools/nn_korpus.py /tmp/korpus.txt "${{ inputs.wiki }}"
+          timeout 1200 python3 -u tools/nn_korpus.py /tmp/korpus.txt "${{ inputs.wiki }}" || echo "Korpus-Zeitlimit, nehme den Zwischenstand"
           test $(stat -c %s /tmp/korpus.txt) -gt 1500000 || { echo "Korpus zu klein (unter 1,5 MB), Abbruch"; exit 1; }
       - name: Trainer bauen
         run: gcc -O3 -march=native -ffast-math -DNN_OHNE_START=1 -Wa,-Izynexos -Izynexos/include -o /tmp/pre tools/nn_pretrain.c zynexos/kernel/nn.c -lm
