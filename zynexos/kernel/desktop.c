@@ -257,13 +257,18 @@ static void wand_futur(uint32_t* b) {
                 int a = (n - 430) * 3; if (a < 0) a = 0; if (a > 1023) a = 1023; a = a * (hz - y) / hz;
                 c = wmix(c, wmix(0x00C026D3u, 0x0006B6D4u, m / 4), a * 170 / 1024);
             }
+            if (y < hz) {                                                                          /* Milchstrasse: diagonales Band, vom Nebelrauschen zerfasert */
+                int ly = hz * 88 / 100 - (hz * 74 / 100) * x / W; int d = y - ly; if (d < 0) d = -d;
+                int bw = H * 13 / 100 + 1; int band = 256 - d * 256 / bw;
+                if (band > 0) { int qx = x / 4, qy2 = y / 4; if (qx >= sk - 1) qx = sk - 2; if (qy2 >= sh - 1) qy2 = sh - 2; int n2 = neb1[qy2 * sk + qx] + neb2[qy2 * sk + qx] / 2; int a2 = band * band / 256 * (n2 + 200) / 1100; c = wmix(c, wmix(0x00FFE9C8u, 0x00A8B8FFu, band), a2 * 120 / 256); }
+            }
             int dh = y - hz; if (dh < 0) dh = -dh; int gl = 256 - dh * 256 / (H / 10 + 1);           /* Leuchten am Horizont */
             if (gl > 0) c = wmix(c, 0x00FF2E97u, gl * gl / 400);
             b[y * W + x] = c;
         }
     }
     /* Sterne */
-    for (int i = 0; i < W * H / 700; i++) { int x = (int)(h32(i, 1, 9) % (uint32_t)W), y = (int)(h32(i, 2, 9) % (uint32_t)hz); int hl = 90 + (int)(h32(i, 3, 9) % 166); uint32_t sc = (uint32_t)hl * 0x010101u;
+    for (int i = 0; i < W * H / 420; i++) { int x = (int)(h32(i, 1, 9) % (uint32_t)W), y = (int)(h32(i, 2, 9) % (uint32_t)hz); int hl = 90 + (int)(h32(i, 3, 9) % 166); uint32_t tn = h32(i, 4, 9) % 5; uint32_t sc = tn == 0 ? ((uint32_t)hl << 16 | (uint32_t)(hl * 85 / 100) << 8 | (uint32_t)(hl * 60 / 100)) : tn == 1 ? ((uint32_t)(hl * 70 / 100) << 16 | (uint32_t)(hl * 85 / 100) << 8 | (uint32_t)hl) : (uint32_t)hl * 0x010101u;
         b[y * W + x] = wmix(b[y * W + x], sc | 0x101020u, 230);
         if (hl > 235 && x > 1 && y > 1 && x < W - 2 && y < hz - 2) { for (int k = 1; k <= 2; k++) { int t = 140 / k; b[y * W + x + k] = wmix(b[y * W + x + k], sc, t); b[y * W + x - k] = wmix(b[y * W + x - k], sc, t); b[(y + k) * W + x] = wmix(b[(y + k) * W + x], sc, t); b[(y - k) * W + x] = wmix(b[(y - k) * W + x], sc, t); } } }
     /* Planet mit Ring */
@@ -277,6 +282,25 @@ static void wand_futur(uint32_t* b) {
         if (innen) { int l = (-dx - dy) * 256 / (2 * pr) + 128; uint32_t pc = wmix(0x00180A3Cu, 0x007C5CFFu, l); int rand = isq(d2) * 256 / pr; if (rand > 215) pc = wmix(pc, 0x0022D3EEu, (rand - 215) * 5); *q = pc; }
         else { int d = isq(d2); if (d < pr + pr / 5) *q = wmix(*q, 0x0022D3EEu, (pr + pr / 5 - d) * 180 / (pr / 5 + 1)); }
         if (ring) *q = wmix(*q, 0x00D8C8FFu, 120 + (e - 760) / 4);
+    }
+    /* Mond mit Kratern unten links am Horizont, Sternschnuppen */
+    { int mx = W * 15 / 100, my = H * 24 / 100, mr = H * 5 / 100 + 6;
+      for (int y = my - mr - 8; y <= my + mr + 8; y++) for (int x = mx - mr - 8; x <= mx + mr + 8; x++) {
+          if (x < 0 || y < 0 || x >= W || y >= H) continue;
+          int dx = x - mx, dy = y - my, d2 = dx * dx + dy * dy; uint32_t* q = &b[y * W + x];
+          if (d2 <= mr * mr) {
+              int l = (-dx - dy) * 256 / (2 * mr) + 150; if (l < 40) l = 40; if (l > 256) l = 256;
+              uint32_t mc = wmix(0x00181828u, 0x00E4E6F2u, l);
+              for (int k = 0; k < 7; k++) { int kx = mx + (int)(h32(k, 1, 31) % (uint32_t)(mr)) - mr / 2, ky = my + (int)(h32(k, 2, 31) % (uint32_t)(mr)) - mr / 2, kr = mr / 8 + (int)(h32(k, 3, 31) % (uint32_t)(mr / 6 + 1)) + 1;
+                  int ex = x - kx, ey = y - ky; if (ex * ex + ey * ey < kr * kr) mc = wmix(mc, 0x00303048u, 110); }
+              *q = mc;
+          } else { int d = isq(d2); if (d < mr + mr / 3) *q = wmix(*q, 0x00A8B8FFu, (mr + mr / 3 - d) * 70 / (mr / 3 + 1)); }
+      }
+      for (int i = 0; i < 4; i++) {
+          int x0 = W * (35 + i * 15) / 100 + (int)(h32(i, 5, 33) % (uint32_t)(W / 12)), y0 = H * (6 + (int)(h32(i, 6, 33) % 22)) / 100, len = W / 9 + (int)(h32(i, 7, 33) % (uint32_t)(W / 20));
+          for (int k = 0; k < len; k++) { int x = x0 + k, y = y0 - k * 3 / 7; if (x < 0 || x >= W || y < 0 || y >= hz) continue; int t = 255 - k * 255 / len; t = t * t / 255;
+              b[y * W + x] = wmix(b[y * W + x], 0x00DDEEFFu, t); if (k < len / 6 && y + 1 < hz) b[(y + 1) * W + x] = wmix(b[(y + 1) * W + x], 0x0022D3EEu, t / 2); }
+      }
     }
     /* Neon-Raster unter dem Horizont */
     for (int k = 1; k <= 16; k++) { int yk = hz + (H - hz) * k * k / 256; if (yk >= H) break; int t = 60 + k * 12; for (int x = 0; x < W; x++) { b[yk * W + x] = wmix(b[yk * W + x], 0x0022D3EEu, t); if (yk + 1 < H) b[(yk + 1) * W + x] = wmix(b[(yk + 1) * W + x], 0x0022D3EEu, t / 3); } }
@@ -568,6 +592,7 @@ static int zr_h(void) { return SC(232); }
 static int ruhend(void) { return timer_get_ticks() - letzte_eingabe > IDLE_TICKS && timer_get_ticks() > sprech_bis; }
 
 static void zynie(int cx, int cy, uint32_t ph) {
+    /* Zynie: ein schwebendes Leuchtwesen - glaenzende Kugel mit grossen Augen, Fuehler mit Leuchtspitze, weicher Schein */
     uint32_t t = timer_get_ticks();
     int spricht = t < sprech_bis, ruhe = ruhend();
     int puls = (int)((ph / 3) % 16); if (puls > 8) puls = 16 - puls;
@@ -576,42 +601,37 @@ static void zynie(int cx, int cy, uint32_t ph) {
     uint32_t glow = ruhe ? 0x00206A80u : mix(0x0000A8C8u, C_CYAN, puls * 32);
     uint32_t akz = spricht ? C_VIOLET : glow;
     hg(zr_x(), zr_y(), zr_w(), zr_h());
-    /* Blickrichtung: beim Sprechen zur Antwortkarte, sonst langsam umherschauen, im Ruhemodus geradeaus */
     static const int bx[8] = { 0, 5, 0, -5, 4, -4, 0, 3 }, by[8] = { 0, 0, 3, 0, -2, 2, -3, 1 };
-    int k = (int)((t / 150) % 8), ex = ruhe ? 0 : spricht ? 4 : bx[k], ey = ruhe ? 2 : spricht ? 2 : by[k];
     static const int lipp[6] = { 3, 12, 18, 8, 14, 5 };
-    int bob = ruhe ? 0 : isin((int)((t / 5) % 360)) * SC(5) / 1024;                    /* schwebt sanft auf und ab */
-    int sy0 = cy;                                                                      /* Bodenlinie fuer den Schatten */
-    cy += bob;
-    rrect(cx - SC(34) + bob / 2, sy0 + SC(112), SC(68) - bob, SC(8), SC(4), mix(bgc, 0x00000000u, 70));       /* weicher Schatten, schrumpft beim Aufsteigen */
-    rrect(cx - SC(22), cy - SC(100), SC(44), SC(14), SC(7), mix(bgc, akz, 70));                               /* Leuchtscheibe ueber dem Kopf */
-    rrect(cx - SC(12), cy - SC(97), SC(24), SC(8), SC(4), akz);
-    /* Koerper: Perle mit Glanz (aussen dunkel, innen hell, Licht von oben links) */
-    rrect(cx - SC(38), cy + SC(36), SC(76), SC(66), SC(30), 0x001B2A4Au);
-    rrect(cx - SC(36), cy + SC(37), SC(72), SC(61), SC(28), 0x0058779Eu);
-    rrect(cx - SC(33), cy + SC(38), SC(63), SC(52), SC(24), 0x00B4CCE6u);
-    rrect(cx - SC(30), cy + SC(40), SC(40), SC(24), SC(12), 0x00E9F2FCu);
-    rrect(cx - SC(15), cy + SC(62), SC(30), SC(12), SC(6), 0x000A1428u);                                      /* Brustleuchte */
-    rrect(cx - SC(11), cy + SC(65), SC(22), SC(6), SC(3), akz);
-    int a1 = spricht ? (int)((t / 10) % 6) - 3 : 0;                                                          /* schwebende Haende */
-    rrect(cx - SC(64), cy + SC(52) + SC(a1) / 2 + bob / 2, SC(20), SC(20), SC(10), 0x0058779Eu); rrect(cx - SC(62), cy + SC(53) + SC(a1) / 2 + bob / 2, SC(15), SC(15), SC(8), 0x00D7E6F7u);
-    rrect(cx + SC(44), cy + SC(52) - SC(a1) / 2 - bob / 2, SC(20), SC(20), SC(10), 0x0058779Eu); rrect(cx + SC(46), cy + SC(53) - SC(a1) / 2 - bob / 2, SC(15), SC(15), SC(8), 0x00D7E6F7u);
-    /* Kopf */
-    rrect(cx - SC(62), cy - SC(76), SC(124), SC(108), SC(46), 0x001B2A4Au);
-    rrect(cx - SC(59), cy - SC(73), SC(118), SC(102), SC(44), 0x0058779Eu);
-    rrect(cx - SC(55), cy - SC(70), SC(106), SC(94), SC(40), 0x00B4CCE6u);
-    rrect(cx - SC(50), cy - SC(68), SC(70), SC(30), SC(15), 0x00E9F2FCu);                                    /* Glanzlicht */
-    rrect(cx - SC(48), cy - SC(52), SC(96), SC(60), SC(24), mix(0x000A1428u, akz, 60));                      /* Visier mit leuchtendem Rand */
-    rrect(cx - SC(46), cy - SC(50), SC(92), SC(56), SC(22), 0x000A1428u);
-    int eh = blink ? 3 : ruhe ? 8 : 24; int ew = SC(16); int eyy = cy - SC(36) + SC((24 - eh) / 2 + ey);
-    rrect(cx - SC(34) + SC(ex), eyy - 3, ew + 8, (SC(eh) < 2 ? 2 : SC(eh)) + 6, SC(10), mix(0x000A1428u, glow, 70));        /* Augen mit Hof */
-    rrect(cx + SC(10) + SC(ex), eyy - 3, ew + 8, (SC(eh) < 2 ? 2 : SC(eh)) + 6, SC(10), mix(0x000A1428u, glow, 70));
-    rrect(cx - SC(30) + SC(ex), eyy, ew, SC(eh) < 2 ? 2 : SC(eh), SC(6), glow);
-    rrect(cx + SC(14) + SC(ex), eyy, ew, SC(eh) < 2 ? 2 : SC(eh), SC(6), glow);
-    if (!blink && !ruhe) { rrect(cx - SC(27) + SC(ex), eyy + 3, SC(5), SC(5), SC(2), 0x00FFFFFFu); rrect(cx + SC(17) + SC(ex), eyy + 3, SC(5), SC(5), SC(2), 0x00FFFFFFu); }
-    if (spricht) {                                                                                           /* Stimme: Balken wie bei einem Sprachassistenten */
-        for (int i = 0; i < 5; i++) { int hh = 3 + lipp[(t / 6 + i * 2) % 6] * 2 / 3; rrect(cx - SC(20) + i * SC(9), cy - SC(1) - SC(hh) / 2, SC(5), SC(hh), SC(2), mix(glow, C_VIOLET, 140)); }
-    } else rrect(cx - SC(11), cy - SC(3), SC(22), ruhe ? 3 : SC(5), SC(3), mix(0x000A1428u, glow, 190));      /* kleines Laecheln */
+    int k = (int)((t / 150) % 8), ex = ruhe ? 0 : spricht ? 3 : bx[k] * 2 / 3, ey = ruhe ? 2 : spricht ? 1 : by[k] / 2;
+    int bob = ruhe ? 0 : isin((int)((t / 5) % 360)) * SC(6) / 1024;                   /* schwebt sanft auf und ab */
+    int sy0 = cy; cy += bob;
+    int R = SC(62), mx = cx, my = cy + SC(6);                                          /* Kugelmitte */
+    rrect(cx - SC(40) + bob / 2, sy0 + SC(100), SC(80) - bob, SC(8), SC(4), mix(bgc, 0x00000000u, 80));      /* Schatten */
+    rrect(mx - R - SC(16), my - R - SC(16), 2 * (R + SC(16)), 2 * (R + SC(16)), R + SC(16), mix(bgc, akz, 26));  /* Schein */
+    rrect(mx - R - SC(8), my - R - SC(8), 2 * (R + SC(8)), 2 * (R + SC(8)), R + SC(8), mix(bgc, akz, 55));
+    rrect(mx - SC(3), my - R - SC(26), SC(6), SC(26), SC(3), 0x0058779Eu);                                    /* Fuehler */
+    rrect(mx - SC(8), my - R - SC(36), SC(16), SC(16), SC(8), mix(akz, 0x00FFFFFFu, 60));
+    rrect(mx - SC(4), my - R - SC(32), SC(8), SC(8), SC(4), 0x00FFFFFFu);
+    rrect(mx - R, my - R, 2 * R, 2 * R, R, 0x001B2A4Au);                                                     /* Kugel: Rand, Verlauf, Glanz */
+    rrect(mx - R + SC(3), my - R + SC(3), 2 * R - SC(6), 2 * R - SC(6), R - SC(3), 0x003E5E8Eu);
+    rrect(mx - R + SC(6), my - R + SC(5), 2 * R - SC(14), 2 * R - SC(14), R - SC(7), 0x007AA2D8u);
+    rrect(mx - R + SC(12), my - R + SC(10), 2 * R - SC(30), 2 * R - SC(34), R - SC(16), 0x00B4D0F2u);
+    rrect(mx - R + SC(16), my - R + SC(12), SC(40), SC(22), SC(11), 0x00EAF4FFu);                             /* Glanzlicht */
+    int eh = blink ? 3 : ruhe ? 5 : 32, ew = SC(20);
+    int eyy = my - SC(14) + SC((32 - eh) / 2 + ey);
+    for (int s = 0; s < 2; s++) {
+        int exx = (s ? mx + SC(11) : mx - SC(31)) + SC(ex);
+        rrect(exx, eyy, ew, SC(eh) < 3 ? 3 : SC(eh), SC(10), 0x000F1B33u);                                    /* Auge */
+        if (!blink && !ruhe) {
+            rrect(exx + SC(3), eyy + SC(8), ew - SC(6), SC(eh) - SC(14) < 3 ? 3 : SC(eh) - SC(14), SC(7), glow);
+            rrect(exx + SC(4), eyy + SC(4), SC(6), SC(6), SC(3), 0x00FFFFFFu);
+        }
+    }
+    rrect(mx - SC(46), my + SC(20), SC(14), SC(8), SC(4), mix(0x007AA2D8u, 0x00FF8FB0u, 110));                  /* Waengchen */
+    rrect(mx + SC(32), my + SC(20), SC(14), SC(8), SC(4), mix(0x007AA2D8u, 0x00FF8FB0u, 110));
+    if (spricht) { int oh = 4 + lipp[(t / 6) % 6] * 2 / 3; rrect(mx - SC(9), my + SC(30) - SC(oh) / 4, SC(18), SC(oh), SC(oh) / 2 + 1, 0x000F1B33u); rrect(mx - SC(5), my + SC(30) + SC(oh) / 4, SC(10), SC(oh) / 3 + 1, SC(2), 0x00D26A8Au); }   /* Mund bewegt sich */
+    else rrect(mx - SC(9), my + SC(30), SC(18), ruhe ? 3 : SC(5), SC(3), 0x000F1B33u);                      /* Laecheln */
     if (ruhe) { gfx_text(cx + SC(66), cy - SC(80), "z", 0x00647488u, 1 + zs / 120); gfx_text(cx + SC(80), cy - SC(96), "Z", 0x00647488u, 1 + zs / 100); }
     int gx = zr_x() + zr_w() - 12, gy = zr_y() + zr_h() - 12;                                         /* Griff zum Vergroessern */
     gfx_rect(gx, gy + 10, 12, 2, 0x00475569u); gfx_rect(gx + 10, gy, 2, 12, 0x00475569u); gfx_rect(gx + 5, gy + 5, 2, 2, 0x00475569u);
