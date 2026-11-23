@@ -199,7 +199,8 @@ static void glas(int x0, int y0, int w, int h, int rr, uint32_t tint, int a) {
         for (int x = ix; x < w - ix; x++) gfx_blend(x0 + x, y0 + y, tint, a);
     }
 }
-static void rrect_rand(int x, int y, int w, int h, int r, uint32_t fill, uint32_t rand) { rrect(x, y, w, h, r, rand); rrect(x + 1, y + 1, w - 2, h - 2, r - 1 > 0 ? r - 1 : 0, fill); }
+static uint32_t mix(uint32_t a, uint32_t b, int t);
+static void rrect_rand(int x, int y, int w, int h, int r, uint32_t fill, uint32_t rand) { if (th_nr != 5 && rand == C_BORDER) rand = mix(C_BORDER, 0x0038BDF8u, 110); rrect(x, y, w, h, r, rand); rrect(x + 1, y + 1, w - 2, h - 2, r - 1 > 0 ? r - 1 : 0, fill); }
 /* ---------- Liquid-Glass-Helfer (Fluidic-Design: dunkles Glas, Cyan -> Blau -> Violett) ---------- */
 static uint32_t mix(uint32_t a, uint32_t b, int t);
 #define Q_GLAS (th_nr != 5)                                   /* Hell-Schema behaelt das schlichte Aussehen */
@@ -771,7 +772,7 @@ static const char* const chip_text[6] = { "text erstellen", "rechne 12*7", "syst
 static int bar_x, bar_y, bar_w;
 
 /* ---------- Fenster und Widgets (verschiebbar, schliessbar, mehrere gleichzeitig) ---------- */
-enum { FT_EDIT = 1, FT_WEB, FT_RECH, FT_INFO, FT_EINST, FT_CHATS, FT_GED, FT_TAB, FT_PRAES, FT_BOARD, FT_MAL };
+enum { FT_EDIT = 1, FT_WEB, FT_RECH, FT_INFO, FT_EINST, FT_CHATS, FT_GED, FT_TAB, FT_PRAES, FT_BOARD, FT_MAL, FT_DATEI };
 static void zeichne_tabelle(void); static void zeichne_praes(void); static void zeichne_board(void); static void zeichne_mal(void);
 static int ob_vollbild;                                     /* Praesentation laeuft im Vollbild */
 static void praes_vollbild_zeichnen(void);
@@ -804,7 +805,7 @@ static int flaeche;
 static char alog[10][100]; static int nalog, alauf = -1, pend;
 static void aufg_laden(void); static int aufg_zeile(int n, char* out, int max); static int aufg_zahl(void);
 static const char* const ag_name[9][2] = { { "Morgen-Briefing", "Morning briefing" }, { "Sicherheits-Agent", "Security agent" }, { "Wartungs-Agent", "Maintenance agent" }, { "Aufgaben-Agent", "Task agent" }, { "Dokument-Agent", "Document agent" }, { "Tabellen-Agent", "Sheet agent" }, { "Folien-Agent", "Slides agent" }, { "Ablauf-Agent (SmartBoard)", "Flow agent (SmartBoard)" }, { "Bild-Agent", "Image agent" } };
-static void zeichne_einst(void); static void zeichne_chats(void); static void zeichne_ged(void); static void zeichne_desktop(void); static void zeichne_editor(int voll); static void zeichne_web(int voll); static void zeichne_rechner(void); static void zeichne_info(void);
+static void zeichne_datei(void); static void zeichne_einst(void); static void zeichne_chats(void); static void zeichne_ged(void); static void zeichne_desktop(void); static void zeichne_editor(int voll); static void zeichne_web(int voll); static void zeichne_rechner(void); static void zeichne_info(void);
 static int fenster_idx(int typ) { for (int i = 0; i < nfen; i++) if (fen[i].typ == typ) return i; return -1; }
 static int schneidet(int x, int y, int w, int h, int x2, int y2, int w2, int h2) { return !(x + w <= x2 || x2 + w2 <= x || y + h <= y2 || y2 + h2 <= y); }
 static int deckt(int x, int y, int w, int h) {                /* liegt ein Fenster oder Widget ueber diesem Bereich? */
@@ -828,7 +829,7 @@ static int rad_modus(void);                                      /* 1 = Befehlsr
 static void rad_weg(void);
 static void busy_tick(void) { uint32_t f = timer_get_ticks() / 5; if (!busy_an || f != busy_f) { busy_an = 1; busy_f = f; lader(W - 70, H - 70, 28, f, C_WALL); } }
 static void busy_ende(void) { if (!busy_an) return; busy_an = 0; gfx_begin(); hg(W - 70 - 40, H - 70 - 40, 80, 80); gfx_end(); zeichne_desktop(); }
-static const char* fenster_titel(int typ) { if (typ == FT_MAL) return TR("Zynex Zeichnen", "Zynex Draw"); if (typ == FT_TAB) return TR("Zynex Tabelle", "Zynex Sheets"); if (typ == FT_PRAES) return TR("Zynex Praesentation", "Zynex Slides"); if (typ == FT_BOARD) return "SmartBoard"; if (typ == FT_GED) return TR("Gedaechtnis", "Memory"); if (typ == FT_EINST) return TR("Einstellungen", "Settings"); if (typ == FT_CHATS) return "Chats"; return typ == FT_EDIT ? TR("Zynex Text", "Zynex Text") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
+static const char* fenster_titel(int typ) { if (typ == FT_MAL) return TR("Zynex Zeichnen", "Zynex Draw"); if (typ == FT_TAB) return TR("Zynex Tabelle", "Zynex Sheets"); if (typ == FT_PRAES) return TR("Zynex Praesentation", "Zynex Slides"); if (typ == FT_BOARD) return "SmartBoard"; if (typ == FT_GED) return TR("Gedaechtnis", "Memory"); if (typ == FT_DATEI) return TR("Datei-Explorer", "File Explorer"); if (typ == FT_EINST) return TR("Einstellungen", "Settings"); if (typ == FT_CHATS) return "Chats"; return typ == FT_EDIT ? TR("Zynex Text", "Zynex Text") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
 static void fenster_zeichnen(int i) {
     struct fenster* f = &fen[i]; int top = (i == nfen - 1 && fok);
     gfx_begin();
@@ -862,7 +863,7 @@ static void fenster_zeichnen(int i) {
     rrect(f->x + f->w - 32, f->y + 5, 22, 20, 10, top ? 0x00EF4444u : C_OFF); gtxt(f->x + f->w - 25, f->y + 7, "x", 0x00FFFFFFu, 1);
     }
     kn_owner = i;
-    if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else if (f->typ == FT_EINST) zeichne_einst(); else if (f->typ == FT_CHATS) zeichne_chats(); else if (f->typ == FT_GED) zeichne_ged(); else if (f->typ == FT_TAB) zeichne_tabelle(); else if (f->typ == FT_PRAES) zeichne_praes(); else if (f->typ == FT_BOARD) zeichne_board(); else if (f->typ == FT_MAL) zeichne_mal(); else zeichne_info();
+    if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else if (f->typ == FT_EINST) zeichne_einst(); else if (f->typ == FT_CHATS) zeichne_chats(); else if (f->typ == FT_GED) zeichne_ged(); else if (f->typ == FT_DATEI) zeichne_datei(); else if (f->typ == FT_TAB) zeichne_tabelle(); else if (f->typ == FT_PRAES) zeichne_praes(); else if (f->typ == FT_BOARD) zeichne_board(); else if (f->typ == FT_MAL) zeichne_mal(); else zeichne_info();
     kn_owner = -1;
     gfx_end();
 }
@@ -1292,17 +1293,23 @@ static void zeichne_f_aufgaben(void) {
 }
 
 /* ---------- Dock: Programme unten in der Mitte (Glas, Symbole, Punkt = offen) ---------- */
-enum { K_DOCK0 = 260, NDOCK = 10, K_ORB = 290 };
-static const int dock_typ[NDOCK] = { FT_EDIT, FT_TAB, FT_PRAES, FT_BOARD, FT_MAL, FT_WEB, FT_RECH, FT_CHATS, FT_GED, FT_EINST };
+enum { K_DOCK0 = 260, NDOCK = 11, K_ORB = 290 };
+static const int dock_typ[NDOCK] = { FT_EDIT, FT_TAB, FT_PRAES, FT_BOARD, FT_MAL, FT_WEB, FT_RECH, FT_CHATS, FT_GED, FT_EINST, FT_DATEI };
 static const uint32_t dock_f[NDOCK][2] = { { 0x004F86E8u, 0x002B579Au }, { 0x0033A86Bu, 0x00217346u }, { 0x00F0703Cu, 0x00C43E1Cu }, { 0x009B4BE0u, 0x007719AAu }, { 0x00FACC15u, 0x00EA580Cu }, { 0x0038BDF8u, 0x000284C7u },
-                                          { 0x0094A3B8u, 0x00475569u }, { 0x002DD4BFu, 0x000F9488u }, { 0x00F472B6u, 0x00BE185Du }, { 0x0094A3B8u, 0x0064748Bu } };
+                                          { 0x0094A3B8u, 0x00475569u }, { 0x002DD4BFu, 0x000F9488u }, { 0x00F472B6u, 0x00BE185Du }, { 0x0094A3B8u, 0x0064748Bu }, { 0x00FBBF24u, 0x00D97706u } };
 static const char* const dock_n[NDOCK][2] = { { "Text", "Text" }, { "Tabelle", "Sheets" }, { "Praesentation", "Slides" }, { "SmartBoard", "SmartBoard" }, { "Zeichnen", "Draw" }, { "Browser", "Browser" },
-                                              { "Rechner", "Calculator" }, { "Chats", "Chats" }, { "Gedaechtnis", "Memory" }, { "Einstellungen", "Settings" } };
+                                              { "Rechner", "Calculator" }, { "Chats", "Chats" }, { "Gedaechtnis", "Memory" }, { "Einstellungen", "Settings" }, { "Dateien", "Files" } };
 static void dock_symbol(int i, int x, int y, int s) {
     if (i == 4) {                                                       /* Zeichnen: Palette mit Farbtupfern */
         rrect(x, y, s, s, s / 4, dock_f[4][1]); rrect(x, y, s, s * 3 / 5, s / 4, dock_f[4][0]); gfx_rect(x, y + s * 2 / 5, s, s / 5, mix(dock_f[4][0], dock_f[4][1], 128));
         int u = s / 12; rrect(x + 2 * u, y + 2 * u, 8 * u, 8 * u, 4 * u, 0x00FFFFFFu); rrect(x + 6 * u, y + 6 * u, 3 * u, 3 * u, 3 * u / 2, dock_f[4][1]);
         rrect(x + 3 * u, y + 4 * u, 2 * u, 2 * u, u, 0x00EF4444u); rrect(x + 5 * u, y + 3 * u, 2 * u, 2 * u, u, 0x003B82F6u); rrect(x + 3 * u, y + 7 * u, 2 * u, 2 * u, u, 0x0022C55Eu); rrect(x + 7 * u, y + 4 * u, 2 * u, 2 * u, u, 0x00EAB308u);
+        return;
+    }
+    if (i == 10) {                                                      /* Dateien: Ordner */
+        if (Q_GLAS && s > 24) { rrect(x, y, s, s, s / 4, mix(dock_f[10][0], dock_f[10][1], 128)); rr_grad(x + 2, y + 2, s - 4, s - 4, s / 4 - 2, mix(0x000E2038u, dock_f[10][0], 90), mix(0x00050B1Cu, dock_f[10][1], 110)); }
+        else { rrect(x, y, s, s, s / 4, dock_f[10][1]); rrect(x, y, s, s * 3 / 5, s / 4, dock_f[10][0]); }
+        int u = s / 12; rrect(x + 2 * u, y + 3 * u, 4 * u, 2 * u, u / 2, 0x00FFFFFFu); rrect(x + 2 * u, y + 4 * u, 8 * u, 5 * u, u, 0x00FFFFFFu); gfx_rect(x + 3 * u, y + 6 * u, 6 * u, 1 + u / 3, dock_f[10][1]);
         return;
     }
     if (i > 4) i--;
@@ -1500,6 +1507,7 @@ static void fenster_oeffnen(int typ) {
         if (nfen >= 6) { reply1(TR("Es sind schon 6 Fenster offen.", "6 windows are already open.")); return; }
         int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 660 : typ == FT_CHATS ? 720 : typ == FT_GED ? 700 : 480;
         int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 600 : typ == FT_CHATS ? 470 : typ == FT_GED ? 480 : 250;
+        if (typ == FT_DATEI) { w = 740; h = 500; }
         if (typ == FT_WEB && w < 640) w = W - 40;
         if (typ == FT_EDIT || typ == FT_TAB || typ == FT_PRAES || typ == FT_BOARD || typ == FT_WEB || typ == FT_MAL) { w = W - 60 < 1500 ? W - 60 : 1500; h = H - 70 < 900 ? H - 70 : 900; }
         int x = 60 + nfen * 36, y = 56 + nfen * 30;
@@ -1675,7 +1683,7 @@ static int pdf_drucken(const char* titel, const char* text) {
 #include "browser_ui.inc"
 
 /* ---------- Rechtsklick-Menue ---------- */
-enum { M_NEUDOK = 30, M_BROWSER, M_RECHNER, M_INFO, M_EINST, M_CHATS, M_GED, M_WUHR, M_WSYS, M_WAUF, M_WAGENT, M_WNOTIZ, M_WSCHL, M_FSCHL, M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN, M_BILDHG = 60 };
+enum { M_NEUDOK = 30, M_BROWSER, M_RECHNER, M_INFO, M_EINST, M_CHATS, M_GED, M_DATEI, M_WUHR, M_WSYS, M_WAUF, M_WAGENT, M_WNOTIZ, M_WSCHL, M_FSCHL, M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN, M_BILDHG = 60 };
 static int menu_bild = -1;
 static struct { int offen, x, y, w, n, hover, ziel; struct { int id; const char* de; const char* en; } p[16]; } menu;
 static int menu_link, menu_wid;
@@ -1720,7 +1728,7 @@ static void menu_oeffnen(int x, int y) {
     } else if (flaeche == 0) {
         menu_add(M_NEUDOK, "Neues Dokument", "New document"); menu_add(M_BROWSER, "Browser", "Browser"); menu_add(M_RECHNER, "Rechner", "Calculator"); menu_add(M_INFO, "System-Info", "System info");
         menu_add(M_WUHR, "Widget: Uhr", "Widget: clock"); menu_add(M_WSYS, "Widget: System", "Widget: system"); menu_add(M_WAUF, "Widget: Aufgaben", "Widget: tasks"); menu_add(M_WAGENT, "Widget: Agenten", "Widget: agents"); menu_add(M_WNOTIZ, "Notizzettel", "Sticky note");
-        menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_CHATS, "Chats", "Chats"); menu_add(M_GED, "Gedaechtnis", "Memory"); menu_add(M_EINST, "Einstellungen", "Settings");
+        menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_CHATS, "Chats", "Chats"); menu_add(M_GED, "Gedaechtnis", "Memory"); menu_add(M_DATEI, "Dateien", "Files"); menu_add(M_EINST, "Einstellungen", "Settings");
     } else {
         menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_VORIGE, "Vorherige Arbeitsflaeche", "Previous workspace");
     }
@@ -1783,6 +1791,7 @@ static void menu_aktion(int id) {
     case M_EINST: fenster_oeffnen(FT_EINST); return;
     case M_CHATS: fenster_oeffnen(FT_CHATS); return;
     case M_GED: fenster_oeffnen(FT_GED); return;
+    case M_DATEI: fenster_oeffnen(FT_DATEI); return;
     case M_WUHR: widget_neu(WG_UHR); return; case M_WSYS: widget_neu(WG_SYS); return; case M_WAUF: widget_neu(WG_AUF); return; case M_WAGENT: widget_neu(WG_AGENT); return; case M_WNOTIZ: widget_neu(WG_NOTIZ); return;
     case M_WSCHL: widget_weg(menu_wid); break;
     case M_FSCHL: if (nfen) { fenster_schliessen_typ(fen[nfen - 1].typ); return; } break;
@@ -2658,6 +2667,70 @@ static void entsperren_versuch(void) {
 #include "autotext.inc"
 #include "office.inc"
 
+/* ---------- Datei-Explorer (SynFS) ---------- */
+enum { K_DA0 = 900, K_DA_F0 = 920, K_DA_OEFF = 925, K_DA_DEL, K_DA_UP, K_DA_DN, K_DA_END };
+static int da_filter, da_sel, da_scroll, da_vfrage;
+static const char* const DA_ALLE[] = { "", 0 }, * const DA_TXT[] = { ".txt", 0 }, * const DA_BILD[] = { ".png", ".jpg", ".jpeg", ".gif", 0 };
+static const char* const* da_endungen(void) { return da_filter == 1 ? DA_TXT : da_filter == 2 ? DA_BILD : DA_ALLE; }
+static int da_zahl(void) { char nm[32]; int n = 0; while (synfs_nte_datei(n, da_endungen(), nm, 32)) n++; return n; }
+static int da_ist_bild(const char* n) { int l = slen(n); if (l < 4) return 0; const char* e = n + l - 4; return (e[0] == '.' && ((e[1] == 'p' && e[2] == 'n' && e[3] == 'g') || (e[1] == 'j' && e[2] == 'p' && e[3] == 'g') || (e[1] == 'g' && e[2] == 'i' && e[3] == 'f'))) || (l > 5 && n[l - 5] == '.' && n[l - 4] == 'j' && n[l - 3] == 'p' && n[l - 2] == 'e' && n[l - 1] == 'g'); }
+static int da_ist_txt(const char* n) { int l = slen(n); return l > 4 && n[l - 4] == '.' && n[l - 3] == 't' && n[l - 2] == 'x' && n[l - 1] == 't'; }
+static void da_klick(int id) {
+    char nm[32];
+    if (id >= K_DA0 && id < K_DA0 + 16) { da_sel = da_scroll + (id - K_DA0); da_vfrage = 0; }
+    else if (id >= K_DA_F0 && id < K_DA_F0 + 3) { da_filter = id - K_DA_F0; da_sel = 0; da_scroll = 0; da_vfrage = 0; }
+    else if (id == K_DA_UP) { if (da_scroll > 0) da_scroll--; }
+    else if (id == K_DA_DN) { if (da_scroll + 1 < da_zahl()) da_scroll++; }
+    else if (id == K_DA_OEFF && synfs_nte_datei(da_sel, da_endungen(), nm, 32)) {
+        kprint("[DESKTOP] Explorer oeffnet: "); kprint(nm); kprint("\n");
+        if (da_ist_txt(nm)) { editor_oeffnen(); dok_laden(nm); }
+        else if (da_ist_bild(nm)) { scopy(hg_datei, nm, 32); zdb_put("ui.hgbild", hg_datei); hg_nr = 5; th_speichern(); }
+        else reply1(TR("Diese Dateiart kann ich noch nicht oeffnen.", "I cannot open this file type yet."));
+    }
+    else if (id == K_DA_DEL && synfs_nte_datei(da_sel, da_endungen(), nm, 32)) {
+        if (da_vfrage) { synfs_delete(nm); kprint("[DESKTOP] Explorer geloescht: "); kprint(nm); kprint("\n"); da_vfrage = 0; if (da_sel > 0) da_sel--; } else da_vfrage = 1;
+    }
+    zeichne_desktop();
+}
+static void zeichne_datei(void) {
+    int wi = fenster_idx(FT_DATEI); if (wi < 0) return;
+    struct fenster* f = &fen[wi]; int ko = kn_owner; kn_owner = wi; kn_loesche_owner(wi);
+    int x0 = f->x + 2, y0 = f->y + WT_H, bh = f->h - WT_H - 4, sw = 170;
+    gfx_begin(); gfx_rect(x0, y0, f->w - 4, bh, C_BG);
+    int n = da_zahl(); if (da_sel >= n) da_sel = n ? n - 1 : 0; if (da_scroll > da_sel) da_scroll = da_sel;
+    int rows = (bh - 130) / 34; if (rows > 16) rows = 16; if (rows < 1) rows = 1; if (da_sel >= da_scroll + rows) da_scroll = da_sel - rows + 1;
+    static const char* const fn_de[3] = { "Alle Dateien", "Dokumente", "Bilder" }, * const fn_en[3] = { "All files", "Documents", "Images" };
+    for (int i = 0; i < 3; i++) {
+        int ry = y0 + 14 + i * 42, on = da_filter == i;
+        if (on) { rrect(x0 + 8, ry, sw - 8, 36, 12, mix(C_BG, Q_SKY, 110)); if (Q_GLAS) h_pille(x0 + 9, ry + 1, sw - 10, 34, 0x00083A55u, 0x002A1058u); else rrect(x0 + 9, ry + 1, sw - 10, 34, 11, mix(C_CARD, C_ACC, 90)); }
+        else rrect_rand(x0 + 8, ry, sw - 8, 36, 12, C_CARD, C_BORDER);
+        rrect(x0 + 20, ry + 11, 14, 14, 4, i == 0 ? Q_SKY : i == 1 ? Q_VIO : Q_ROSA); rrect(x0 + 22, ry + 13, 10, 10, 3, on ? 0x00FFFFFFu : mix(C_BG, C_CARD, 128));
+        gtxt(x0 + 44, ry + 9, lang == 0 ? fn_de[i] : fn_en[i], on ? 0x00FFFFFFu : C_TEXT, 1); kn_reg(K_DA_F0 + i, x0 + 8, ry, sw - 8, 36);
+    }
+    { char t[40], a[8]; dec(a, (uint32_t)n); scopy(t, a, 40); cat(t, TR(" Dateien in SynFS", " files in SynFS"), 40); gtxt(x0 + 14, y0 + bh - 30, t, C_MUTED, 1); }
+    int rx = x0 + sw + 14, rw = f->w - 4 - sw - 22;
+    rrect_rand(rx, y0 + 12, rw, 30, 15, mix(C_BG, C_CARD, 128), C_BORDER);
+    { char t[60]; scopy(t, "zynex:/", 60); cat(t, lang == 0 ? fn_de[da_filter] : fn_en[da_filter], 60); gtxt(rx + 16, y0 + 19, t, Q_GLAS ? Q_CY : C_ACC2, 1); }
+    int ly = y0 + 54;
+    for (int i = 0; i < rows; i++) {
+        char nm[32]; if (!synfs_nte_datei(da_scroll + i, da_endungen(), nm, 32)) break;
+        int ry = ly + i * 34, on = da_scroll + i == da_sel;
+        if (on) { rrect(rx, ry, rw, 30, 11, mix(C_BG, Q_CY, 120)); if (Q_GLAS) h_pille(rx + 1, ry + 1, rw - 2, 28, 0x00083A55u, 0x002A1058u); else rrect(rx + 1, ry + 1, rw - 2, 28, 10, mix(C_CARD, C_ACC, 90)); }
+        else { rrect(rx, ry, rw, 30, 11, mix(C_BG, C_BORDER, 40)); rrect(rx + 1, ry + 1, rw - 2, 28, 10, mix(C_BG, C_CARD, 150)); }
+        uint32_t ic = da_ist_bild(nm) ? Q_ROSA : da_ist_txt(nm) ? Q_SKY : C_MUTED;
+        rrect(rx + 10, ry + 6, 16, 18, 4, ic); rrect(rx + 12, ry + 8, 12, 14, 3, mix(C_BG, ic, 60)); gfx_rect(rx + 15, ry + 12, 6, 1, 0x00FFFFFFu); gfx_rect(rx + 15, ry + 16, 6, 1, 0x00FFFFFFu);
+        gtxt(rx + 36, ry + 7, nm, on ? 0x00FFFFFFu : C_TEXT, 1);
+        { const char* tg = da_ist_bild(nm) ? TR("BILD", "IMAGE") : da_ist_txt(nm) ? TR("TEXT", "TEXT") : "DATA"; int tw = gtw(tg, 1) + 16; rrect(rx + rw - tw - 10, ry + 5, tw, 20, 10, mix(C_BG, ic, 70)); gtxt(rx + rw - tw - 2, ry + 7, tg, 0x00FFFFFFu, 1); }
+        kn_reg(K_DA0 + i, rx, ry, rw, 30);
+    }
+    if (!n) gtxt(rx + 10, ly + 8, TR("Keine Dateien. Speichere z.B. ein Dokument in Zynex Text.", "No files. Save a document in Zynex Text, for example."), C_MUTED, 1);
+    int yb = y0 + bh - 46;
+    knopf(K_DA_OEFF, TR("Oeffnen", "Open"), rx, yb, 120, 1);
+    knopf(K_DA_DEL, da_vfrage ? TR("Wirklich?", "Really?") : TR("Loeschen", "Delete"), rx + 128, yb, 130, da_vfrage);
+    knopf(K_DA_UP, "^", rx + rw - 84, yb, 38, 0); knopf(K_DA_DN, "v", rx + rw - 40, yb, 38, 0);
+    gfx_end(); kn_owner = ko;
+}
+
 static void taste_roh(uint8_t k, int shift, int altgr) {
     if (menu.offen) { if (k == 0x29) menu_schliessen(); return; }
     if (zustand != Z_LOGIN && k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }
@@ -3013,6 +3086,7 @@ static void klick(int x, int y, int owner) {
         else if (zustand == Z_INFO && id >= K_EIN0 && id < K_EIN0 + 60) einst_klick(id);
         else if (zustand == Z_INFO && id >= K_CH0 && id < K_CH_DEL + 1) chats_klick(id);
         else if (zustand == Z_INFO && id >= K_GED_SCHLAF && id <= K_GED_VERG) ged_klick(id);
+        else if (zustand == Z_INFO && id >= K_DA0 && id < K_DA_END) da_klick(id);
         else if (zustand == Z_RECH && id >= K_RB0 && id < K_RB0 + 20) { rech_druecke(rtasten[id - K_RB0]); zeichne_rechner(); }
         else if (zustand == Z_DESK && id == K_AUFLEER) { aufg_leeren(); kprint("[DESKTOP] Aufgaben geleert\n"); zeichne_desktop(); }
         else if (zustand == Z_EDIT && id == K_SPEICHERN) { dok_speichern(); zeichne_editor(0); }

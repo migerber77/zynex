@@ -1,8 +1,8 @@
 /*
  * Zynex Office - wird in desktop.c eingebunden (nutzt dessen Zeichenhilfen, Fenster und Knoepfe).
  *   Zynex Text (wie Word), Zynex Tabelle (wie Excel), Zynex Praesentation (wie PowerPoint), SmartBoard (Zeichenflaeche wie in AuraChat).
- *   Jedes Programm: Titelleiste in der Programmfarbe, Reiter "Start" und "Zynie (KI)", Menueband, Statuszeile in der Programmfarbe,
- *   rechts der Zynie-Bereich (KI-Assistent: freie Frage zum Inhalt, Antwort uebernehmen). Agenten (Arbeitsflaeche 3) arbeiten mit den Daten.
+ *   Jedes Programm: Titelleiste in der Programmfarbe, Reiter "Start" und "Zynos (KI)", Menueband, Statuszeile in der Programmfarbe,
+ *   rechts der Zynos-Bereich (KI-Assistent: freie Frage zum Inhalt, Antwort uebernehmen). Agenten (Arbeitsflaeche 3) arbeiten mit den Daten.
  */
 
 #define OC_WORD  0x002B579Au
@@ -23,7 +23,7 @@ static uint32_t ob_farbe(int typ) { return typ == FT_EDIT ? OC_WORD : typ == FT_
 enum { K_OF0 = 600, K_OTAB0 = 600, K_OKP = 610, K_OKP_SEND, K_OKP_UEB, K_OKP_KOP, K_OKP_FELD, K_OKP_ZU, K_OKP_AUF, K_OKP_AB,
        K_W0 = 620, K_T0 = 650, K_P0 = 680, K_PTH = 700, K_B0 = 730, K_OF_END = 860 };
 
-static int ob_tab[12];                         /* gewaehlter Reiter je Programm (0 Start, 1 Zynie) */
+static int ob_tab[12];                         /* gewaehlter Reiter je Programm (0 Start, 1 Zynos) */
 static char ob_meld[100];                      /* Meldung in der Statuszeile */
 static int ob_maus;                            /* 1 = Maus wird in einem Programm gezogen (SmartBoard) */
 static void ob_neu_zeichnen(int typ);
@@ -79,7 +79,7 @@ static int ob_speichere(const char* name, const char* d, int n) {
     scopy(ob_meld, TR("Gespeichert: ", "Saved: "), 100); cat(ob_meld, name, 100); return 0;
 }
 
-/* ---------- KI: externer Anbieter (Einstellungen) oder Zynie lokal ---------- */
+/* ---------- KI: externer Anbieter (Einstellungen) oder Zynos lokal ---------- */
 static void ob_ki_cb(const char* t, int n) { (void)t; (void)n; busy_tick(); }
 static int ob_ki(const char* auftrag, const char* daten, char* out, int max) {
     static char p[3000]; p[0] = 0;
@@ -102,7 +102,7 @@ static int ob_ki(const char* auftrag, const char* daten, char* out, int max) {
     return slen(out);
 }
 
-/* ---------- Zynie-Bereich (rechts in jedem Programm) ---------- */
+/* ---------- Zynos-Bereich (rechts in jedem Programm) ---------- */
 enum { KA_KEINE, KA_ANHAENGEN, KA_ERSETZEN, KA_TAB, KA_FOLIEN, KA_FOLIE, KA_NOTIZ };
 enum { KE_FRAGE, KE_TAB, KE_FOLIEN, KE_MAL, KE_MAL_DAZU };
 static int kp_auf[12], kp_quelle, kp_scroll, kp_fokus, kp_aktion, kp_modus, kp_einlen;
@@ -110,30 +110,30 @@ static char kp_text[2400], kp_ein[200];
 #define KP_B 330
 static void kp_zeige(int typ, const char* t, int aktion) { kp_auf[typ] = 1; kp_quelle = typ; scopy(kp_text, t, sizeof(kp_text)); kp_aktion = aktion; kp_scroll = 0; }
 static void kp_zeichnen(int typ, int x, int y, int w, int h) {
-    uint32_t oc = ob_farbe(typ);
-    gfx_rect(x, y, w, h, O_WEISS); gfx_rect(x, y, 1, h, O_RAND);
-    rrect(x + 14, y + 14, 14, 14, 7, oc); rrect(x + 18, y + 18, 6, 6, 3, O_WEISS);
-    gtxt(x + 36, y + 13, TR("Zynie - KI-Assistent", "Zynie - AI assistant"), O_TXT, 1);
-    rrect(x + w - 30, y + 10, 22, 22, 4, O_RIB); gtxt(x + w - 23, y + 13, "x", O_GRAU, 1); kn_reg(K_OKP_ZU, x + w - 30, y + 10, 22, 22);
-    gtxt(x + 14, y + 36, ext_quelle() ? ext_name(ext_quelle()) : gehirn_vorhanden() ? TR("Zynie (lokal)", "Zynie (local)") : TR("keine KI eingerichtet", "no AI set up"), O_GRAU, 1);
-    gfx_rect(x + 14, y + 58, w - 28, 1, O_HELL);
+    uint32_t oc = ob_farbe(typ); int g = Q_GLAS; uint32_t pb = g ? 0x00081226u : O_WEISS, pt = g ? 0x00E2E8F0u : O_TXT, pgr = g ? 0x0094A3B8u : O_GRAU, pr = g ? 0x00152A47u : O_RIB, pl = g ? 0x00213A5Cu : O_RAND;
+    gfx_rect(x, y, w, h, pb); gfx_rect(x, y, 1, h, pl);
+    rrect(x + 14, y + 14, 14, 14, 7, oc); rrect(x + 18, y + 18, 6, 6, 3, pb);
+    gtxt(x + 36, y + 13, TR("Zynos - KI-Assistent", "Zynos - AI assistant"), pt, 1);
+    rrect(x + w - 30, y + 10, 22, 22, 4, pr); gtxt(x + w - 23, y + 13, "x", pgr, 1); kn_reg(K_OKP_ZU, x + w - 30, y + 10, 22, 22);
+    gtxt(x + 14, y + 36, ext_quelle() ? ext_name(ext_quelle()) : gehirn_vorhanden() ? TR("Zynos (lokal)", "Zynos (local)") : TR("keine KI eingerichtet", "no AI set up"), pgr, 1);
+    gfx_rect(x + 14, y + 58, w - 28, 1, pl);
     int ty = y + 68, th = h - 68 - 112, zl = th / 18;
     static char z[120][100];
     int n = 0;
     if (kp_quelle == typ && kp_text[0]) n = ob_umbruch(kp_text, (w - 36) / 8, z, 120);
     else {
-        const char* hilfe = typ == FT_EDIT ? TR("Frag mich etwas zu deinem Dokument, oder nutze den Reiter \"Zynie (KI)\": Zusammenfassen, Verbessern, Fortsetzen, Uebersetzen.", "Ask me about your document or use the \"Zynie (AI)\" tab.")
+        const char* hilfe = typ == FT_EDIT ? TR("Frag mich etwas zu deinem Dokument, oder nutze den Reiter \"Zynos (KI)\": Zusammenfassen, Verbessern, Fortsetzen, Uebersetzen.", "Ask me about your document or use the \"Zynos (AI)\" tab.")
                           : typ == FT_TAB ? TR("Frag mich etwas zu deiner Tabelle, oder lass mich eine Tabelle aus einer Beschreibung erzeugen.", "Ask about your sheet or let me create a sheet from a description.")
                           : typ == FT_PRAES ? TR("Nenne ein Thema, und ich erstelle die Folien. Oder frag mich etwas zu deiner Praesentation.", "Name a topic and I create the slides, or ask about your presentation.")
-                          : typ == FT_MAL ? TR("Beschreibe ein Motiv, und ich zeichne es auf die Leinwand (Reiter Zynie: Zynie zeichnet). Strg+Z macht es rueckgaengig.", "Describe a subject and I draw it on the canvas. Ctrl+Z undoes it.")
+                          : typ == FT_MAL ? TR("Beschreibe ein Motiv, und ich zeichne es auf die Leinwand (Reiter Zynos: Zynos zeichnet). Strg+Z macht es rueckgaengig.", "Describe a subject and I draw it on the canvas. Ctrl+Z undoes it.")
                           : TR("Ich lese dein Diagramm mit: erklaeren, analysieren, beraten, Risiken, Schritte. Oder stell eine eigene Frage.", "I read your diagram: explain, analyse, advise, risks, steps. Or ask your own question.");
         n = ob_umbruch(hilfe, (w - 36) / 8, z, 120);
     }
     if (kp_scroll > n - zl) kp_scroll = n - zl; if (kp_scroll < 0) kp_scroll = 0;
-    for (int i = 0; i < zl && kp_scroll + i < n; i++) gtxt(x + 16, ty + i * 18, z[kp_scroll + i], (kp_quelle == typ && kp_text[0]) ? O_TXT : O_GRAU, 1);
+    for (int i = 0; i < zl && kp_scroll + i < n; i++) gtxt(x + 16, ty + i * 18, z[kp_scroll + i], (kp_quelle == typ && kp_text[0]) ? pt : pgr, 1);
     if (n > zl) {
-        rrect(x + w - 26, ty, 18, 18, 4, O_RIB); gtxt(x + w - 21, ty + 1, "^", O_GRAU, 1); kn_reg(K_OKP_AUF, x + w - 26, ty, 18, 18);
-        rrect(x + w - 26, ty + th - 20, 18, 18, 4, O_RIB); gtxt(x + w - 21, ty + th - 19, "v", O_GRAU, 1); kn_reg(K_OKP_AB, x + w - 26, ty + th - 20, 18, 18);
+        rrect(x + w - 26, ty, 18, 18, 4, pr); gtxt(x + w - 21, ty + 1, "^", pgr, 1); kn_reg(K_OKP_AUF, x + w - 26, ty, 18, 18);
+        rrect(x + w - 26, ty + th - 20, 18, 18, 4, pr); gtxt(x + w - 21, ty + th - 19, "v", pgr, 1); kn_reg(K_OKP_AB, x + w - 26, ty + th - 20, 18, 18);
     }
     int by = y + h - 104;
     if (kp_quelle == typ && kp_text[0]) {
@@ -141,12 +141,12 @@ static void kp_zeichnen(int typ, int x, int y, int w, int h) {
                        : kp_aktion == KA_FOLIEN ? TR("Folien erstellen", "Create slides") : kp_aktion == KA_FOLIE ? TR("Folie ersetzen", "Replace slide") : kp_aktion == KA_NOTIZ ? TR("Als Notiz aufs Board", "As note on board") : 0;
         int bx = x + 14;
         if (ue) { int bw = gtw(ue, 1) + 24; rrect(bx, by, bw, 28, 4, oc); gtxt(bx + 12, by + 6, ue, O_WEISS, 1); kn_reg(K_OKP_UEB, bx, by, bw, 28); bx += bw + 8; }
-        { const char* k = TR("Kopieren", "Copy"); int bw = gtw(k, 1) + 24; rrect_rand(bx, by, bw, 28, 4, O_WEISS, O_RAND); gtxt(bx + 12, by + 6, k, O_TXT, 1); kn_reg(K_OKP_KOP, bx, by, bw, 28); }
+        { const char* k = TR("Kopieren", "Copy"); int bw = gtw(k, 1) + 24; rrect_rand(bx, by, bw, 28, 4, pb, pl); gtxt(bx + 12, by + 6, k, pt, 1); kn_reg(K_OKP_KOP, bx, by, bw, 28); }
     }
     int fy = y + h - 64;
-    rrect_rand(x + 14, fy, w - 28, 50, 8, O_WEISS, kp_fokus == typ ? oc : O_RAND);
-    if (kp_einlen) { char t[60]; int mc = (w - 130) / 8; if (mc > 58) mc = 58; int von = kp_einlen > mc ? kp_einlen - mc : 0; scopy(t, kp_ein + von, 60); gtxt(x + 24, fy + 16, t, O_TXT, 1); if (kp_fokus == typ) gfx_rect(x + 24 + gtw(t, 1), fy + 13, 2, 20, oc); }
-    else gtxt(x + 24, fy + 16, (kp_modus == KE_MAL || kp_modus == KE_MAL_DAZU) && kp_fokus == typ ? TR("Was soll ich zeichnen?", "What should I draw?") : kp_modus == KE_TAB && kp_fokus == typ ? TR("Beschreibe die Tabelle ...", "Describe the sheet ...") : kp_modus == KE_FOLIEN && kp_fokus == typ ? TR("Thema der Praesentation ...", "Topic of the presentation ...") : TR("Frag Zynie ...", "Ask Zynie ..."), 0x00A19F9Du, 1);
+    rrect_rand(x + 14, fy, w - 28, 50, 8, pb, kp_fokus == typ ? oc : pl);
+    if (kp_einlen) { char t[60]; int mc = (w - 130) / 8; if (mc > 58) mc = 58; int von = kp_einlen > mc ? kp_einlen - mc : 0; scopy(t, kp_ein + von, 60); gtxt(x + 24, fy + 16, t, pt, 1); if (kp_fokus == typ) gfx_rect(x + 24 + gtw(t, 1), fy + 13, 2, 20, oc); }
+    else gtxt(x + 24, fy + 16, (kp_modus == KE_MAL || kp_modus == KE_MAL_DAZU) && kp_fokus == typ ? TR("Was soll ich zeichnen?", "What should I draw?") : kp_modus == KE_TAB && kp_fokus == typ ? TR("Beschreibe die Tabelle ...", "Describe the sheet ...") : kp_modus == KE_FOLIEN && kp_fokus == typ ? TR("Thema der Praesentation ...", "Topic of the presentation ...") : TR("Frag Zynos ...", "Ask Zynos ..."), 0x00A19F9Du, 1);
     kn_reg(K_OKP_FELD, x + 14, fy, w - 100, 50);
     rrect(x + w - 82, fy + 10, 60, 30, 6, oc); gtxt(x + w - 76, fy + 17, TR("Los", "Go"), O_WEISS, 1); kn_reg(K_OKP_SEND, x + w - 82, fy + 10, 60, 30);
 }
@@ -165,12 +165,12 @@ static void rb_gruppe(const char* name) {
     gtxt(rb_gx + (w - tw) / 2, rb_y + 34, name, Q_GLAS ? 0x006F86A3u : 0x00A19F9Du, 1);
     gfx_rect(rb_x + 4, rb_y - 2, 1, 52, Q_GLAS ? 0x00213A5Cu : O_HELL); rb_x += 12; rb_gx = rb_x;
 }
-/* zeichnet Reiter, Menueband (leer) und Statuszeile; liefert den Arbeitsbereich (ohne Zynie-Bereich) */
+/* zeichnet Reiter, Menueband (leer) und Statuszeile; liefert den Arbeitsbereich (ohne Zynos-Bereich) */
 static int oa_x, oa_y, oa_w, oa_h, os_y, kp_x;
 static void ob_rahmen(int wi, int typ, const char* status) {
     struct fenster* f = &fen[wi]; int x0 = f->x + 2, y0 = f->y + WT_H, w0 = f->w - 4, h0 = f->h - WT_H - 2; uint32_t oc = ob_farbe(typ);
     if (Q_GLAS) h_grad(x0, y0, w0, 30, mix(0x00061C33u, Q_CY, 70), mix(0x00160A36u, Q_VIO, 110)); else gfx_rect(x0, y0, w0, 30, oc);
-    const char* tn[3] = { TR("Start", "Home"), TR("Zynie (KI)", "Zynie (AI)"), TR("Format", "Format") };
+    const char* tn[3] = { TR("Start", "Home"), TR("Zynos (KI)", "Zynos (AI)"), TR("Format", "Format") };
     int tx = x0 + 12; static const int tord[3] = { 0, 2, 1 }; int nt = typ == FT_EDIT ? 3 : 2;
     for (int q = 0; q < nt; q++) {
         int t = nt == 3 ? tord[q] : q;
@@ -179,7 +179,7 @@ static void ob_rahmen(int wi, int typ, const char* status) {
         else gtxt(tx + 14, y0 + 10, tn[t], O_WEISS, 1);
         kn_reg(K_OTAB0 + t, tx, y0 + 2, tw, 28); tx += tw + 4;
     }
-    { const char* z = TR("Zynie-Bereich", "Zynie pane"); int zw = gtw(z, 1) + 24, zx = x0 + w0 - zw - 12;
+    { const char* z = TR("Zynos-Bereich", "Zynos pane"); int zw = gtw(z, 1) + 24, zx = x0 + w0 - zw - 12;
       rrect(zx, y0 + 4, zw, 22, 11, kp_auf[typ] ? O_WEISS : mix(oc, O_WEISS, 60)); gtxt(zx + 12, y0 + 7, z, kp_auf[typ] ? oc : O_WEISS, 1); kn_reg(K_OKP, zx, y0 + 4, zw, 22); }
     if (Q_GLAS) { rr_grad(x0, y0 + 30, w0, 62, 0, 0x000C1B35u, 0x00081227u); gfx_rect(x0, y0 + 91, w0, 1, mix(C_BG, Q_SKY, 110)); } else { gfx_rect(x0, y0 + 30, w0, 62, O_RIB); gfx_rect(x0, y0 + 91, w0, 1, O_RAND); }
     rb_start(x0, y0 + 38);
@@ -218,7 +218,7 @@ static void ob_word(int voll) {
             rb_knopf(K_W0 + 19, TR("F", "B"), sj & ST_FETT, OC_WORD); rb_knopf(K_W0 + 20, TR("K", "I"), sj & ST_KURSIV, OC_WORD); rb_knopf(K_W0 + 21, "U", sj & ST_UNTER, OC_WORD); rb_gruppe(TR("Stil", "Style"));
             rb_knopf(K_W0 + 22, TR("Ueberschrift", "Heading"), 0, OC_WORD); rb_knopf(K_W0 + 23, TR("Untertitel", "Subtitle"), 0, OC_WORD); rb_knopf(K_W0 + 24, TR("Normal", "Normal"), 0, OC_WORD); rb_gruppe(TR("Vorlage", "Style set"));
         } else {
-            rb_knopf(K_W0 + 6, TR("Zusammenfassen", "Summarise"), 0, OC_WORD); rb_knopf(K_W0 + 7, TR("Verbessern", "Improve"), 0, OC_WORD); rb_knopf(K_W0 + 8, TR("Fortsetzen", "Continue"), 0, OC_WORD); rb_knopf(K_W0 + 9, TR("Uebersetzen", "Translate"), 0, OC_WORD); rb_gruppe(TR("Zynie schreibt mit", "Zynie writes"));
+            rb_knopf(K_W0 + 6, TR("Zusammenfassen", "Summarise"), 0, OC_WORD); rb_knopf(K_W0 + 7, TR("Verbessern", "Improve"), 0, OC_WORD); rb_knopf(K_W0 + 8, TR("Fortsetzen", "Continue"), 0, OC_WORD); rb_knopf(K_W0 + 9, TR("Uebersetzen", "Translate"), 0, OC_WORD); rb_gruppe(TR("Zynos schreibt mit", "Zynos writes"));
             rb_knopf(K_W0 + 10, TR("Als Praesentation", "As presentation"), 0, OC_WORD); rb_gruppe(TR("Umwandeln", "Convert"));
             rb_knopf(K_W0 + 11, TR("Dokument-Agent", "Document agent"), 0, OC_WORD); rb_knopf(K_W0 + 12, TR("Folien-Agent", "Slides agent"), 0, OC_WORD); rb_gruppe(TR("Agenten", "Agents"));
         }
@@ -458,7 +458,7 @@ static void zeichne_tabelle(void) {
         { uint8_t sj = t_stil(t_r, t_c); rb_knopf(K_T0 + 11, TR("F", "B"), sj & ST_FETT, OC_EXCEL); rb_knopf(K_T0 + 12, TR("K", "I"), sj & ST_KURSIV, OC_EXCEL); rb_knopf(K_T0 + 13, "U", sj & ST_UNTER, OC_EXCEL);
           rb_knopf(K_T0 + 14, "A-", 0, OC_EXCEL); rb_knopf(K_T0 + 15, "A+", 0, OC_EXCEL); rb_knopf(K_T0 + 16, (sj & ST_MONO) ? TR("Schrift: Schreibmaschine", "Font: Typewriter") : TR("Schrift: Sans", "Font: Sans"), 0, OC_EXCEL); rb_gruppe(TR("Format", "Format")); }
     } else {
-        rb_knopf(K_T0 + 7, TR("Analysieren", "Analyse"), 0, OC_EXCEL); rb_knopf(K_T0 + 8, TR("Tabelle aus Beschreibung", "Sheet from description"), 0, OC_EXCEL); rb_knopf(K_T0 + 9, TR("Formel erklaeren", "Explain formula"), 0, OC_EXCEL); rb_gruppe(TR("Zynie rechnet mit", "Zynie helps"));
+        rb_knopf(K_T0 + 7, TR("Analysieren", "Analyse"), 0, OC_EXCEL); rb_knopf(K_T0 + 8, TR("Tabelle aus Beschreibung", "Sheet from description"), 0, OC_EXCEL); rb_knopf(K_T0 + 9, TR("Formel erklaeren", "Explain formula"), 0, OC_EXCEL); rb_gruppe(TR("Zynos rechnet mit", "Zynos helps"));
         rb_knopf(K_T0 + 10, TR("Tabellen-Agent", "Sheet agent"), 0, OC_EXCEL); rb_gruppe(TR("Agenten", "Agents"));
     }
     /* Bearbeitungsleiste */
@@ -681,7 +681,7 @@ static void zeichne_praes(void) {
           rb_knopf(K_P0 + 14, "A-", 0, OC_PPT); rb_knopf(K_P0 + 15, "A+", 0, OC_PPT); rb_knopf(K_P0 + 16, (sj & ST_MONO) ? TR("Schrift: Schreibmaschine", "Font: Typewriter") : TR("Schrift: Sans", "Font: Sans"), 0, OC_PPT); rb_gruppe(TR("Format", "Format")); }
         rb_knopf(K_P0 + 6, TR("Vorfuehren (F5)", "Present (F5)"), 0, OC_PPT); rb_gruppe(TR("Bildschirmpraesentation", "Slide show"));
     } else {
-        rb_knopf(K_P0 + 7, TR("Folien aus Thema", "Slides from topic"), 0, OC_PPT); rb_knopf(K_P0 + 8, TR("Aus Dokument", "From document"), 0, OC_PPT); rb_knopf(K_P0 + 9, TR("Folie verbessern", "Improve slide"), 0, OC_PPT); rb_gruppe(TR("Zynie gestaltet mit", "Zynie designs"));
+        rb_knopf(K_P0 + 7, TR("Folien aus Thema", "Slides from topic"), 0, OC_PPT); rb_knopf(K_P0 + 8, TR("Aus Dokument", "From document"), 0, OC_PPT); rb_knopf(K_P0 + 9, TR("Folie verbessern", "Improve slide"), 0, OC_PPT); rb_gruppe(TR("Zynos gestaltet mit", "Zynos designs"));
         rb_knopf(K_P0 + 10, TR("Folien-Agent", "Slides agent"), 0, OC_PPT); rb_gruppe(TR("Agenten", "Agents"));
     }
     int ax = oa_x, ay = oa_y, aw = oa_w, ah = oa_h;
@@ -914,7 +914,7 @@ static void zeichne_board(void) {
         rb_knopf(K_B0 + 13, TR("Loeschen", "Delete"), 0, OC_BOARD); rb_knopf(K_B0 + 14, TR("Flow-Check (F)", "Flow check (F)"), 0, OC_BOARD); rb_gruppe(TR("Pruefen", "Check"));
     } else {
         static const char* const KN[6][2] = { { "Erklaeren", "Explain" }, { "Analysieren", "Analyse" }, { "Beraten", "Advise" }, { "Risiken", "Risks" }, { "Schritte", "Steps" }, { "Verbessern", "Improve" } };
-        for (int i = 0; i < 6; i++) rb_knopf(K_B0 + 15 + i, KN[i][lang == 0 ? 0 : 1], 0, OC_BOARD); rb_gruppe(TR("Zynie liest mit", "Zynie reads along"));
+        for (int i = 0; i < 6; i++) rb_knopf(K_B0 + 15 + i, KN[i][lang == 0 ? 0 : 1], 0, OC_BOARD); rb_gruppe(TR("Zynos liest mit", "Zynos reads along"));
         rb_knopf(K_B0 + 21, TR("An Agent uebergeben", "Hand to agent"), 0, OC_BOARD); rb_gruppe(TR("Agenten", "Agents"));
     }
     int ax = oa_x, ay = oa_y, ah = oa_h, sw = 168;
@@ -1004,7 +1004,7 @@ static void kp_senden(int typ) {
         else { b_struktur(d, sizeof(d)); akt = KA_NOTIZ; }
     }
     if ((kp_modus == KE_MAL || kp_modus == KE_MAL_DAZU) && typ == FT_MAL) {
-        int dazu = kp_modus == KE_MAL_DAZU; kprint("[OFFICE] Zynie zeichnet: "); kprint(kp_ein); kprint("\n");
+        int dazu = kp_modus == KE_MAL_DAZU; kprint("[OFFICE] Zynos zeichnet: "); kprint(kp_ein); kprint("\n");
         char motiv[200]; scopy(motiv, kp_ein, 200); kp_einlen = 0; kp_ein[0] = 0; kp_fokus = 0; kp_modus = KE_FRAGE;
         if (mal_speicher()) return;
         m_merken(); m_geaendert = 1; ob_meld[0] = 0;
@@ -1012,7 +1012,7 @@ static void kp_senden(int typ) {
         static char z[2400]; scopy(z, TR("Gezeichnet. Rueckgaengig: Strg+Z.\n\nBefehle:\n", "Done. Undo: Ctrl+Z.\n\nCommands:\n"), sizeof(z)); cat(z, out, sizeof(z));
         kp_zeige(FT_MAL, z, KA_KEINE); return;
     }
-    kprint("[OFFICE] Frage an Zynie: "); kprint(kp_ein); kprint("\n");
+    kprint("[OFFICE] Frage an Zynos: "); kprint(kp_ein); kprint("\n");
     kp_einlen = 0; kp_ein[0] = 0; kp_fokus = 0; kp_modus = KE_FRAGE;
     int n = ob_ki(auftrag, d, out, sizeof(out));
     kp_zeige(typ, out, n > 0 ? akt : KA_KEINE);
@@ -1184,7 +1184,7 @@ static void ag_office(int i) {
         scopy(z, TR("Dokument gelesen: ", "Document read: "), 100); dec(a, (uint32_t)w); cat(z, a, 100); cat(z, TR(" Woerter, ", " words, "), 100); dec(a, (uint32_t)sz); cat(z, a, 100); cat(z, TR(" Saetze", " sentences"), 100); al(z);
         int ki = ext_quelle() || gehirn_vorhanden(), n = -1;
         if (i == 4) {
-            if (ki) { al(TR("Zynie fasst zusammen ...", "Zynie is summarising ...")); n = ob_ki(TR("Fasse diesen Text kurz zusammen (3 bis 5 Saetze).", "Summarise this text briefly (3 to 5 sentences)."), q, ag_text, sizeof(ag_text)); }
+            if (ki) { al(TR("Zynos fasst zusammen ...", "Zynos is summarising ...")); n = ob_ki(TR("Fasse diesen Text kurz zusammen (3 bis 5 Saetze).", "Summarise this text briefly (3 to 5 sentences)."), q, ag_text, sizeof(ag_text)); }
             if (n <= 0) {                                            /* ohne KI: die ersten drei Saetze */
                 int k = 0, s = 0, o = 0; while (q[k] && s < 3 && o < 1200) { char c = q[k++]; ag_text[o++] = c == '\n' ? ' ' : c; if (c == '.' || c == '!' || c == '?') s++; } ag_text[o] = 0;
                 al(TR("Ohne KI: die ersten Saetze als Zusammenfassung.", "Without AI: the first sentences as summary."));
@@ -1193,7 +1193,7 @@ static void ag_office(int i) {
             al(TR("Vorschlag: als neues Dokument speichern.", "Proposal: save as a new document.")); pend = 3;
             kprint("[AGENT] Freigabe angefragt: Zusammenfassung speichern\n");
         } else {
-            if (ki) { al(TR("Zynie entwirft die Folien ...", "Zynie drafts the slides ...")); n = ob_ki(TR("Mache aus diesem Text eine Praesentation. Antworte NUR in diesem Format: je Folie eine Zeile '# Titel', darunter 3 bis 5 Stichpunkte mit '- '. Hoechstens 6 Folien.", "Turn this text into a presentation. Reply ONLY in this format: one line '# Title' per slide, below it 3 to 5 bullets with '- '. At most 6 slides."), q, ag_text, sizeof(ag_text)); }
+            if (ki) { al(TR("Zynos entwirft die Folien ...", "Zynos drafts the slides ...")); n = ob_ki(TR("Mache aus diesem Text eine Praesentation. Antworte NUR in diesem Format: je Folie eine Zeile '# Titel', darunter 3 bis 5 Stichpunkte mit '- '. Hoechstens 6 Folien.", "Turn this text into a presentation. Reply ONLY in this format: one line '# Title' per slide, below it 3 to 5 bullets with '- '. At most 6 slides."), q, ag_text, sizeof(ag_text)); }
             if (n <= 0) {                                            /* ohne KI: Absaetze werden Folien, die erste Zeile ist der Titel */
                 int o = 0, k = 0, neu = 1; ag_text[0] = 0;
                 while (q[k] && o < (int)sizeof(ag_text) - 8) {

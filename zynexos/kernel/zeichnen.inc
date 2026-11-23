@@ -1,6 +1,6 @@
 /* ======================================================================= Zynex Zeichnen =======================================================================
  * Leinwand im Speicher (0x00RRGGBB), Werkzeuge: Pinsel, Radierer, Linie, Rechteck, Ellipse, Fuellen, Text, Pipette; Rueckgaengig (5 Schritte),
- * Effekte, Speichern/Oeffnen als PNG. KI: "Zynie zeichnet" (Beschreibung -> Zeichenbefehle), Bildideen. Agent: Bild-Agent (Illustration zum Dokument). */
+ * Effekte, Speichern/Oeffnen als PNG. KI: "Zynos zeichnet" (Beschreibung -> Zeichenbefehle), Bildideen. Agent: Bild-Agent (Illustration zum Dokument). */
 #include "font_aa.h"
 #include "bilder.h"
 enum { K_M0 = 800 };
@@ -223,7 +223,7 @@ static void zeichne_mal(void) {
         for (int i = 0; i < 4; i++) { static const char* const GN[4] = { "S", "M", "L", "XL" }; rb_knopf(K_M0 + 11 + i, GN[i], m_gr == GR[i], OC_MAL); } rb_gruppe(TR("Groesse", "Size"));
         rb_knopf(K_M0 + 15, TR("Rueckgaengig", "Undo"), 0, OC_MAL); rb_knopf(K_M0 + 16, m_gef ? TR("Gefuellt", "Filled") : TR("Umriss", "Outline"), m_gef, OC_MAL); rb_gruppe(TR("Bearbeiten", "Edit"));
     } else {
-        rb_knopf(K_M0 + 20, TR("Zynie zeichnet ...", "Zynie draws ..."), 0, OC_MAL); rb_knopf(K_M0 + 21, TR("Ergaenzen ...", "Add to it ..."), 0, OC_MAL); rb_knopf(K_M0 + 22, TR("Bildideen", "Ideas"), 0, OC_MAL); rb_gruppe(TR("Zynie malt mit", "Zynie paints"));
+        rb_knopf(K_M0 + 20, TR("Zynos zeichnet ...", "Zynos draws ..."), 0, OC_MAL); rb_knopf(K_M0 + 21, TR("Ergaenzen ...", "Add to it ..."), 0, OC_MAL); rb_knopf(K_M0 + 22, TR("Bildideen", "Ideas"), 0, OC_MAL); rb_gruppe(TR("Zynos malt mit", "Zynos paints"));
         rb_knopf(K_M0 + 23, TR("Graustufen", "Grayscale"), 0, OC_MAL); rb_knopf(K_M0 + 24, TR("Invertieren", "Invert"), 0, OC_MAL); rb_knopf(K_M0 + 25, TR("Weichzeichnen", "Blur"), 0, OC_MAL); rb_gruppe(TR("Effekte", "Effects"));
         rb_knopf(K_M0 + 26, TR("Bild-Agent", "Image agent"), 0, OC_MAL); rb_gruppe(TR("Agenten", "Agents"));
         rb_knopf(K_M0 + 27, TR("Als Hintergrund", "As background"), 0, OC_MAL); rb_gruppe(TR("Desktop", "Desktop"));
@@ -326,7 +326,7 @@ static void ag_bild(void) {
     uint32_t* alt = mz_ziel; mz_ziel = mz_ag;
     for (int y = 0; y < mz_h; y++) { uint32_t c = mix(0x001E3A8Au, 0x007C3AEDu, y * 256 / mz_h); for (int x = 0; x < mz_w; x++) mz_ag[y * mz_w + x] = c; }
     int ki = ext_quelle() || gehirn_vorhanden(), n = 0;
-    if (ki) { static char out[2400]; al(TR("Zynie zeichnet eine Illustration ...", "Zynie draws an illustration ...")); char motiv[400]; scopy(motiv, TR("eine schlichte, farbige Illustration zum Thema: ", "a simple, colourful illustration about: "), 400); cat(motiv, titel, 400); m_ki_zeichnen(motiv, 0, mz_ag, out, sizeof(out)); mz_ziel = mz_ag; for (const char* p = out; *p; p++) if (*p == '\n') n++; }
+    if (ki) { static char out[2400]; al(TR("Zynos zeichnet eine Illustration ...", "Zynos draws an illustration ...")); char motiv[400]; scopy(motiv, TR("eine schlichte, farbige Illustration zum Thema: ", "a simple, colourful illustration about: "), 400); cat(motiv, titel, 400); m_ki_zeichnen(motiv, 0, mz_ag, out, sizeof(out)); mz_ziel = mz_ag; for (const char* p = out; *p; p++) if (*p == '\n') n++; }
     if (!n) {                                                            /* ohne KI: Titelbild mit Kreisen */
         mz_ziel = mz_ag;
         for (int i = 0; i < 7; i++) m_ellipse(mz_w * (i * 37 % 100) / 100, mz_h * (i * 53 % 100) / 100, 40 + i * 18, 40 + i * 18, mix(0x007C3AEDu, 0x0022D3EEu, i * 36), 1, 1);
