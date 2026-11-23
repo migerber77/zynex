@@ -214,11 +214,12 @@ static void h_grad(int x, int y, int w, int h, uint32_t c1, uint32_t c2) {      
     for (int i = 0; i < w; i += 2) gfx_rect(x + i, y, w - i < 2 ? w - i : 2, h, mix(c1, c2, i * 256 / (w > 1 ? w - 1 : 1)));
 }
 static void rr_grad(int x, int y, int w, int h, int r, uint32_t c1, uint32_t c2) {  /* abgerundetes Rechteck mit senkrechtem Verlauf (c1 oben, c2 unten) */
-    if (w <= 2 * r || h <= 2 * r) { rrect(x, y, w, h, r, mix(c1, c2, 128)); return; }
-    rrect(x, y, w, h, r, c1);
-    for (int j = r; j < h - r; j++) gfx_rect(x, y + j, w, 1, mix(c1, c2, j * 256 / h));
-    rrect(x, y + h - 2 * r, w, 2 * r, r, c2);
-    for (int j = h - 2 * r + r; j < h - r; j++) gfx_rect(x, y + j, w, 1, mix(c1, c2, j * 256 / h));
+    if (w <= 0 || h <= 0) return; if (r * 2 > h) r = h / 2; if (r * 2 > w) r = w / 2;
+    for (int j = 0; j < h; j++) {
+        int in = 0, dy = j < r ? r - j : j >= h - r ? j - (h - r - 1) : 0;
+        if (dy > 0) { int q = r * r - (dy - 1) * (dy - 1), t = 0; while ((t + 1) * (t + 1) <= q) t++; in = r - t; }
+        gfx_rect(x + in, y + j, w - 2 * in, 1, mix(c1, c2, j * 256 / h));
+    }
 }
 static void h_pille(int x, int y, int w, int h, uint32_t c1, uint32_t c2) {          /* Pille/Knopf mit waagerechtem Verlauf */
     int r = h / 2 < 12 ? h / 2 : 12; rrect(x, y, 2 * r + 2, h, r, c1); rrect(x + w - 2 * r - 2, y, 2 * r + 2, h, r, c2); h_grad(x + r, y, w - 2 * r, h, mix(c1, c2, 256 * r / (w ? w : 1)), mix(c1, c2, 256 - 256 * r / (w ? w : 1)));
@@ -1299,7 +1300,9 @@ static const uint32_t dock_f[NDOCK][2] = { { 0x004F86E8u, 0x002B579Au }, { 0x003
                                           { 0x0094A3B8u, 0x00475569u }, { 0x002DD4BFu, 0x000F9488u }, { 0x00F472B6u, 0x00BE185Du }, { 0x0094A3B8u, 0x0064748Bu }, { 0x00FBBF24u, 0x00D97706u }, { 0x00A78BFAu, 0x006D28D9u } };
 static const char* const dock_n[NDOCK][2] = { { "Text", "Text" }, { "Tabelle", "Sheets" }, { "Praesentation", "Slides" }, { "SmartBoard", "SmartBoard" }, { "Zeichnen", "Draw" }, { "Browser", "Browser" },
                                               { "Rechner", "Calculator" }, { "Chats", "Chats" }, { "Gedaechtnis", "Memory" }, { "Einstellungen", "Settings" }, { "Dateien", "Files" }, { "Benutzer", "Users" } };
+#include "fluidic.inc"
 static void dock_symbol(int i, int x, int y, int s) {
+    if (Q_GLAS && s >= 24) { fl_icon(i, x, y, s, 0); return; }
     if (i == 4) {                                                       /* Zeichnen: Palette mit Farbtupfern */
         rrect(x, y, s, s, s / 4, dock_f[4][1]); rrect(x, y, s, s * 3 / 5, s / 4, dock_f[4][0]); gfx_rect(x, y + s * 2 / 5, s, s / 5, mix(dock_f[4][0], dock_f[4][1], 128));
         int u = s / 12; rrect(x + 2 * u, y + 2 * u, 8 * u, 8 * u, 4 * u, 0x00FFFFFFu); rrect(x + 6 * u, y + 6 * u, 3 * u, 3 * u, 3 * u / 2, dock_f[4][1]);
@@ -1358,7 +1361,7 @@ static void orb_ort(int i, int prozent, int* x, int* y) {                   /* P
 }
 static void zeichne_dock(void) {                                            /* zugeklappt: nur die Kugel, darunter Punkte fuer offene Programme */
     int cx = orb_cx(), cy = orb_cy();
-    orb_kugel(cx, cy, 24, 0);
+    if (Q_GLAS) fl_hub(cx, cy, 28, 0); else orb_kugel(cx, cy, 24, 0);
     kn_reg(K_ORB, cx - 30, cy - 30, 60, 60);
     int n = 0; for (int i = 0; i < NDOCK; i++) if (fenster_idx(dock_typ[i]) >= 0) n++;
     int x = cx - (n * 14) / 2 + 3; for (int i = 0; i < NDOCK; i++) if (fenster_idx(dock_typ[i]) >= 0) { rrect(x, cy + 34, 8, 8, 4, dock_f[i][0]); x += 14; }
@@ -1373,9 +1376,17 @@ static void orb_zurueck(void) {
     uint32_t pp; uint32_t* f = gfx_fbptr(&pp); if (!f || !orb_gesichert) return;
     for (int y = 0; y < orb_ph; y++) for (int x = 0; x < orb_pw; x++) f[(uint64_t)(orb_py + y) * pp + orb_px + x] = orb_puffer[y * ORB_W + x];
 }
+static const char* const dock_intent[NDOCK] = { "office/writer", "office/grid", "office/deck", "office/smartboard", "creative/draw", "net/browser", "tools/calculator", "ai/chat", "ai/memory", "system/settings", "system/files", "system/users" };
 static void zeichne_orbit(int prozent) {                                    /* aufgeklappt: Glas-Halbring, Programme, Name in der Mitte */
-    int cx = orb_cx(), cy = orb_cy() - 18, ra = (ORB_R + 50) * prozent / 100, ri = (ORB_R - 50) * prozent / 100;
+    int cx = orb_cx(), cy = orb_cy() - 18;
     gfx_begin(); orb_zurueck();
+    if (Q_GLAS) {
+        unsigned of = 0; for (int i = 0; i < NDOCK; i++) if (fenster_idx(dock_typ[i]) >= 0) of |= 1u << i;
+        fl_rad(cx, cy, ORB_R, prozent, NDOCK, orb_sel, of, orb_sel >= 0 ? TR(dock_n[orb_sel][0], dock_n[orb_sel][1]) : "Zynex", orb_sel >= 0 ? dock_intent[orb_sel] : "", 0);
+        if (prozent >= 100) { const char* h = orb_sel >= 0 ? TR("Klicken oder Enter", "Click or Enter") : TR("Programm waehlen", "Choose an app"); gtxt(cx - gtw(h, 1) / 2, cy - 76, h, C_MUTED, 1); }
+        gfx_end(); return;
+    }
+    int ra = (ORB_R + 50) * prozent / 100, ri = (ORB_R - 50) * prozent / 100;
     for (int y = cy - ra; y <= cy + 10; y++) {                              /* Glas-Halbring */
         int dy = cy - y; if (dy < 0) dy = 0; int xa = isq(ra * ra - dy * dy), xi = dy < ri ? isq(ri * ri - dy * dy) : 0;
         for (int x = cx - xa; x < cx - xi; x++) gfx_blend(x, y, C_CARD, 185);
@@ -1511,8 +1522,8 @@ static void fenster_oeffnen(int typ) {
     if (flaeche != 0) flaeche_wechsel(0);
     if (i < 0) {
         if (nfen >= 6) { reply1(TR("Es sind schon 6 Fenster offen.", "6 windows are already open.")); return; }
-        int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 660 : typ == FT_CHATS ? 720 : typ == FT_GED ? 700 : 480;
-        int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 600 : typ == FT_CHATS ? 470 : typ == FT_GED ? 480 : 250;
+        int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 660 : typ == FT_CHATS ? 720 : typ == FT_GED ? 840 : 480;
+        int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 600 : typ == FT_CHATS ? 470 : typ == FT_GED ? 580 : 250;
         if (typ == FT_DATEI) { w = 740; h = 500; }
         if (typ == FT_BENUTZER) { w = 760; h = 520; }
         if (typ == FT_WEB && w < 640) w = W - 40;
@@ -2294,61 +2305,111 @@ static void linie(int x0, int y0, int x1, int y1, uint32_t c) {
     int dx = x1 - x0, dy = y1 - y0, ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy, n = ax > ay ? ax : ay; if (!n) return;
     for (int i = 0; i <= n; i += 2) gfx_rect(x0 + dx * i / n, y0 + dy * i / n, 2, 2, c);
 }
+enum { K_GED_N0 = 510 };
+static int ged_fok;                                      /* gewaehltes Neuron (Rang) */
+static void ged_pille(int x, int y, int w, int h, uint32_t rand_c, uint32_t f1, uint32_t f2) { rrect(x, y, w, h, h / 2, rand_c); rr_grad(x + 1, y + 1, w - 2, h - 2, h / 2 - 1, f1, f2); }
+static void ged_chip(int x, int y, const char* t, uint32_t c) { int w = gtw(t, 1) + 20; ged_pille(x, y, w, 24, mix(0x000A1830u, c, 90), 0x00101E38u, 0x00070D1Cu); gtxt(x + 10, y + 4, t, c, 1); }
+static void ged_knopf(int id, const char* label, int x, int y, int w, int stil) {
+    if (!Q_GLAS) { knopf(id, label, x, y, w, stil == 1 || stil == 2); return; }
+    if (stil == 1) { rrect(x - 1, y - 1, w + 2, 38, 14, mix(C_BG, Q_VIO, 140)); h_pille(x, y, w, 36, 0x006D28D9u, 0x002563EBu); gtxt(x + (w - gtw(label, 1)) / 2, y + 10, label, 0x00FFFFFFu, 1); }
+    else if (stil == 2) { rrect(x, y, w, 36, 13, mix(C_BG, Q_CY, 120)); rrect(x + 1, y + 1, w - 2, 34, 12, mix(C_BG, Q_CY, 40)); gtxt(x + (w - gtw(label, 1)) / 2, y + 10, label, Q_CY, 1); }
+    else if (stil == 3) { rrect(x, y, w, 36, 13, 0x00B91C1Cu); rrect(x + 1, y + 1, w - 2, 34, 12, 0x002A0F14u); gtxt(x + (w - gtw(label, 1)) / 2, y + 10, label, 0x00FCA5A5u, 1); }
+    else { rrect(x, y, w, 36, 13, mix(C_BG, 0x00FFFFFFu, 36)); rrect(x + 1, y + 1, w - 2, 34, 12, mix(C_BG, C_CARD, 200)); gtxt(x + (w - gtw(label, 1)) / 2, y + 10, label, C_TEXT, 1); }
+    kn_reg(id, x, y, w, 36);
+}
 static void ged_klick(int id) {
-    if (id == K_GED_SCHLAF) { ged_schlafen(); ged_vfrage = 0; }
+    if (id >= K_GED_N0 && id < K_GED_N0 + 16) { ged_fok = id - K_GED_N0; ged_vfrage = 0; }
+    else if (id == K_GED_SCHLAF) { ged_schlafen(); ged_vfrage = 0; }
     else if (id == K_GED_EXT) { zdb_put("ged.extern", zdb_geti("ged.extern", 0) ? "0" : "1"); ged_vfrage = 0; }
-    else if (id == K_GED_VERG) { if (ged_vfrage) { ged_loeschen(); ged_vfrage = 0; } else ged_vfrage = 1; }
+    else if (id == K_GED_VERG) { if (ged_vfrage) { ged_loeschen(); ged_vfrage = 0; ged_fok = 0; } else ged_vfrage = 1; }
     zeichne_desktop();
 }
 static void zeichne_ged(void) {
     int wi = fenster_idx(FT_GED); if (wi < 0) return;
     struct fenster* f = &fen[wi]; int ko = kn_owner; kn_owner = wi; kn_loesche_owner(wi);
-    int x0 = f->x + 2, y0 = f->y + WT_H, bh = f->h - WT_H - 2, pw = 420, ph = bh - 100;
-    gfx_begin(); gfx_rect(x0, y0, f->w - 4, bh, C_BG);
+    int x0 = f->x + 2, y0 = f->y + WT_H, cw = f->w - 4, bh = f->h - WT_H - 2, fh = 92;
+    gfx_begin(); gfx_rect(x0, y0, cw, bh, Q_GLAS ? 0x00070D1Cu : C_BG);
     int nn, ss, gg, tt; ged_zahlen(&nn, &ss, &gg, &tt);
-    { char t[120], a[12]; dec(a, (uint32_t)nn); scopy(t, a, 120); cat(t, TR(" Neuronen   ", " neurons   "), 120); dec(a, (uint32_t)ss); cat(t, a, 120); cat(t, TR(" Synapsen   ", " synapses   "), 120); dec(a, (uint32_t)gg); cat(t, a, 120); cat(t, TR(" Erinnerungen", " memories"), 120);
-      gtxt(x0 + 14, y0 + 10, t, C_TEXT, 1); }
-    int px0 = x0 + 8, py0 = y0 + 36; if (Q_GLAS) { rrect(px0, py0, pw, ph, 16, mix(C_BG, Q_SKY, 60)); rr_grad(px0 + 1, py0 + 1, pw - 2, ph - 2, 15, 0x00081A33u, 0x00050B1Cu); } else rrect_rand(px0, py0, pw, ph, 10, C_CARD, C_BORDER);
+    { char a[12], t[40]; int x = x0 + 14;
+      ged_chip(x, y0 + 10, "Semantic HVM", Q_CY); x += gtw("Semantic HVM", 1) + 34;
+      dec(a, (uint32_t)nn); scopy(t, a, 40); cat(t, TR(" Neuronen", " neurons"), 40); ged_chip(x, y0 + 10, t, 0x0067E8F9u); x += gtw(t, 1) + 28;
+      dec(a, (uint32_t)ss); scopy(t, a, 40); cat(t, TR(" Synapsen", " synapses"), 40); ged_chip(x, y0 + 10, t, 0x00D8B4FEu); x += gtw(t, 1) + 28;
+      dec(a, (uint32_t)gg); scopy(t, a, 40); cat(t, TR(" Erinnerungen", " memories"), 40); ged_chip(x, y0 + 10, t, 0x006EE7B7u); }
+    int px0 = x0 + 12, py0 = y0 + 46, pw = cw * 62 / 100 - 12, ph = bh - 46 - fh - 12;
+    if (Q_GLAS) { rrect(px0, py0, pw, ph, 18, mix(0x00070D1Cu, Q_SKY, 55)); rr_grad(px0 + 1, py0 + 1, pw - 2, ph - 2, 17, 0x000C1830u, 0x0004080Fu); }
+    else rrect_rand(px0, py0, pw, ph, 10, C_CARD, C_BORDER);
+    if (Q_GLAS) {
+        for (int k = 0; k < 2; k++) { int gx = k ? px0 + pw * 33 / 100 : px0 + pw / 2, gy = k ? py0 + ph * 36 / 100 : py0 + ph / 2, gr = k ? 70 : 90; uint32_t gc = k ? Q_VIO : Q_CY;
+            for (int y = -gr; y <= gr; y += 2) for (int x = -gr; x <= gr; x += 2) { int d2 = x * x + y * y; if (d2 < gr * gr) { int a = 22 * (gr * gr - d2) / (gr * gr); gfx_rect(gx + x, gy + y, 2, 2, mix(0x00070E1Cu, gc, a)); } } }
+        for (int y = py0 + 12; y < py0 + ph - 8; y += 24) for (int x = px0 + 12; x < px0 + pw - 8; x += 24) gfx_blend(x, y, Q_SKY, 70);
+    }
     char nm[36][13]; int nu[36], er[36], sa[160], sb[160], sw[160], ns2 = 0, bx[36], by[36];
     int c = ged_netz(36, nm, nu, er, 160, sa, sb, sw, &ns2);
-    int cx = px0 + pw / 2, cy = py0 + ph / 2, rx = pw / 2 - 40, ry = ph / 2 - 26;
-    for (int i = 0; i < c; i++) {                                                                 /* haeufigste Neuronen innen, Goldener Winkel nach aussen */
+    if (ged_fok >= c) ged_fok = 0;
+    int cx = px0 + pw / 2, cy = py0 + ph / 2, rx = pw / 2 - 60, ry = ph / 2 - 30;
+    for (int i = 0; i < c; i++) {
         int deg = (i * 1375 / 10) % 360, s = c > 1 ? isqrt_i(i * 1000 / c) : 0;
         bx[i] = cx + rx * s / 31 * icos(deg) / 1024; by[i] = cy + ry * s / 31 * isin(deg) / 1024;
     }
-    for (int j = 0; j < ns2; j++) if (sw[j] >= 20) linie(bx[sa[j]], by[sa[j]], bx[sb[j]], by[sb[j]], Q_GLAS ? mix(mix(Q_CY, Q_VIO, (bx[sa[j]] - px0) * 256 / pw), 0x00050B1Cu, 200 - sw[j] * 150 / 255) : mix(0x00243049u, C_ACC, sw[j] * 256 / 255));
-    for (int i = 0; i < c; i++) {
-        int r = 3 + (nu[i] > 56 ? 7 : nu[i] / 8); int hell = er[i] >= 500;
-        if (hell) rrect(bx[i] - r - 5, by[i] - r - 5, 2 * r + 10, 2 * r + 10, r + 5, mix(C_CARD, C_ACC2, 110));
-        if (Q_GLAS && i < 14) {                                                              /* Pillen-Neuron mit Name */
-            int pw2 = gtw(nm[i], 1) + 22; int qx = bx[i] - pw2 / 2, qy = by[i] - 11;
-            if (qx < px0 + 4) qx = px0 + 4; if (qx + pw2 > px0 + pw - 4) qx = px0 + pw - 4 - pw2;
-            if (hell) rrect(qx - 3, qy - 3, pw2 + 6, 28, 14, mix(0x00050B1Cu, Q_VIO, 70));
-            rrect(qx, qy, pw2, 22, 11, hell ? Q_VIO : mix(0x00050B1Cu, Q_SKY, 110)); rrect(qx + 1, qy + 1, pw2 - 2, 20, 10, hell ? 0x002A1052u : 0x000A1B33u);
-            rrect(qx + 6, qy + 8, 6, 6, 3, hell ? Q_ROSA : Q_CY); gtxt(qx + 16, qy + 3, nm[i], hell ? 0x00FFFFFFu : 0x00B8C4D6u, 1);
+    for (int j = 0; j < ns2; j++) if (sw[j] >= 20) {
+        int hl = sa[j] == ged_fok || sb[j] == ged_fok;
+        if (Q_GLAS) {
+            uint32_t lc = mix(Q_CY, Q_VIO, (bx[sa[j]] - px0) * 256 / pw);
+            if (hl) { fl_seg16(bx[sa[j]] * 16, by[sa[j]] * 16, bx[sb[j]] * 16, by[sb[j]] * 16, Q_CY, 64, 40, 0, 0); fl_seg16(bx[sa[j]] * 16, by[sa[j]] * 16, bx[sb[j]] * 16, by[sb[j]] * 16, Q_CY, 32, 235, 0, 0);
+                int t = 35 + (j * 29) % 40; gfx_rect((bx[sa[j]] + (bx[sb[j]] - bx[sa[j]]) * t / 100) - 2, (by[sa[j]] + (by[sb[j]] - by[sa[j]]) * t / 100) - 2, 4, 4, 0x00FFFFFFu); }
+            else fl_seg16(bx[sa[j]] * 16, by[sa[j]] * 16, bx[sb[j]] * 16, by[sb[j]] * 16, lc, 16, 40 + sw[j] * 90 / 255, 0, 0);
+        } else linie(bx[sa[j]], by[sa[j]], bx[sb[j]], by[sb[j]], mix(0x00243049u, C_ACC, sw[j] * 256 / 255));
+    }
+    for (int i = c - 1; i >= 0; i--) {
+        int hell = er[i] >= 500, sel = i == ged_fok;
+        if (Q_GLAS && i < 14) {
+            int pw2 = gtw(nm[i], 1) + 30, qx = bx[i] - pw2 / 2, qy = by[i] - 12;
+            if (qx < px0 + 6) qx = px0 + 6; if (qx + pw2 > px0 + pw - 6) qx = px0 + pw - 6 - pw2; if (qy < py0 + 6) qy = py0 + 6; if (qy + 26 > py0 + ph - 6) qy = py0 + ph - 32;
+            if (sel) { rrect(qx - 5, qy - 5, pw2 + 10, 34, 17, mix(0x00070E1Cu, Q_CY, 40)); rrect(qx - 2, qy - 2, pw2 + 4, 28, 14, mix(0x00070E1Cu, Q_CY, 90)); }
+            ged_pille(qx, qy, pw2, 24, sel ? Q_CY : mix(0x000A1830u, 0x00FFFFFFu, 46), 0x0010203Cu, 0x00080F20u);
+            rrect(qx + 8, qy + 7, 10, 10, 5, mix(0x000A1830u, hell ? 0x00C084FCu : Q_CY, 70)); rrect(qx + 10, qy + 9, 6, 6, 3, hell ? 0x00C084FCu : 0x0067E8F9u);
+            gtxt(qx + 22, qy + 4, nm[i], sel || hell ? 0x00FFFFFFu : 0x00CBD5E1u, 1);
+            kn_reg(K_GED_N0 + i, qx, qy, pw2, 24);
         } else {
-        rrect(bx[i] - r, by[i] - r, 2 * r, 2 * r, r, hell ? C_ACC2 : mix(0x00334155u, C_ACC, 80 + (nu[i] > 20 ? 176 : nu[i] * 8)));
-        if (i < 14) gtxt(bx[i] + r + 3, by[i] - 7, nm[i], hell ? C_TEXT : C_MUTED, 1); }
+            int r = 3 + (nu[i] > 56 ? 7 : nu[i] / 8);
+            rrect(bx[i] - r, by[i] - r, 2 * r, 2 * r, r, hell ? C_ACC2 : mix(0x00334155u, C_ACC, 80 + (nu[i] > 20 ? 176 : nu[i] * 8)));
+            if (i < 14) gtxt(bx[i] + r + 3, by[i] - 7, nm[i], hell ? C_TEXT : C_MUTED, 1);
+        }
     }
     if (!c) gtxt(px0 + 24, py0 + ph / 2 - 8, TR("Noch leer. Sag: merk dir, dass mein Hund Bello heisst.", "Still empty. Say: remember that my dog is called Bello."), C_MUTED, 1);
-    int rx0 = px0 + pw + 14, rw = f->w - 4 - (rx0 - x0) - 10;
-    gtxt(rx0, y0 + 10, TR("Erinnerungen", "Memories"), C_ACC2, 1);
-    { int rows = (bh - 100) / 46; if (rows > 9) rows = 9; int cols = (rw - 8) / 8;
+    gtxt(px0 + 12, py0 + ph - 22, TR("Neuron anklicken zum Fokussieren", "Click a neuron to focus"), 0x00708098u, 1);
+    int rx0 = px0 + pw + 14, rw = x0 + cw - 12 - rx0;
+    if (Q_GLAS) { rrect(rx0, py0, rw, ph, 18, mix(0x00070D1Cu, 0x00FFFFFFu, 28)); rr_grad(rx0 + 1, py0 + 1, rw - 2, ph - 2, 17, 0x00091428u, 0x00060B18u); } else rrect_rand(rx0, py0, rw, ph, 10, C_CARD, C_BORDER);
+    gtxt(rx0 + 14, py0 + 12, TR("Erinnerungen", "Memories"), Q_GLAS ? 0x0067E8F9u : C_ACC2, 1); { const char* lz = "Langzeit-HVM"; gtxt(rx0 + rw - 14 - gtw(lz, 1), py0 + 12, lz, C_MUTED, 1); }
+    gfx_rect(rx0 + 12, py0 + 36, rw - 24, 1, mix(0x00070D1Cu, 0x00FFFFFFu, 40));
+    int fcy = py0 + ph - 78;                                                                         /* Fokus-Karte unten */
+    { int rows = (fcy - (py0 + 46) - 6) / 56; if (rows > 8) rows = 8; int cols = (rw - 32) / 8; int shown = 0;
       for (int i = 0; i < rows; i++) {
-          char t[112]; int art, st; if (!ged_erinnerung(i, t, 112, &art, &st)) break;
-          int ry2 = y0 + 36 + i * 46; if (Q_GLAS) { rrect(rx0, ry2, rw, 42, 12, mix(C_BG, Q_SKY, 50)); rr_grad(rx0 + 1, ry2 + 1, rw - 2, 40, 11, 0x000B1A33u, 0x00070F22u); } else rrect_rand(rx0, ry2, rw, 42, 8, C_CARD, C_BORDER);
+          char t[112]; int art, st; if (!ged_erinnerung(i, t, 112, &art, &st)) break; shown++;
+          int ry2 = py0 + 46 + i * 56; rrect(rx0 + 10, ry2, rw - 20, 52, 12, Q_GLAS ? mix(0x00070D1Cu, 0x00C084FCu, 80) : C_BORDER); rr_grad(rx0 + 11, ry2 + 1, rw - 22, 50, 11, 0x0010183Au, 0x00090F22u);
           char l1_[40], l2_[40]; int len = slen(t), cut = len > cols ? cols : len; if (cut < len) { int sp = cut; while (sp > cols / 2 && t[sp] != ' ') sp--; if (t[sp] == ' ') cut = sp; }
           int k = 0; for (; k < cut && k < 39; k++) l1_[k] = t[k]; l1_[k] = 0; int o = cut; while (t[o] == ' ') o++;
           k = 0; for (; t[o] && k < 39 && k < cols - 2; k++, o++) l2_[k] = t[o]; l2_[k] = 0; if (t[o]) { l2_[slen(l2_) > 2 ? slen(l2_) - 2 : 0] = 0; cat(l2_, "..", 40); }
-          gtxt(rx0 + 8, ry2 + 3, l1_, C_TEXT, 1); gtxt(rx0 + 8, ry2 + 18, l2_, C_MUTED, 1);
-          if (Q_GLAS) h_grad(rx0 + 8, ry2 + 36, 4 + st * (rw - 24) / 255, 3, Q_CY, art == 2 ? 0x00F59E0Bu : Q_VIO); else rrect(rx0 + 8, ry2 + 36, 4 + st * (rw - 24) / 255, 3, 1, art == 2 ? 0x00F59E0Bu : art == 1 ? C_ACC2 : C_ACC);
+          gtxt(rx0 + 20, ry2 + 4, "HVM SNAPSHOT", 0x00D8B4FEu, 1); { char pc[8]; dec(pc, (uint32_t)(st * 100 / 255)); cat(pc, "%", 8); gtxt(rx0 + rw - 20 - gtw(pc, 1), ry2 + 4, pc, 0x00D8B4FEu, 1); }
+          gtxt(rx0 + 20, ry2 + 20, l1_, 0x00E2E8F0u, 1); gtxt(rx0 + 20, ry2 + 35, l2_, C_MUTED, 1);
+          if (Q_GLAS) h_grad(rx0 + 20, ry2 + 49, 4 + st * (rw - 44) / 255, 2, Q_CY, art == 2 ? 0x00F59E0Bu : Q_VIO);
       }
-      if (!gg) gtxt(rx0, y0 + 40, TR("Noch keine.", "None yet."), C_MUTED, 1); }
-    int yb = y0 + bh - 52;
-    gtxt(x0 + 14, yb - 24, TR("Aus deinen Gespraechen lernt Zynos Verbindungen. Wichtiges bleibt, Unwichtiges verblasst.", "Zynos learns connections from your chats. Important things stay, unimportant ones fade."), C_MUTED, 1);
-    knopf(K_GED_SCHLAF, TR("Schlafen", "Sleep"), x0 + 12, yb, 130, 0);
-    knopf(K_GED_EXT, zdb_geti("ged.extern", 0) ? TR("Extern teilen: an", "Share external: on") : TR("Extern teilen: aus", "Share external: off"), x0 + 150, yb, 230, zdb_geti("ged.extern", 0));
-    knopf(K_GED_VERG, ged_vfrage ? TR("Wirklich alles?", "Really all?") : TR("Alles vergessen", "Forget all"), f->x + f->w - 214, yb, 200, ged_vfrage);
+      if (!shown) { int y = py0 + 48; rrect(rx0 + 10, y, rw - 20, 84, 12, mix(0x00070D1Cu, 0x00FFFFFFu, 36)); rrect(rx0 + 11, y + 1, rw - 22, 82, 11, 0x00080F1Eu);
+          gtxt(rx0 + 20, y + 10, TR("Noch keine konsolidierten", "No consolidated memories yet."), C_MUTED, 1); gtxt(rx0 + 20, y + 28, TR("Erinnerungen. Klicke unten auf", "Click \"Sleep\" below to move"), C_MUTED, 1); gtxt(rx0 + 20, y + 46, TR("\"Schlafen\", um Synapsen ins", "active synapses into"), 0x00D8B4FEu, 1); gtxt(rx0 + 20, y + 64, TR("Langzeitgedaechtnis zu ueberfuehren.", "long-term memory."), C_MUTED, 1); } }
+    { rrect(rx0 + 10, fcy, rw - 20, 68, 14, mix(0x00070D1Cu, Q_CY, 70)); rr_grad(rx0 + 11, fcy + 1, rw - 22, 66, 13, mix(0x00081428u, Q_CY, 30), mix(0x00081428u, Q_VIO, 40));
+      gtxt(rx0 + 22, fcy + 8, TR("AKTIVER FOKUS", "ACTIVE FOCUS"), Q_CY, 1);
+      if (c) { int deg = 0; for (int j = 0; j < ns2; j++) if (sa[j] == ged_fok || sb[j] == ged_fok) deg++; char t[60], a[12]; int w100 = er[ged_fok] / 10; if (w100 > 99) w100 = 99;
+        gtxt(rx0 + 22, fcy + 26, nm[ged_fok], 0x00FFFFFFu, 1);
+        scopy(t, TR("Gewichtung: 0.", "Weight: 0."), 60); if (w100 < 10) cat(t, "0", 60); dec(a, (uint32_t)w100); cat(t, a, 60); cat(t, " - ", 60); dec(a, (uint32_t)deg); cat(t, a, 60); cat(t, TR(" Synapsen", " synapses"), 60);
+        gtxt(rx0 + 22, fcy + 45, t, C_MUTED, 1); }
+      else gtxt(rx0 + 22, fcy + 30, "-", C_MUTED, 1); }
+    int yb = y0 + bh - fh;                                                                           /* Fusszeile */
+    if (Q_GLAS) { gfx_rect(x0, yb, cw, fh, 0x00050B18u); gfx_rect(x0, yb, cw, 1, mix(0x00050B18u, Q_SKY, 70)); }
+    gtxt(x0 + 16, yb + 12, TR("Aus deinen Gespraechen lernt Zynos Verbindungen. Wichtiges bleibt, Unwichtiges verblasst.", "Zynos learns connections from your chats. Important things stay, unimportant ones fade."), C_MUTED, 1);
+    { int bw1 = 226, bw2 = 224, bw3 = 164, bx0 = x0 + cw - 16 - bw1 - bw2 - bw3 - 16;
+      ged_knopf(K_GED_SCHLAF, TR("Schlafen (Konsolidieren)", "Sleep (consolidate)"), bx0, yb + 40, bw1, 1);
+      ged_knopf(K_GED_EXT, zdb_geti("ged.extern", 0) ? TR("Extern teilen: AN", "Share external: ON") : TR("Extern teilen: aus", "Share external: off"), bx0 + bw1 + 8, yb + 40, bw2, zdb_geti("ged.extern", 0) ? 2 : 0);
+      ged_knopf(K_GED_VERG, ged_vfrage ? TR("Wirklich alles?", "Really all?") : TR("Alles vergessen", "Forget all"), bx0 + bw1 + bw2 + 16, yb + 40, bw3, 3); }
     gfx_end(); kn_owner = ko;
 }
 
@@ -3215,7 +3276,7 @@ static void klick(int x, int y, int owner) {
         else if (zustand == Z_DESK && id == K_NEUDOK) editor_oeffnen();
         else if (zustand == Z_INFO && id >= K_EIN0 && id < K_EIN0 + 60) einst_klick(id);
         else if (zustand == Z_INFO && id >= K_CH0 && id < K_CH_DEL + 1) chats_klick(id);
-        else if (zustand == Z_INFO && id >= K_GED_SCHLAF && id <= K_GED_VERG) ged_klick(id);
+        else if (zustand == Z_INFO && id >= K_GED_SCHLAF && id < K_GED_N0 + 16) ged_klick(id);
         else if (zustand == Z_INFO && id >= K_DA0 && id < K_DA_END) da_klick(id);
         else if (zustand == Z_INFO && id >= K_BE0 && id < K_BE_END) be_klick(id);
         else if (zustand == Z_RECH && id >= K_RB0 && id < K_RB0 + 20) { rech_druecke(rtasten[id - K_RB0]); zeichne_rechner(); }
