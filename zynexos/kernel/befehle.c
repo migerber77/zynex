@@ -87,7 +87,7 @@ static const zeile_t tab[] = {
     { "audio|ton|sound",   "status",               "audio status",     "Audio-Hardware: Zustand" },
     { "audio|ton|sound",   "ton|beep",             "audio ton %",      "Testton: audio ton <Hz> <ms>" },
     { "audio|ton|sound",   "aufnahme|record",      "audio aufnahme %", "Mikrofon aufnehmen und Pegel zeigen: audio aufnahme <ms>" },
-    { "gedaechtnis|synapsen|erinnerung|memory|brain", "",   "gedaechtnis status",   "Zynies Synapsen-Gedaechtnis: Zustand" },
+    { "gedaechtnis|synapsen|erinnerung|memory|brain", "",   "gedaechtnis status",   "Zynos' Synapsen-Gedaechtnis: Zustand" },
     { "gedaechtnis|synapsen|erinnerung|memory|brain", "liste|list",       "gedaechtnis liste",    "alle Erinnerungen mit Staerke" },
     { "gedaechtnis|synapsen|erinnerung|memory|brain", "merke|merk|remember", "gedaechtnis merke %", "etwas Wichtiges merken (verblasst nie)" },
     { "gedaechtnis|synapsen|erinnerung|memory|brain", "erinnere|recall",  "gedaechtnis erinnere %", "Abruf testen: welche Neuronen feuern, was kommt zurueck" },
@@ -98,7 +98,7 @@ static const zeile_t tab[] = {
     { "ki|frag",        "extern|external",      "kiextern %",       "externes Modell: ki extern einrichten claude | modell | intern | test" },
     { "ki|frag",        "modelle|models",       "kimodell liste",   "installierte Modelle" },
     { "ki|frag",        "modell|model",         "kimodell %",       "ki modell liste | waehle <platte> | loesche <platte> ja" },
-    { "ki|frag",        "*",                    "ki %",             "frag Zynie irgendetwas: ki was ist ein Qubit?" },
+    { "ki|frag",        "*",                    "ki %",             "frag Zynos irgendetwas: ki was ist ein Qubit?" },
     { "quanten|quantum",   "*",                    "qubit %",          "Quantenkern: quanten h 0 | messen | zustand" },
     { "strom|power",       "neustart|restart",     "reboot",           "neu starten" },
     { "strom|power",       "aus|off",              "halt",             "ausschalten" },
@@ -168,7 +168,7 @@ void befehl_hilfe(const char* thema) {
     static const char* const ber[][2] = {
         { "system",       "Zustand, Speicher, Laufzeit, Prozesse, Rechte, Sicherheit" }, { "datei",        "anzeigen, schreiben, suchen, markieren, sichern" },
         { "netz",         "Status, verbinden, ping, Namen, Web, WLAN" },                { "geraete",      "PCI, USB, Platten, Maus, Tastatur" },
-        { "nutzer",       "wer bin ich, Konten, Passwort, abmelden" },                  { "ki <frage>",   "frag Zynie irgendetwas" },
+        { "nutzer",       "wer bin ich, Konten, Passwort, abmelden" },                  { "ki <frage>",   "frag Zynos irgendetwas" },
         { "quanten",      "Quantenkern im Kernel ausprobieren" },                       { "strom",        "neustart oder aus" },
         { "installieren", "Zynex auf eine Platte bringen" },                            { "firewall",     "Schutz vor Angriffen, Regeln, Quarantaene" },
         { "krypto",       "Platte quantensicher verschluesseln, entsperren" },
@@ -178,7 +178,7 @@ void befehl_hilfe(const char* thema) {
     };
     for (int i = 0; i < 13; i++) { kprint("  "); kprint(ber[i][0]); int l = 2 + slen(ber[i][0]); for (; l < 20; l++) kprint(" "); kprint(ber[i][1]); kprint("\n"); }
     kprint("\n  Mehr zu einem Bereich: hilfe datei   |   ohne Aktion zeigt jeder Bereich das Wichtigste\n");
-    kprint("  Ganze Saetze gehen an Zynie, zum Beispiel: wie viel Speicher ist frei?\n");
+    kprint("  Ganze Saetze gehen an Zynos, zum Beispiel: wie viel Speicher ist frei?\n");
     kprint("  Die alten Kurzbefehle (synls, whoami, ps ...) funktionieren weiter: hilfe alt\n\n");
 }
 

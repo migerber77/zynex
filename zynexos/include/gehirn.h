@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-/* Zynies Gehirn: lokales Sprachmodell (GGUF, Qwen2/Llama, Q8_0) im Kernel */
+/* Zynos' Gehirn: lokales Sprachmodell (GGUF, Qwen2/Llama, Q8_0) im Kernel */
 int         gehirn_start(void);                       /* Modell einrichten; 0 = bereit, sonst Fehlercode (siehe gehirn_status) */
 int         gehirn_bereit(void);
 const char* gehirn_status(void);

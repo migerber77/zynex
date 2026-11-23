@@ -6,7 +6,7 @@
 extern void kprint(const char* str);
 
 static const char* const KENN[4] = { "intern", "openai", "claude", "gemini" };
-static const char* const ANZ[4] = { "Zynie (intern)", "ChatGPT", "Claude", "Gemini" };
+static const char* const ANZ[4] = { "Zynos (intern)", "ChatGPT", "Claude", "Gemini" };
 static const char* const STD[4] = { "", "gpt-4o-mini", "claude-haiku-5-5", "gemini-2.0-flash" };
 
 static int slen(const char* s) { int n = 0; while (s[n]) n++; return n; }

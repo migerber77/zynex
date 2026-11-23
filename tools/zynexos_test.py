@@ -334,8 +334,9 @@ def installieren():
     vm.mon("sendkey 2"); time.sleep(1.0)                  # Reiter KI-Modelle, Claude waehlen: fragt gleich nach dem Schluessel
     vm.tippe("sk-ant-test-123", 2.0)
     vm.mon("sendkey m"); time.sleep(1.0)
-    vm.mon("sendkey 0"); time.sleep(1.0)                  # zurueck auf Zynie (intern)
+    vm.mon("sendkey 0"); time.sleep(1.0)                  # zurueck auf Zynos (intern)
     vm.mon("sendkey tab"); time.sleep(1.0)                # Reiter Aussehen
+    for _ in range(2): vm.mon("sendkey h"); time.sleep(2.5)         # Standard ist Zynex (7): 7 -> 3 -> 4
     vm.mon("sendkey 6"); time.sleep(1.5)
     vm.mon("sendkey h"); time.sleep(1.5)
     vm.mon("sendkey 1"); time.sleep(1.0)
@@ -463,7 +464,7 @@ def installieren():
     pruefe("Desktop: Gedaechtnis-Fenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Gedaechtnis" in out2)
     pruefe("Desktop: Sprachwechsel per Chat", out2.count("-> Fenster") >= 3)
     pruefe("Desktop: Rechner-Fenster oeffnet sich", "[DESKTOP] Fenster geoeffnet: Rechner" in out2)
-    pruefe("Desktop: Unbekanntes antwortet der Lernkern ehrlich", "[DESKTOP] Zynie antwortet: Ich habe es mir gemerkt, kann damit aber noch nichts anfangen" in out2)
+    pruefe("Desktop: Unbekanntes antwortet der Lernkern ehrlich", "[DESKTOP] Zynos antwortet: Ich habe es mir gemerkt, kann damit aber noch nichts anfangen" in out2)
     pruefe("Desktop: Bildschirm ist belegt", hell_d > 300)
     pruefe("Desktop: Wartungs-Konsole fuer Admin", "[WARTUNG] Text-Konsole" in out2)
     pruefe("System von der Platte: Partitionen sichtbar", all(("sata0p%d" % n) in out2 for n in (1, 2)))

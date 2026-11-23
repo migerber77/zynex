@@ -1,6 +1,6 @@
 /*
  * Zynex OS Quantum - Startbild und Desktop (Framebuffer, Maus + Tastatur)
- * Kein Startmenue, keine Programmliste: Mitte = Zynie (der Roboter), unten die Eingabeleiste. Was eingegeben wird, erkennt Zynie als Absicht
+ * Kein Startmenue, keine Programmliste: Mitte = Zynos (der Roboter), unten die Eingabeleiste. Was eingegeben wird, erkennt Zynos als Absicht
  * (Intent) und oeffnet das Passende: "text erstellen" -> Textverarbeitung, "rechne 12*7" -> Ergebnis, "system" -> Zustand usw.
  * Sprachen: Deutsch und Englisch (die gespeicherte Sprache de/en, alle anderen zeigen Englisch).
  */
@@ -69,7 +69,7 @@ static void thema_anwenden(int n) {
     const uint32_t* c = THEMEN[n < 0 || n > 5 ? 0 : n].c;
     th_bg = c[0]; th_card = c[1]; th_border = c[2]; th_text = c[3]; th_muted = c[4]; th_acc = c[5]; th_acc2 = c[6]; th_field = c[7]; th_off = c[8]; th_hg1 = c[9]; th_hg2 = c[10]; th_gl1 = c[11]; th_gl2 = c[12];
 }
-static void th_laden(void) { th_nr = zdb_geti("ui.schema", 0); if (th_nr < 0 || th_nr > 5) th_nr = 0; hg_nr = zdb_geti("ui.hintergrund", 4); if (hg_nr < 0 || hg_nr > 7) hg_nr = 4; { const char* d = zdb_get("ui.hgbild"); int i = 0; while (d && d[i] && i < 31) { hg_datei[i] = d[i]; i++; } hg_datei[i] = 0; } if (hg_nr == 5 && !hg_datei[0]) hg_nr = 4; thema_anwenden(th_nr); }
+static void th_laden(void) { th_nr = zdb_geti("ui.schema", 0); if (th_nr < 0 || th_nr > 5) th_nr = 0; hg_nr = zdb_geti("ui.hintergrund", 7); if (hg_nr < 0 || hg_nr > 7) hg_nr = 7; { const char* d = zdb_get("ui.hgbild"); int i = 0; while (d && d[i] && i < 31) { hg_datei[i] = d[i]; i++; } hg_datei[i] = 0; } if (hg_nr == 5 && !hg_datei[0]) hg_nr = 4; thema_anwenden(th_nr); }
 #define C_BG     th_bg
 #define C_CARD   th_card
 #define C_BORDER th_border
@@ -98,7 +98,7 @@ static const struct { const char* en, *fr, *it, *es; } UEB[] = {
     { "Wrong password", "Mot de passe incorrect", "Password errata", "Contrasena incorrecta" },
     { "Unlock disk (password)", "Deverrouiller le disque (mot de passe)", "Sblocca il disco (password)", "Desbloquear disco (contrasena)" },
     { "Your data is encrypted. Continue with Enter", "Vos donnees sont chiffrees. Continuer avec Entree", "I tuoi dati sono cifrati. Continua con Invio", "Tus datos estan cifrados. Continuar con Intro" },
-    { "Hello! I am Zynie. What would you like to do?", "Bonjour ! Je suis Zynie. Que voulez-vous faire ?", "Ciao! Sono Zynie. Cosa vuoi fare?", "Hola! Soy Zynie. Que quieres hacer?" },
+    { "Hello! I am Zynos. What would you like to do?", "Bonjour ! Je suis Zynos. Que voulez-vous faire ?", "Ciao! Sono Zynos. Cosa vuoi fare?", "Hola! Soy Zynos. Que quieres hacer?" },
     { "I did not understand that yet.", "Je n'ai pas encore compris.", "Non ho ancora capito.", "Aun no lo he entendido." },
     { "One moment, thinking ...", "Un instant, je reflechis ...", "Un momento, sto pensando ...", "Un momento, estoy pensando ..." },
     { "Document", "Document", "Documento", "Documento" }, { "Calculator", "Calculatrice", "Calcolatrice", "Calculadora" },
@@ -656,8 +656,8 @@ static void antwort_setze(const char* a, const char* b, const char* c, const cha
 }
 static void reply1(const char* s) { antwort_setze(s, 0, 0, 0, 0, 0); }
 
-/* ---------- Zynie, der Roboter (verschiebbar, skalierbar, spricht, schaut, Ruhemodus) ---------- */
-static int zx, zy, zs = 100;                              /* Mitte, Groesse in Prozent */
+/* ---------- Zynos, der Roboter (verschiebbar, skalierbar, spricht, schaut, Ruhemodus) ---------- */
+static int zx, zy, zs = 160;                              /* Mitte, Groesse in Prozent */
 static int zdrag, zdx, zdy;                               /* 0 nein, 1 verschieben, 2 Groesse aendern */
 static int lbx, lby, lbw, lbh;                            /* zuletzt gezeichneter Rahmen */
 #define SC(v) ((v) * zs / 100)
@@ -669,7 +669,7 @@ static int zr_h(void) { return SC(232); }
 static int ruhend(void) { return timer_get_ticks() - letzte_eingabe > IDLE_TICKS && timer_get_ticks() > sprech_bis; }
 
 static void zynie(int cx, int cy, uint32_t ph) {
-    /* Zynie: das gezeichnete Leuchtwesen (eingebettetes Bild). Schwarz ist durchsichtig (Bildschirm-Mischung), die Figur schwebt ueber ihrer Plattform */
+    /* Zynos: das gezeichnete Leuchtwesen (eingebettetes Bild). Schwarz ist durchsichtig (Bildschirm-Mischung), die Figur schwebt ueber ihrer Plattform */
     (void)cx; (void)cy;
     uint32_t t = timer_get_ticks();
     int spricht = t < sprech_bis, ruhe = ruhend();
@@ -680,13 +680,22 @@ static void zynie(int cx, int cy, uint32_t ph) {
     uint32_t pp; uint32_t* f = gfx_fbptr(&pp);
     int x0 = zr_x(), y0 = zr_y(), w = zr_w(), h = zr_h(), dh = h - SC(12), split = ZB_SPLIT * dh / ZB_H;
     if (f && dh > 8 && w > 8) {
+        static const int lipp[6] = { 3, 12, 18, 8, 14, 5 };
+        const int MX = 140, MY = 112, MW = 11; int oh = 1 + lipp[(t / 6) % 6] * 7 / 18;              /* Mund im Bild: Mitte, halbe Breite, halbe Hoehe (bewegt sich beim Sprechen) */
         for (int y = 0; y < dh; y++) {
             int yy = y0 + y + (y < split ? bob : 0); if (yy < 0 || yy >= H) continue;
-            const uint16_t* sr = zynie_bild + (y * ZB_H / dh) * ZB_W; uint32_t* row = f + (uint64_t)yy * pp;
+            int sy = y * ZB_H / dh; const uint16_t* sr = zynie_bild + sy * ZB_W; uint32_t* row = f + (uint64_t)yy * pp;
             for (int x = 0; x < w; x++) {
-                uint16_t v = sr[x * ZB_W / w]; if (!v) continue;
+                int sx = x * ZB_W / w; uint16_t v = sr[sx]; int rim = 0;
                 int xx = x0 + x; if (xx < 0 || xx >= W) continue;
+                if (spricht && sx >= MX - MW - 3 && sx <= MX + MW + 3 && sy >= MY - oh - 3 && sy <= MY + oh + 3) {
+                    int e = (sx - MX) * (sx - MX) * 64 / (MW * MW) + (sy - MY) * (sy - MY) * 64 / (oh * oh);
+                    if (e < 64) { row[xx] = mix(row[xx], 0x00030B14u, 232); continue; }
+                    if (e < 105) { rim = 1; if (!v) v = 1; }
+                }
+                if (!v) continue;
                 uint32_t c = c565(v), bg = row[xx], o = 0;
+                if (rim) c = mix(c, 0x0070F4FFu, 170);
                 for (int sh = 0; sh <= 16; sh += 8) { int cc = (int)((c >> sh) & 255) * st / 256, bb = (int)((bg >> sh) & 255); o |= (uint32_t)(255 - (255 - bb) * (255 - cc) / 255) << sh; }
                 row[xx] = o;
             }
@@ -759,7 +768,7 @@ static void layout_speichern(void) {
     for (int j = 0; j < nwid; j++) { dec(a, (uint32_t)(wid[j].typ == WG_NOTIZ ? 10 + wid[j].id : wid[j].typ)); cat(b, a, 220); cat(b, ",", 220); dec(a, (uint32_t)(wid[j].x + 2000)); cat(b, a, 220); cat(b, ",", 220); dec(a, (uint32_t)(wid[j].y + 2000)); cat(b, a, 220); cat(b, ";", 220); }
     zdb_put("desktop.widgets", b);
     b[0] = 0; dec(a, (uint32_t)zx); cat(b, a, 100); cat(b, " ", 100); dec(a, (uint32_t)zy); cat(b, a, 100); cat(b, " ", 100); dec(a, (uint32_t)zs); cat(b, a, 100);
-    zdb_put("desktop.zynie", b);
+    zdb_put("desktop.zynos", b);
 }
 static int lies(const char** p) { while (**p && (**p < '0' || **p > '9')) (*p)++; int v = 0; while (**p >= '0' && **p <= '9') { v = v * 10 + (**p - '0'); (*p)++; } return v; }
 static int in_szene;
@@ -918,11 +927,11 @@ static int absatz(int x, int y, int w, const char* text, uint32_t c) {
     }
     return lines;
 }
-static void antwort_ort(int* cx, int* ay, int* cw) {          /* Platz der Antwortkarte: dort, wo Zynie nicht steht */
+static void antwort_ort(int* cx, int* ay, int* cw) {          /* Platz der Antwortkarte: dort, wo Zynos nicht steht */
     *cx = bar_x; *cw = bar_w; *ay = H / 5 < 70 ? 70 : H / 5;
     int zx0 = zr_x() - 14, zx1 = zr_x() + zr_w() + 14, zy0 = zr_y() - 14, zy1 = zr_y() + zr_h() + 14, hoch = bar_y - *ay - 20;
     if (!(zx0 < *cx + *cw && zx1 > *cx && zy0 < *ay + hoch && zy1 > *ay)) return;
-    if (W - 30 - zx1 >= 380) { *cx = zx1 > bar_x ? zx1 : bar_x; *cw = W - 30 - *cx < bar_w ? W - 30 - *cx : bar_w; return; }      /* rechts neben Zynie */
+    if (W - 30 - zx1 >= 380) { *cx = zx1 > bar_x ? zx1 : bar_x; *cw = W - 30 - *cx < bar_w ? W - 30 - *cx : bar_w; return; }      /* rechts neben Zynos */
     if (zx0 - 30 >= 380) { *cw = zx0 - 30 < bar_w ? zx0 - 30 : bar_w; *cx = zx0 - *cw; return; }                                     /* links daneben */
     if (bar_y - 30 - zy1 >= 110) { *ay = zy1; return; }                                                                                  /* darunter */
 }
@@ -941,7 +950,7 @@ static void zeichne_antwort(void) {
     gfx_end();
 }
 /* ---------- Autovorschlaege (ab dem ersten Buchstaben) ---------- */
-typedef struct { const char* de; const char* en; int typ; } sug_e;       /* typ 0 Befehl, 1 Frage an Zynie, 2 Verlauf */
+typedef struct { const char* de; const char* en; int typ; } sug_e;       /* typ 0 Befehl, 1 Frage an Zynos, 2 Verlauf */
 static const sug_e katalog[] = {
     { "text erstellen", "write a text", 0 }, { "tabelle erstellen", "new spreadsheet", 0 }, { "praesentation erstellen", "new presentation", 0 }, { "smartboard", "smartboard", 0 }, { "zeichnen", "draw", 0 }, { "agent bild", "agent image", 0 },
     { "word", "word", 0 }, { "excel", "excel", 0 }, { "powerpoint", "powerpoint", 0 }, { "tabelle", "spreadsheet", 0 }, { "agent dokument", "agent document", 0 }, { "agent tabelle", "agent sheet", 0 }, { "agent folien", "agent slides", 0 }, { "agent ablauf", "agent flow", 0 },
@@ -1083,7 +1092,7 @@ static void ag_entscheid(int ja) {
 
 /* ---------- Design: Karten ---------- */
 enum { K_CHIP0 = 1, K_SUG0 = 8, K_DOT0 = 14, K_PREV = 18, K_NEXT = 19, K_SPEICHERN = 20, K_NEU, K_SCHLIESSEN, K_AG0 = 240, K_FREI = 34, K_ABL, K_NEUDOK, K_AUFLEER };
-static const char* const fl_name[4][2] = { { "Zynie", "Zynie" }, { "System", "System" }, { "Agenten", "Agents" }, { "Aufgaben", "Tasks" } };
+static const char* const fl_name[4][2] = { { "Zynos", "Zynos" }, { "System", "System" }, { "Agenten", "Agents" }, { "Aufgaben", "Tasks" } };
 static void kn_loesche(int lo, int hi) { int k = 0; for (int i = 0; i < nkn; i++) if (knoepfe[i].id < lo || knoepfe[i].id > hi) knoepfe[k++] = knoepfe[i]; nkn = k; }
 static void karte(int x, int y, int w, int h, const char* titel) {
     rrect_rand(x, y, w, h, 14, C_CARD, C_BORDER);
@@ -1447,7 +1456,7 @@ static void fenster_oeffnen(int typ) {
         if (typ == FT_EDIT || typ == FT_TAB || typ == FT_PRAES || typ == FT_BOARD || typ == FT_WEB || typ == FT_MAL) { w = W - 60 < 1500 ? W - 60 : 1500; h = H - 70 < 900 ? H - 70 : 900; }
         int x = 60 + nfen * 36, y = 56 + nfen * 30;
         if (x + w > W - 8) x = W - w - 8; if (x < 4) x = 4; if (y + h > H - 8) y = H - h - 8; if (y < 44) y = 44;
-        {   /* nicht unter Zynie oeffnen: wenn das Fenster den Roboter verdeckt, rechts neben ihn schieben (sonst unter ihn) */
+        {   /* nicht unter Zynos oeffnen: wenn das Fenster den Roboter verdeckt, rechts neben ihn schieben (sonst unter ihn) */
             int rx0 = zr_x() - 8, ry0 = zr_y() - 8, rx1 = zr_x() + zr_w() + 8, ry1 = zr_y() + zr_h() + 8;
             if (x < rx1 && x + w > rx0 && y < ry1 && y + h > ry0) {
                 if (rx1 + w <= W - 8) x = rx1;
@@ -1816,7 +1825,7 @@ static int erkenne(const char* s) {
     if (enthaelt(s, "systeminfo") || enthaelt(s, "system-info") || enthaelt(s, "system info") || enthaelt(s, "fenster info")) { in_par = 2; return I_FENSTER; }
     if (enthaelt(s, "arbeitsfl") || enthaelt(s, "workspace") || enthaelt(s, "wuerfel") || enthaelt(s, "cube")) {
         in_par = -1;
-        if (enthaelt(s, "1") || enthaelt(s, "zynie")) in_par = 0; else if (enthaelt(s, "2") || enthaelt(s, "system")) in_par = 1;
+        if (enthaelt(s, "1") || enthaelt(s, "zynos") || enthaelt(s, "zynie")) in_par = 0; else if (enthaelt(s, "2") || enthaelt(s, "system")) in_par = 1;
         else if (enthaelt(s, "3") || enthaelt(s, "agent")) in_par = 2; else if (enthaelt(s, "4") || enthaelt(s, "aufgab") || enthaelt(s, "task")) in_par = 3;
         return I_FLAECHE;
     }
@@ -2163,7 +2172,7 @@ static void zeichne_einst(void) {
         { int w4 = (bw - 3 * 8) / 4; for (int i = 0; i < 4; i++) knopf(K_EIN0 + 10 + i, ext_name(i), x + i * (w4 + 8), y + 22, w4, i == qa); }
         y += 70;
         if (!qa) {
-            gtxt(x, y, gehirn_vorhanden() ? TR("Zynie (intern) laeuft lokal. Nichts verlaesst dieses Geraet.", "Zynie (internal) runs locally. Nothing leaves this device.") : TR("Kein internes Sprachmodell geladen.", "No internal language model loaded."), C_TEXT, 1);
+            gtxt(x, y, gehirn_vorhanden() ? TR("Zynos (intern) laeuft lokal. Nichts verlaesst dieses Geraet.", "Zynos (internal) runs locally. Nothing leaves this device.") : TR("Kein internes Sprachmodell geladen.", "No internal language model loaded."), C_TEXT, 1);
             gtxt(x, y + 28, TR("Das kleine lokale Modell macht Fehler. Fuer bessere Antworten", "The small local model makes mistakes. For better answers"), C_MUTED, 1);
             gtxt(x, y + 46, TR("ChatGPT, Claude oder Gemini oben waehlen und den Schluessel eintragen.", "choose ChatGPT, Claude or Gemini above and enter your key."), C_MUTED, 1);
             if (0) knopf(K_EIN0 + 14, T5("Sprachpaket", "Language pack", "Pack de langue", "Pacchetto lingua", "Paquete de idioma"), x, y + 84, 220, 0);
@@ -2184,7 +2193,7 @@ static void zeichne_einst(void) {
             knopf(K_EIN0 + K_ETEST, TR("Verbindung testen", "Test connection"), x + 14, y + 192, 210, 0);
             gtxt(x + 236, y + 201, ek_meldung, ek_ok ? C_OK : (ek_meldung[0] ? 0x00F59E0Bu : C_MUTED), 1);
             gtxt(x, y + ch + 10, TR("Fragen und Antworten gehen verschluesselt (TLS) direkt an den Anbieter.", "Questions and answers go to the provider over TLS."), C_MUTED, 1);
-            gtxt(x, y + ch + 30, TR("Faellt der Anbieter aus, antwortet Zynie (intern).", "If the provider fails, Zynie (internal) answers."), C_MUTED, 1);
+            gtxt(x, y + ch + 30, TR("Faellt der Anbieter aus, antwortet Zynos (intern).", "If the provider fails, Zynos (internal) answers."), C_MUTED, 1);
         }
     } else {
         gtxt(x, y, T5("Farbschema", "Colour scheme", "Couleurs", "Colori", "Colores"), C_MUTED, 1);
@@ -2263,7 +2272,7 @@ static void zeichne_ged(void) {
       }
       if (!gg) gtxt(rx0, y0 + 40, TR("Noch keine.", "None yet."), C_MUTED, 1); }
     int yb = y0 + bh - 52;
-    gtxt(x0 + 14, yb - 24, TR("Aus deinen Gespraechen lernt Zynie Verbindungen. Wichtiges bleibt, Unwichtiges verblasst.", "Zynie learns connections from your chats. Important things stay, unimportant ones fade."), C_MUTED, 1);
+    gtxt(x0 + 14, yb - 24, TR("Aus deinen Gespraechen lernt Zynos Verbindungen. Wichtiges bleibt, Unwichtiges verblasst.", "Zynos learns connections from your chats. Important things stay, unimportant ones fade."), C_MUTED, 1);
     knopf(K_GED_SCHLAF, TR("Schlafen", "Sleep"), x0 + 12, yb, 130, 0);
     knopf(K_GED_EXT, zdb_geti("ged.extern", 0) ? TR("Extern teilen: an", "Share external: on") : TR("Extern teilen: aus", "Share external: off"), x0 + 150, yb, 230, zdb_geti("ged.extern", 0));
     knopf(K_GED_VERG, ged_vfrage ? TR("Wirklich alles?", "Really all?") : TR("Alles vergessen", "Forget all"), f->x + f->w - 214, yb, 200, ged_vfrage);
@@ -2316,7 +2325,7 @@ static void zeichne_chats(void) {
         int tl = chat_text(akt, txt, sizeof(txt)); (void)tl;
         for (int i = 0; txt[i] && nl < 150; ) {
             int e = i; while (txt[e] && txt[e] != '\n') e++;
-            int du = txt[i] == 'U'; char pre[12]; scopy(pre, du ? TR("Du: ", "You: ") : "Zynie: ", 12); int pl = slen(pre);
+            int du = txt[i] == 'U'; char pre[12]; scopy(pre, du ? TR("Du: ", "You: ") : "Zynos: ", 12); int pl = slen(pre);
             char z[260]; scopy(z, pre, 260); for (int k = i + 2; k < e && slen(z) < 255; k++) { char c[2] = { txt[k], 0 }; cat(z, c, 260); }
             for (int p = 0; z[p] && nl < 150; ) { int len = slen(z + p); if (len > cols) { len = cols; int sp = len; while (sp > cols / 2 && z[p + sp] != ' ') sp--; if (z[p + sp] == ' ') len = sp; }
                 for (int k = 0; k < len; k++) wl[nl][k] = z[p + k]; wl[nl][len] = 0; wr[nl] = (uint8_t)du; nl++; p += len; while (z[p] == ' ') p++; }
@@ -2325,7 +2334,7 @@ static void zeichne_chats(void) {
         int vis = (bh - 96) / 18; int von = nl > vis ? nl - vis : 0;
         for (int i = von; i < nl; i++) gtxt(rx, y0 + 84 + (i - von) * 18, wl[i], wr[i] ? C_ACC2 : C_TEXT, 1);
         if (!nl) gtxt(rx, y0 + 84, TR("Leer. Schreib unten in den Chat.", "Empty. Type in the chat below."), C_MUTED, 1);
-    } else gtxt(rx, y0 + 60, TR("Schreib Zynie etwas, dann entsteht hier dein Verlauf.", "Write to Zynie and your history appears here."), C_MUTED, 1);
+    } else gtxt(rx, y0 + 60, TR("Schreib Zynos etwas, dann entsteht hier dein Verlauf.", "Write to Zynos and your history appears here."), C_MUTED, 1);
     gfx_end();
     kn_owner = ko;
 }
@@ -2386,7 +2395,7 @@ static void intent_qubit(void) {
     kprint("[DESKTOP] Quanten-Demo: "); kprint(z2); kprint("\n");
 }
 
-/* Zynie antwortet mit dem Sprachmodell: jedes neue Textstueck erscheint sofort in der Sprechblase, der Mund bewegt sich */
+/* Zynos antwortet mit dem Sprachmodell: jedes neue Textstueck erscheint sofort in der Sprechblase, der Mund bewegt sich */
 static char ki_text[520]; static int ki_len;
 static void ki_zeilen(void) {
     nantwort = 0; int i = 0;
@@ -2426,7 +2435,7 @@ static void ki_antwort(const char* frage) {
         ef[0] = 0; if (gkl) { scopy(ef, gk, 800); cat(ef, "Frage: ", 800); } cat(ef, fq, 800);
         int en = ext_frage(ef, roh, sizeof(roh));
         if (en > 0) { ki_teil(roh, en); ki_text[ki_len] = 0; ki_zeilen(); busy_ende(); sprech_bis = timer_get_ticks() + 100; kprint("[DESKTOP] "); kprint(ext_name(ext_quelle())); kprint(" antwortet: "); kprint(ki_text); kprint("\n"); return; }
-        kprint("[DESKTOP] Externe KI fehlgeschlagen: "); kprint(roh); kprint(" - Zynie (intern) antwortet\n");
+        kprint("[DESKTOP] Externe KI fehlgeschlagen: "); kprint(roh); kprint(" - Zynos (intern) antwortet\n");
         if (!gehirn_vorhanden()) { busy_ende(); reply1(roh); return; }
         ki_len = 0;
         if (!gkl || !teilen) { gkl = ged_kontext(frage, gk, sizeof(gk), 1); }      /* Rueckfall auf die interne KI: lokal darf sie alles wissen */
@@ -2434,9 +2443,9 @@ static void ki_antwort(const char* frage) {
     gehirn_kontext(gkl ? gk : "");
     int n = gehirn_frage(frage, roh, sizeof(roh), ki_teil);
     busy_ende();
-    if (n < 0) { reply1(TR("Mein Sprachmodell ist gerade nicht verfuegbar.", "My language model is not available right now.")); kprint("[DESKTOP] Zynie: Sprachmodell nicht verfuegbar: "); kprint(gehirn_status()); kprint("\n"); return; }
+    if (n < 0) { reply1(TR("Mein Sprachmodell ist gerade nicht verfuegbar.", "My language model is not available right now.")); kprint("[DESKTOP] Zynos: Sprachmodell nicht verfuegbar: "); kprint(gehirn_status()); kprint("\n"); return; }
     ki_text[ki_len] = 0; ki_zeilen();
-    sprech_bis = timer_get_ticks() + 100; kprint("[DESKTOP] Zynie antwortet: "); kprint(ki_text); kprint("\n");
+    sprech_bis = timer_get_ticks() + 100; kprint("[DESKTOP] Zynos antwortet: "); kprint(ki_text); kprint("\n");
 }
 
 /* Erinnern und Vergessen per Sprache: "merk dir ...", "vergiss ...", "was weisst du" */
@@ -2572,7 +2581,7 @@ static void anmelden(void) {
     if (benutzer_login(fname, fpw) == 0) {
         kprint("[DESKTOP] Willkommen, "); kprint(benutzer_name()); kprint(" ("); kprint(benutzer_rollentext(benutzer_rolle())); kprint(")\n");
         zustand = Z_DESK; einlen = 0; eingabe[0] = 0;
-        char g[100]; scopy(g, TR("Hallo ", "Hello "), 100); cat(g, benutzer_name(), 100); cat(g, TR("! Ich bin Zynie. Was moechtest du tun?", "! I am Zynie. What would you like to do?"), 100);
+        char g[100]; scopy(g, TR("Hallo ", "Hello "), 100); cat(g, benutzer_name(), 100); cat(g, TR("! Ich bin Zynos. Was moechtest du tun?", "! I am Zynos. What would you like to do?"), 100);
         reply1(g); zeichne_desktop();
     } else {
         kprint("[DESKTOP] Anmeldung fehlgeschlagen\n");
@@ -2711,29 +2720,58 @@ static void rad_zurueck(void) {
 }
 static uint32_t rad_farbe(int typ) { return typ == 4 ? 0x0034D399u : typ == 1 ? 0x00A78BFAu : typ == 2 ? 0x0094A3B8u : typ == 3 ? C_OK : C_ACC; }
 static void rad_punkt(int x, int y, int s, uint32_t c) { gfx_rect(x - s / 2, y - s / 2, s, s, c); }
+static void aa_pt(int x16, int y16, uint32_t c, int a) {                         /* weicher Punkt auf 1/16-Pixel-Raster */
+    int xi = x16 >> 4, yi = y16 >> 4, fx = x16 & 15, fy = y16 & 15;
+    gfx_blend(xi, yi, c, a * (16 - fx) * (16 - fy) / 256); gfx_blend(xi + 1, yi, c, a * fx * (16 - fy) / 256);
+    gfx_blend(xi, yi + 1, c, a * (16 - fx) * fy / 256); gfx_blend(xi + 1, yi + 1, c, a * fx * fy / 256);
+}
+static void aa_linie(int x0, int y0, int x1, int y1, uint32_t c, int a, int dick) {   /* geglaettete Linie; dick = 1 oder 2 */
+    int dx = x1 - x0, dy = y1 - y0, ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy, n = ax > ay ? ax : ay; if (n == 0) n = 1;
+    for (int i = 0; i <= n; i++) {
+        int X = x0 * 16 + dx * 16 * i / n - 8, Y = y0 * 16 + dy * 16 * i / n - 8;
+        aa_pt(X, Y, c, a); if (dick > 1) { aa_pt(X + (ay > ax ? 8 : 0), Y + (ay > ax ? 0 : 8), c, a); }
+    }
+}
+static void rad_kreis(int cx, int cy, int r, uint32_t c) { rrect(cx - r, cy - r, 2 * r, 2 * r, r, c); }
+static void rad_icon(int typ, int bx, int by, uint32_t fc) {                      /* runde Plakette mit Symbol (Befehl, Frage, Verlauf, Erinnerung, Vorschlag) */
+    uint32_t w = 0x00FFFFFFu, dk = mix(fc, 0x00000000u, 120);
+    rad_kreis(bx, by, 11, mix(fc, 0x00000000u, 110)); rad_kreis(bx, by, 10, fc); rad_kreis(bx, by - 3, 7, mix(fc, w, 55));
+    rad_kreis(bx, by + 1, 9, fc);
+    if (typ == 0) { aa_linie(bx - 4, by - 4, bx, by, w, 255, 2); aa_linie(bx, by, bx - 4, by + 4, w, 255, 2); rrect(bx + 1, by + 3, 6, 2, 1, w); }
+    else if (typ == 1) { rrect(bx - 6, by - 6, 12, 9, 4, w); gfx_rect(bx - 4, by + 3, 3, 2, w); gfx_rect(bx - 4, by + 5, 1, 1, w); for (int k = 0; k < 3; k++) gfx_rect(bx - 4 + k * 3, by - 3, 2, 2, dk); }
+    else if (typ == 2) { rad_kreis(bx, by, 6, w); rad_kreis(bx, by, 5, dk); gfx_rect(bx, by - 4, 1, 5, w); aa_linie(bx, by, bx + 3, by + 2, w, 255, 1); }
+    else if (typ == 3) { rrect(bx - 1, by - 6, 2, 12, 1, w); rrect(bx - 6, by - 1, 12, 2, 1, w); rad_kreis(bx, by, 2, w); gfx_rect(bx - 3, by - 3, 1, 1, w); gfx_rect(bx + 3, by - 3, 1, 1, w); gfx_rect(bx - 3, by + 3, 1, 1, w); gfx_rect(bx + 3, by + 3, 1, 1, w); }
+    else { aa_linie(bx + 2, by - 6, bx - 3, by + 1, w, 255, 2); aa_linie(bx - 3, by + 1, bx + 2, by + 1, w, 255, 2); aa_linie(bx + 2, by + 1, bx - 2, by + 7, w, 255, 2); }
+}
 static void rad_zeichne(void) {                                                   /* zeichnet das Rad auf den (sauberen) Bildschirm */
     int cx = rad.cx, cy = rad.cy, dir = rad.dir;
     for (int i = 0; i < RMAX; i++) rrx[i] = -1;
     gfx_begin();
     int gx = dir > 0 ? cx + 24 : cx - 24 - (RR + 16 + RLW + 8), gw = RR + 16 + RLW + 8, gy = cy - 196, gh = 392;
     rad_glas(gx, gy, gw, gh, 22);
-    for (int a = -84; a <= 84; a += 3) rad_punkt(cx + dir * (RR * cos_d(a) / 1024), cy + RR * sin_d(a) / 1024, 2, C_BORDER);       /* Ring */
-    for (int a = 0; a < 360; a += 15) rad_punkt(cx + 16 * cos_d(a) / 1024, cy + 16 * sin_d(a) / 1024, 2, mix(C_BORDER, C_ACC, 140));    /* Nabe */
+    for (int a = -84 * 4; a <= 84 * 4; a++) {                                                  /* Ring: durchgehende, weiche Linie mit Farbverlauf */
+        int aa = a / 4; int cs = cos_d(aa), sn = sin_d(aa);
+        uint32_t rc2 = mix(C_BORDER, C_ACC, 40 + (84 - (aa < 0 ? -aa : aa)) * 120 / 84);
+        int X = (cx * 16) + dir * (RR * 16 * cs / 1024) - 8, Y = (cy * 16) + RR * 16 * sn / 1024 - 8;
+        aa_pt(X, Y, rc2, 200); aa_pt(X + dir * 8, Y + 8, rc2, 120);
+    }
+    rad_kreis(cx, cy, 20, mix(C_BG, C_ACC, 40)); rad_kreis(cx, cy, 16, mix(C_BG, C_ACC, 90));                 /* Nabe mit Schein */
+    rad_kreis(cx, cy, 11, C_ACC); rad_kreis(cx, cy - 1, 8, mix(C_ACC, 0x00FFFFFFu, 110)); rad_kreis(cx, cy - 1, 3, 0x00FFFFFFu);
     for (int o = -3; o <= 3; o++) {
         int i = rad.sel + o; if (i < 0 || i >= rad.n) continue;
         int ang = o * RSL; int px = cx + dir * (RR * cos_d(ang) / 1024), py = cy + RR * sin_d(ang) / 1024;
         int selk = (o == 0); uint32_t fc = rad_farbe(rtyp[i]);
         char t[40]; scopy(t, rc[i], 40); int tl = slen(t);
-        while (tl > 3 && gtw(t, 1) + 34 > RLW) { t[--tl] = 0; t[tl - 1] = '.'; if (tl > 1) t[tl - 2] = '.'; }
-        int w = gtw(t, 1) + 34; if (w > RLW) w = RLW; if (w < 70) w = 70;
-        int x = dir > 0 ? px + 16 : px - 16 - w, y = py - 14;
-        if (selk) {                                                                          /* Zeiger von der Nabe zum gewaehlten Eintrag */
-            for (int k = 22; k < RR; k += 7) rad_punkt(cx + dir * (k * cos_d(ang) / 1024), cy + k * sin_d(ang) / 1024, 3, C_ACC);
-            rrect(x - 2, y - 2, w + 4, 32, 14, mix(C_ACC, C_BG, 80)); rrect(x, y, w, 28, 12, mix(C_CARD, C_ACC, 150));
-            rad_punkt(px, py, 12, C_ACC); rad_punkt(px, py, 6, C_TEXT);
-        } else { rrect_rand(x, y, w, 28, 12, mix(C_CARD, C_BG, 90), C_BORDER); rad_punkt(px, py, 6, fc); }
-        rrect(x + 10, y + 10, 8, 8, 4, fc);
-        gtxt(x + 24, y + 6, t, selk ? C_TEXT : (o == 1 || o == -1) ? 0x00B8C4D6u : C_MUTED, 1);
+        while (tl > 3 && gtw(t, 1) + 44 > RLW) { t[--tl] = 0; t[tl - 1] = '.'; if (tl > 1) t[tl - 2] = '.'; }
+        int w = gtw(t, 1) + 44; if (w > RLW) w = RLW; if (w < 80) w = 80;
+        int x = dir > 0 ? px + 16 : px - 16 - w, y = py - 15;
+        if (selk) {                                                                          /* Lichtstrahl von der Nabe zum gewaehlten Eintrag, Schein um die Pille */
+            aa_linie(cx + dir * (24 * cos_d(ang) / 1024), cy + 24 * sin_d(ang) / 1024, px, py, C_ACC, 200, 2);
+            rrect(x - 4, y - 4, w + 8, 38, 19, mix(C_BG, fc, 40)); rrect(x - 2, y - 2, w + 4, 34, 17, mix(C_BG, fc, 90)); rrect(x, y, w, 30, 15, mix(C_CARD, fc, 120));
+            rad_kreis(px, py, 9, mix(C_BG, fc, 90)); rad_kreis(px, py, 6, fc); rad_kreis(px, py, 3, 0x00FFFFFFu);
+        } else { rrect_rand(x, y, w, 30, 15, mix(C_CARD, C_BG, 90), C_BORDER); rad_kreis(px, py, 4, fc); }
+        rad_icon(rtyp[i] >= 0 && rtyp[i] <= 4 ? rtyp[i] : 0, x + 16, y + 15, fc);
+        gtxt(x + 32, y + 7, t, selk ? C_TEXT : (o == 1 || o == -1) ? 0x00B8C4D6u : C_MUTED, 1);
         rrx[i] = x; rry[i] = y; rrw[i] = w;
     }
     { const char* h = TR("Mausrad drehen - Mitteltaste/Tab uebernehmen", "Wheel: turn - middle click/Tab inserts"); int hw = gtw(h, 1); gtxt(gx + (gw - hw) / 2, gy + gh - 26, h, C_MUTED, 1); }
@@ -2792,7 +2830,7 @@ static int rad_taste(uint8_t k) {
     if ((k == 0x28 || k == 0x58) && rad.bewegt) { rad_einfuegen(1); return 1; }                /* Enter nach dem Drehen: uebernehmen und ausfuehren */
     return 0;
 }
-/* ---------- Autovervollstaendigung in den Programmen (Text, Zynie-Feld, Tabellenzelle) ---------- */
+/* ---------- Autovervollstaendigung in den Programmen (Text, Zynos-Feld, Tabellenzelle) ---------- */
 static int ac_kontext(char* ctx, int max) {
     int top = nfen ? fen[nfen - 1].typ : 0; ac_ziel = AZ_NICHTS;
     if (menu.offen) return 0;
@@ -3058,12 +3096,12 @@ static void tick(void) {
             else { int ns = (p->x - bxl) * 100 / 180; if (ns < 50) ns = 50; if (ns > 220) ns = 220; if (byl + ns * 232 / 100 <= H) { zs = ns; zx = bxl + SC(90); zy = byl + SC(108); } }
             zeichne_desktop();
         }
-        if (!down && zdrag) { zdrag = 0; layout_speichern(); kprint("[DESKTOP] Zynie: Position "); kprint_dec((uint32_t)zx); kprint(","); kprint_dec((uint32_t)zy); kprint(" Groesse "); kprint_dec((uint32_t)zs); kprint("%\n"); }
+        if (!down && zdrag) { zdrag = 0; layout_speichern(); kprint("[DESKTOP] Zynos: Position "); kprint_dec((uint32_t)zx); kprint(","); kprint_dec((uint32_t)zy); kprint(" Groesse "); kprint_dec((uint32_t)zs); kprint("%\n"); }
         was_down = down;
     }
     if (rad.offen) return;                                                       /* solange das Rad offen ist, nichts darunter neu zeichnen */
     static int war_ruhe;
-    int r = ruhend(); if (r != war_ruhe) { war_ruhe = r; kprint(r ? "[DESKTOP] Zynie: Ruhemodus\n" : "[DESKTOP] Zynie: wach\n"); }
+    int r = ruhend(); if (r != war_ruhe) { war_ruhe = r; kprint(r ? "[DESKTOP] Zynos: Ruhemodus\n" : "[DESKTOP] Zynos: wach\n"); }
     uint32_t ph = t / (t < sprech_bis ? 12 : r ? 60 : 24);
     if (ph != robot_phase && qh == qt) { robot_phase = ph; if (zustand != Z_LOGIN && !zdrag && !fdrag && !menu.offen && flaeche == 0 && !deckt(zr_x() - 4, zr_y() - 4, zr_w() + 8, zr_h() + 8)) zeichne_robot(); }
     { static uint32_t lmin; static uint32_t lt; if (zustand != Z_LOGIN && flaeche == 0 && nwid && !fdrag && !menu.offen && t - lt > 300) { lt = t; uint32_t ymd, hm; rtc_get(&ymd, &hm); if (hm != lmin) { if (lmin) zeichne_desktop(); lmin = hm; } } }
@@ -3083,17 +3121,17 @@ int desktop_start(void) {
     if (r > 0) { cfg[r] = 0; for (int i = 0; cfg[i]; i++) if (cfg[i] == 'l' && cfg[i + 1] == 'a' && cfg[i + 2] == 'n' && cfg[i + 3] == 'g' && cfg[i + 4] == '=') { lang = (cfg[i + 5] == 'd' ? 0 : 1); break; } }
     bar_w = W - 80 < 760 ? W - 80 : 760; bar_x = (W - bar_w) / 2; bar_y = H - 310;
     fname[0] = fpw[0] = 0; ffocus = 0; fmsg = 0; einlen = 0; eingabe[0] = 0; nsug = 0; sugsel = -1; flaeche = 0; alauf = -1; nalog = 0; pend = 0; nfen = 0; nwid = 0; fok = 0; fdrag = 0; fdgezeichnet = 0; menu.offen = 0; nantwort = 0; qh = qt = 0; was_down = 0;
-    zx = 24 + 90; zy = 56 + 108; zs = 100; lbw = 0; zdrag = 0; letzte_eingabe = timer_get_ticks();
+    zs = 160; zx = 24 + SC(90); zy = 56 + SC(108); lbw = 0; zdrag = 0; letzte_eingabe = timer_get_ticks();
     gfx_console(0);
     notiz_laden();
     { const char* ws = zdb_get("desktop.widgets"); while (ws && *ws && nwid < NWID_MAX) { int t = lies(&ws), x = lies(&ws) - 2000, y = lies(&ws) - 2000; if ((t >= 1 && t <= 4) || (t >= 10 && t < 10 + NZ_N)) { wid[nwid].typ = t >= 10 ? WG_NOTIZ : t; wid[nwid].id = t >= 10 ? t - 10 : 0; if (t >= 10) nz_used[t - 10] = 1; wid_groesse(wid[nwid].typ, &wid[nwid].w, &wid[nwid].h); if (x < 60 - wid[nwid].w) x = 60 - wid[nwid].w; if (x > W - 60) x = W - 60; if (y < 42) y = 42; if (y > H - 40) y = H - 40; wid[nwid].x = x; wid[nwid].y = y; nwid++; } } }
-    { const char* zz = zdb_get("desktop.zynie"); if (zz) { int x = lies(&zz), y = lies(&zz), g = lies(&zz); if (g >= 50 && g <= 220 && x > 0 && x < W && y > 44 && y < H) { zx = x; zy = y; zs = g; } } }
+    { const char* zz = zdb_get("desktop.zynos"); if (zz) { int x = lies(&zz), y = lies(&zz), g = lies(&zz); if (g >= 50 && g <= 220 && x > 0 && x < W && y > 44 && y < H) { zx = x; zy = y; zs = g; } } }
     usb_set_rawgrab(rohtaste);
     shell_set_tick(tick);
     kprint("[DESKTOP] Zynex OS Quantum Desktop, Bildschirm "); kprint_dec((uint32_t)W); kprint("x"); kprint_dec((uint32_t)H); kprint("\n");
     entsperr = krypto_gesperrt_dev()[0] != 0;
     if (entsperr) { zustand = Z_LOGIN; kprint("[DESKTOP] Platte verschluesselt: Entsperren-Bildschirm\n"); zeichne_login(); }
     else if (benutzer_gesperrt()) { zustand = Z_LOGIN; kprint("[DESKTOP] Anmeldebildschirm\n"); zeichne_login(); }
-    else { zustand = Z_DESK; reply1(TR("Hallo! Ich bin Zynie. Was moechtest du tun?", "Hello! I am Zynie. What would you like to do?")); zeichne_desktop(); }
+    else { zustand = Z_DESK; reply1(TR("Hallo! Ich bin Zynos. Was moechtest du tun?", "Hello! I am Zynos. What would you like to do?")); zeichne_desktop(); }
     return 0;
 }

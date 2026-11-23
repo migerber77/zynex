@@ -1,6 +1,6 @@
 #pragma once
 /*
- * Synapsen-Gedaechtnis: Zynies Langzeitgedaechtnis als kleines Netz aus Neuronen und Synapsen.
+ * Synapsen-Gedaechtnis: Zynos' Langzeitgedaechtnis als kleines Netz aus Neuronen und Synapsen.
  *  - Jedes Wort (auf den Stamm gekuerzt) ist ein Neuron; Woerter, die zusammen vorkommen, werden durch eine Synapse verbunden
  *    (Hebb: "was gemeinsam feuert, verdrahtet sich"). Je oefter, desto staerker - bis zur Saettigung.
  *  - Erinnerungen (Saetze, die du gesagt hast, oder "merk dir ...") haengen an ihren Neuronen.

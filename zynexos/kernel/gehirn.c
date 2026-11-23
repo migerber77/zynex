@@ -1,4 +1,4 @@
-/* Zynies Gehirn = der Zynex Lernkern (siehe include/zlk.h und wissen.h). Es gibt kein Sprachmodell von aussen mehr:
+/* Zynos' Gehirn = der Zynex Lernkern (siehe include/zlk.h und wissen.h). Es gibt kein Sprachmodell von aussen mehr:
  * Antworten kommen aus dem Lernkern, sonst wird im Internet nachgeschlagen und der Lernkern lernt dabei. */
 #include "gehirn.h"
 #include "wissen.h"

@@ -10,7 +10,7 @@ int         chat_gepinnt(int id);
 void        chat_pin_umschalten(int id);
 void        chat_projekt_setze(int id, const char* name);
 int         chat_loeschen(int id);
-void        chat_anhaengen(int id, char rolle, const char* text);   /* rolle 'U' = du, 'A' = Zynie */
+void        chat_anhaengen(int id, char rolle, const char* text);   /* rolle 'U' = du, 'A' = Zynos */
 int         chat_text(int id, char* out, int max);             /* Zeilen "U:..." und "A:..." */
 int         chat_projekte(char names[][20], int max);          /* verschiedene Projektnamen */
 void        chat_log(const char* frage, const char* antwort);  /* Frage/Antwort im aktiven Chat ablegen (legt ihn bei Bedarf an) */

@@ -163,15 +163,15 @@ static void kiextern_befehl(const char* a) {
     while (*a == ' ') a++;
     char w[16]; int n = 0; while (*a && *a != ' ' && n < 15) w[n++] = *a++; w[n] = 0; while (*a == ' ') a++;
     if (!w[0] || streq(w, "status")) {
-        kprint("Aktive Quelle: "); kprint(ext_name(ext_quelle())); kprint("  (Zynie intern bleibt immer als Rueckfall bereit)\n");
+        kprint("Aktive Quelle: "); kprint(ext_name(ext_quelle())); kprint("  (Zynos intern bleibt immer als Rueckfall bereit)\n");
         for (int i = 1; i < 4; i++) { kprint("  "); kprint(ext_name(i)); kprint(": Schluessel "); kprint(ext_schluessel_da(i) ? "gesetzt" : "fehlt"); kprint(", Modell "); kprint(ext_modell(i)); kprint("\n"); }
         kprint("  kiextern einrichten <openai|claude|gemini> | modell <anbieter> <name> | intern | test\n"); return;
     }
-    if (streq(w, "intern")) { ext_setze_quelle(0); kprint("Zynie (intern) antwortet wieder\n"); return; }
+    if (streq(w, "intern")) { ext_setze_quelle(0); kprint("Zynos (intern) antwortet wieder\n"); return; }
     if (streq(w, "einrichten")) { int p = prov_aus(a); if (!p) { kprint("kiextern einrichten <openai|claude|gemini>\n"); return; } ke_prov = p; kprint("Der Schluessel wird verschluesselt in ZynDB abgelegt.\n"); shell_frage("API-Schluessel: ", 1, ke_key); return; }
     if (streq(w, "modell")) { char pn[16]; int k = 0; while (*a && *a != ' ' && k < 15) pn[k++] = *a++; pn[k] = 0; while (*a == ' ') a++; int p = prov_aus(pn); if (!p || !*a) { kprint("kiextern modell <openai|claude|gemini> <modellname>\n"); return; } ext_modell_setze(p, a); kprint("Modell gesetzt\n"); return; }
     if (streq(w, "test")) {
-        if (!ext_quelle()) { kprint("Zurzeit antwortet Zynie (intern). Erst: kiextern einrichten ...\n"); return; }
+        if (!ext_quelle()) { kprint("Zurzeit antwortet Zynos (intern). Erst: kiextern einrichten ...\n"); return; }
         static char o[500]; kprint("Frage an "); kprint(ext_name(ext_quelle())); kprint(" ...\n");
         int r = ext_frage("Antworte mit einem kurzen Satz: Wer bist du?", o, sizeof(o)); kprint(r > 0 ? "Antwort: " : "Fehler: "); kprint(o); kprint("\n"); return;
     }
@@ -186,7 +186,7 @@ static void kimodell_befehl(const char* a) {
     if (streq(w, "loesche")) {
         if (!require_cap(CAP_ADMIN, "ki modell")) return;
         if (!streq(a, "ja")) { kprint("Zum Bestaetigen: ki modell loesche "); kprint(dev); kprint(" ja\n"); return; }
-        int r = gehirn_modell_loeschen(dev); kprint(r == 0 ? "Modell geloescht\n" : r == -3 ? "Das ist das letzte Modell - Zynie braucht mindestens eins\n" : r == -1 ? "Dort liegt kein Modell\n" : "Loeschen fehlgeschlagen\n"); return;
+        int r = gehirn_modell_loeschen(dev); kprint(r == 0 ? "Modell geloescht\n" : r == -3 ? "Das ist das letzte Modell - Zynos braucht mindestens eins\n" : r == -1 ? "Dort liegt kein Modell\n" : "Loeschen fehlgeschlagen\n"); return;
     }
     kprint("ki modell: liste | waehle <platte> | loesche <platte> ja\n");
 }
@@ -298,7 +298,7 @@ static void ki_teil(const char* t, int n) { char b[64]; int k = n > 63 ? 63 : n;
 static void ki_befehl(const char* frage) {
     if (!*frage) { kprint("Aufruf: ki <Frage>   (Status: "); kprint(gehirn_status()); kprint(")\n"); return; }
     static char antwort[1200];
-    kprint("[KI] Zynie denkt nach ...\n");
+    kprint("[KI] Zynos denkt nach ...\n");
     static char gk[560]; ged_kontext(frage, gk, sizeof(gk), 1); gehirn_kontext(gk);        /* Erinnerungen aus dem Synapsen-Gedaechtnis */
     int n = gehirn_frage(frage, antwort, sizeof(antwort), 0);
     if (n < 0) { kprint("[KI] Nicht moeglich: "); kprint(gehirn_status()); kprint("\n"); return; }
@@ -309,7 +309,7 @@ static void ki_befehl(const char* frage) {
 
 static void unbekannt(const char* cmd) {
     int w = 1; for (const char* c = cmd; *c; c++) if (*c == ' ' && c[1] && c[1] != ' ') w++;
-    if (gehirn_vorhanden() && w >= 3) { ki_befehl(cmd); return; }               /* ganze Saetze gehen an Zynie */
+    if (gehirn_vorhanden() && w >= 3) { ki_befehl(cmd); return; }               /* ganze Saetze gehen an Zynos */
     char v[24];
     if (befehl_vorschlag(cmd, v, 24)) { kprint("Unbekannt. Meintest du: "); kprint(v); kprint("  ?   (hilfe zeigt alle Befehle)\n"); return; }
     kprint("Unbekannt. 'hilfe' zeigt alle Befehle.\n");

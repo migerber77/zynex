@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-/* Externe Sprachmodelle (ChatGPT, Claude, Gemini) ueber HTTPS-API. Zynie (intern) bleibt immer als Rueckfall bereit.
+/* Externe Sprachmodelle (ChatGPT, Claude, Gemini) ueber HTTPS-API. Zynos (intern) bleibt immer als Rueckfall bereit.
    Schluessel und Modellnamen liegen verschluesselt in ZynDB (extern.*). */
 int         ext_quelle(void);                       /* 0 = intern, 1 = ChatGPT, 2 = Claude, 3 = Gemini */
 void        ext_setze_quelle(int q);
