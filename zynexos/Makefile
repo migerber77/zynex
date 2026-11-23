@@ -16,7 +16,7 @@ OBJS=$(BUILD)/boot.o $(BUILD)/kernel.o $(BUILD)/bootinfo.o $(BUILD)/gdt.o $(BUIL
      $(BUILD)/kheap.o $(BUILD)/ramfs.o $(BUILD)/arena.o $(BUILD)/elf.o $(BUILD)/ai.o $(BUILD)/nn.o $(BUILD)/gehirn.o \
      $(BUILD)/capability.o $(BUILD)/semantic.o $(BUILD)/module.o \
      $(BUILD)/block.o $(BUILD)/syscall.o $(BUILD)/synfs.o \
-     $(BUILD)/pci.o $(BUILD)/nvme.o $(BUILD)/usb.o $(BUILD)/hyperv.o $(BUILD)/wifi.o $(BUILD)/font8x16.o $(BUILD)/font8x16_l1.o $(BUILD)/ahci.o $(BUILD)/benutzer.o $(BUILD)/gpt.o $(BUILD)/installer.o $(BUILD)/gui.o $(BUILD)/desktop.o $(BUILD)/logo.o $(BUILD)/layouts.o $(BUILD)/layout_api.o $(BUILD)/qubit.o $(BUILD)/wpa.o $(BUILD)/net.o $(BUILD)/crypto.o $(BUILD)/tls.o $(BUILD)/pk.o $(BUILD)/x509.o $(BUILD)/ca_roots.o $(BUILD)/synbin.o $(BUILD)/synbin_embed.o $(BUILD)/shell.o $(BUILD)/befehle.o $(BUILD)/browser.o $(BUILD)/fw.o $(BUILD)/zyndb.o $(BUILD)/chats.o $(BUILD)/extki.o $(BUILD)/gedaechtnis.o $(BUILD)/krypto.o $(BUILD)/hda.o $(BUILD)/wlan.o $(BUILD)/fakten.o $(BUILD)/font_aa.o $(BUILD)/bilder.o $(BUILD)/webseite.o $(BUILD)/zynjava.o $(BUILD)/hardware.o $(BUILD)/virtioblk.o $(BUILD)/virtiogpu.o $(BUILD)/zlk.o $(BUILD)/wissen.o
+     $(BUILD)/pci.o $(BUILD)/nvme.o $(BUILD)/usb.o $(BUILD)/hyperv.o $(BUILD)/wifi.o $(BUILD)/font8x16.o $(BUILD)/font8x16_l1.o $(BUILD)/ahci.o $(BUILD)/benutzer.o $(BUILD)/gpt.o $(BUILD)/installer.o $(BUILD)/gui.o $(BUILD)/desktop.o $(BUILD)/logo.o $(BUILD)/layouts.o $(BUILD)/layout_api.o $(BUILD)/qubit.o $(BUILD)/wpa.o $(BUILD)/net.o $(BUILD)/crypto.o $(BUILD)/tls.o $(BUILD)/pk.o $(BUILD)/x509.o $(BUILD)/ca_roots.o $(BUILD)/synbin.o $(BUILD)/synbin_embed.o $(BUILD)/shell.o $(BUILD)/befehle.o $(BUILD)/browser.o $(BUILD)/fw.o $(BUILD)/zyndb.o $(BUILD)/chats.o $(BUILD)/extki.o $(BUILD)/gedaechtnis.o $(BUILD)/krypto.o $(BUILD)/hda.o $(BUILD)/wlan.o $(BUILD)/fakten.o $(BUILD)/font_aa.o $(BUILD)/bilder.o $(BUILD)/webseite.o $(BUILD)/zynjava.o $(BUILD)/hardware.o $(BUILD)/virtioblk.o $(BUILD)/virtiogpu.o $(BUILD)/zlk.o $(BUILD)/wissen.o $(BUILD)/bilddaten.o
 
 .PHONY: all clean run run-uefi
 all: $(KERNEL)
@@ -29,6 +29,8 @@ $(BUILD)/isr_asm.o: kernel/isr.asm | $(BUILD)
 # Nur die KI-Datei darf SSE-Fliesskomma nutzen (Interrupts fassen keine XMM-Register an)
 $(BUILD)/ai.o: kernel/ai.c | $(BUILD)
 	$(CC) $(filter-out -mno-sse -mno-mmx,$(CFLAGS)) -c $< -o $@
+$(BUILD)/bilddaten.o: kernel/bilddaten.c kernel/zynie.bin kernel/hintergrund.bin | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD)/nn.o: kernel/nn.c | $(BUILD)
 	$(CC) $(filter-out -mno-sse -mno-mmx,$(CFLAGS)) -mstackrealign -c $< -o $@
 # .synbin-Programme mit dem eigenen Compiler bauen und in den Kernel einbinden

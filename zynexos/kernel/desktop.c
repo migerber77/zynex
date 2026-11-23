@@ -69,7 +69,7 @@ static void thema_anwenden(int n) {
     const uint32_t* c = THEMEN[n < 0 || n > 5 ? 0 : n].c;
     th_bg = c[0]; th_card = c[1]; th_border = c[2]; th_text = c[3]; th_muted = c[4]; th_acc = c[5]; th_acc2 = c[6]; th_field = c[7]; th_off = c[8]; th_hg1 = c[9]; th_hg2 = c[10]; th_gl1 = c[11]; th_gl2 = c[12];
 }
-static void th_laden(void) { th_nr = zdb_geti("ui.schema", 0); if (th_nr < 0 || th_nr > 5) th_nr = 0; hg_nr = zdb_geti("ui.hintergrund", 4); if (hg_nr < 0 || hg_nr > 6) hg_nr = 4; { const char* d = zdb_get("ui.hgbild"); int i = 0; while (d && d[i] && i < 31) { hg_datei[i] = d[i]; i++; } hg_datei[i] = 0; } if (hg_nr == 5 && !hg_datei[0]) hg_nr = 4; thema_anwenden(th_nr); }
+static void th_laden(void) { th_nr = zdb_geti("ui.schema", 0); if (th_nr < 0 || th_nr > 5) th_nr = 0; hg_nr = zdb_geti("ui.hintergrund", 4); if (hg_nr < 0 || hg_nr > 7) hg_nr = 4; { const char* d = zdb_get("ui.hgbild"); int i = 0; while (d && d[i] && i < 31) { hg_datei[i] = d[i]; i++; } hg_datei[i] = 0; } if (hg_nr == 5 && !hg_datei[0]) hg_nr = 4; thema_anwenden(th_nr); }
 #define C_BG     th_bg
 #define C_CARD   th_card
 #define C_BORDER th_border
@@ -238,6 +238,19 @@ static int vrausch(int x, int y, int z, int s) {                          /* Wer
 }
 static uint16_t neb1[961 * 541], neb2[961 * 541];
 static uint32_t wmix(uint32_t a, uint32_t b, int t) { if (t < 0) t = 0; if (t > 256) t = 256; return mix(a, b, t); }
+extern const uint16_t zynie_bild[], hintergrund_bild[];
+#define ZB_W 280
+#define ZB_H 358
+#define ZB_SPLIT 300
+#define HB_W 1024
+#define HB_H 559
+static uint32_t c565(uint16_t v) { uint32_t r = (v >> 11) & 31, g = (v >> 5) & 63, b = v & 31; return ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2); }
+static int isin(int deg);
+static int iatan2(int y, int x) {                                          /* Winkel in Grad 0..359 */
+    int ax = x < 0 ? -x : x, ay = y < 0 ? -y : y; if (!ax && !ay) return 0;
+    int a; if (ay <= ax) { int t = ay * 1024 / ax; a = t * (45 * 1024 + 15 * (1024 - t)) / (1024 * 1024); } else { int t = ax * 1024 / ay; a = 90 - t * (45 * 1024 + 15 * (1024 - t)) / (1024 * 1024); }
+    if (x < 0) a = 180 - a; if (y < 0) a = 360 - a; return ((a % 360) + 360) % 360;
+}
 static void wand_futur(uint32_t* b) {
     int hz = H * 66 / 100, sk = W / 4 + 1, sh = H / 4 + 1; if (sk > 961) sk = 961; if (sh > 541) sh = 541;
     int z0 = W / 6 > 40 ? W / 6 : 40;
@@ -302,6 +315,34 @@ static void wand_futur(uint32_t* b) {
               b[y * W + x] = wmix(b[y * W + x], 0x00DDEEFFu, t); if (k < len / 6 && y + 1 < hz) b[(y + 1) * W + x] = wmix(b[(y + 1) * W + x], 0x0022D3EEu, t / 2); }
       }
     }
+    /* Spiralgalaxie, zweiter Planet (Gasriese mit Baendern), Sternhaufen */
+    { int gx = W * 52 / 100, gy = H * 13 / 100, gr = H * 11 / 100 + 10;
+      for (int y = gy - gr; y <= gy + gr; y++) for (int x = gx - gr * 2; x <= gx + gr * 2; x++) {
+          if (x < 0 || y < 0 || x >= W || y >= hz) continue;
+          int dx = x - gx, dy = (y - gy) * 22 / 10; int r = isq(dx * dx + dy * dy); if (r >= gr * 2) continue;
+          int fall = 256 - r * 256 / (gr * 2); fall = fall * fall / 256;
+          int th = iatan2(dy, dx); int arm = (isin(th * 2 - r * 360 / (gr / 2 + 1)) + 1024) / 8;            /* 0..256 */
+          int in = fall * (90 + arm * 166 / 256) / 256;
+          uint32_t gc = wmix(0x008AA8FFu, 0x00FFE3B8u, fall * 2 - 220);
+          b[y * W + x] = wmix(b[y * W + x], gc, in * 190 / 256);
+      } }
+    { int px2 = W * 31 / 100, py2 = H * 47 / 100, pr2 = H * 6 / 100 + 5;
+      for (int y = py2 - pr2 - 6; y <= py2 + pr2 + 6; y++) for (int x = px2 - pr2 - 6; x <= px2 + pr2 + 6; x++) {
+          if (x < 0 || y < 0 || x >= W || y >= hz) continue;
+          int dx = x - px2, dy = y - py2, d2 = dx * dx + dy * dy; uint32_t* q = &b[y * W + x];
+          if (d2 <= pr2 * pr2) {
+              int l = (-dx - dy * 2 / 3) * 256 / (2 * pr2) + 140; if (l < 30) l = 30; if (l > 256) l = 256;
+              int band = (isin(dy * 1024 / (pr2 + 1) * 9 / 10 + vrausch(x, y / 3, 24, 51) / 8) + 1024) / 8;
+              uint32_t pc = wmix(wmix(0x00B8501Cu, 0x00F4B070u, band), 0x00180806u, 256 - l);
+              int rand = isq(d2) * 256 / pr2; if (rand > 225) pc = wmix(pc, 0x00FFB070u, (rand - 225) * 6);
+              *q = pc;
+          } else { int d = isq(d2); if (d < pr2 + 6) *q = wmix(*q, 0x00FF9A50u, (pr2 + 6 - d) * 70 / 7); }
+      } }
+    for (int k = 0; k < 9; k++) {
+        int cx0 = (int)(h32(k, 1, 61) % (uint32_t)W), cy0 = (int)(h32(k, 2, 61) % (uint32_t)(hz * 8 / 10)), cr = 14 + (int)(h32(k, 3, 61) % 30);
+        for (int i = 0; i < 45; i++) { int ox = (int)(h32(k * 64 + i, 4, 61) % (uint32_t)(cr * 2)) - cr, oy = (int)(h32(k * 64 + i, 5, 61) % (uint32_t)(cr * 2)) - cr; if (ox * ox + oy * oy > cr * cr) continue;
+            int x = cx0 + ox, y = cy0 + oy; if (x < 0 || y < 0 || x >= W || y >= hz) continue; b[y * W + x] = wmix(b[y * W + x], 0x00FFF4E0u, 120 + (int)(h32(k * 64 + i, 6, 61) % 120)); }
+    }
     /* Neon-Raster unter dem Horizont */
     for (int k = 1; k <= 16; k++) { int yk = hz + (H - hz) * k * k / 256; if (yk >= H) break; int t = 60 + k * 12; for (int x = 0; x < W; x++) { b[yk * W + x] = wmix(b[yk * W + x], 0x0022D3EEu, t); if (yk + 1 < H) b[(yk + 1) * W + x] = wmix(b[(yk + 1) * W + x], 0x0022D3EEu, t / 3); } }
     for (int i = -30; i <= 30; i++) { int xb = W / 2 + i * W / 9; for (int y = hz; y < H; y++) { int x = W / 2 + (xb - W / 2) * (y - hz) / (H - hz); if (x < 0 || x >= W) continue; int t = (y - hz) * 230 / (H - hz) + 20; b[y * W + x] = wmix(b[y * W + x], 0x00A855F7u, t); } }
@@ -334,15 +375,49 @@ static void wand_wasser(uint32_t* b) {
             uint32_t c = wmix(basis, 0x00087A8Cu, m / 6);                                                         /* tuerkise Schlieren */
             int dx = x - W / 2; int strahl = 256 - (dx < 0 ? -dx : dx) * 256 / (W / 2 + 1);                        /* Lichtkegel von oben */
             c = wmix(c, 0x007FDFF5u, ca * (lt * 2 / 3 + 40) / 1024 * (strahl + 128) / 384);
+            { int rr = vrausch(x + y / 3, 0, W / 14 + 8, 31) + vrausch(x + y / 4 + 400, 0, W / 30 + 6, 32) / 2 - 560; if (rr > 0) c = wmix(c, 0x00B8F0FFu, rr * (lt * lt / 256) / 1100); }   /* Lichtstrahlen von oben */
             b[y * W + x] = c;
+        }
+    }
+    /* Meeresboden mit Tang, aufsteigende Blasen, Schwebeteilchen */
+    for (int x = 0; x < W; x++) { int hy = H - H / 11 - vrausch(x, 0, W / 5 + 8, 41) * (H / 9) / 1024; for (int y = hy; y < H; y++) { int dd = y - hy; b[y * W + x] = wmix(b[y * W + x], 0x00010A14u, dd < 6 ? 150 + dd * 18 : 256); } }
+    for (int k = 0; k < W / 70; k++) {
+        int x0 = (int)(h32(k, 1, 71) % (uint32_t)W), y0 = H - H / 14, hh = H / 7 + (int)(h32(k, 2, 71) % (uint32_t)(H / 5)), ph0 = (int)(h32(k, 3, 71) % 360);
+        for (int yy = 0; yy < hh; yy++) { int x = x0 + isin(yy * 2 + ph0) * (6 + yy / 14) / 1024, y = y0 - yy; if (y < 0) break; int t = 230 - yy * 150 / hh;
+            for (int dx = -1; dx <= 1; dx++) if (x + dx >= 0 && x + dx < W) b[y * W + x + dx] = wmix(b[y * W + x + dx], 0x00083C40u, t); }
+    }
+    for (int k = 0; k < W * H / 40000; k++) {
+        int bx = (int)(h32(k, 1, 81) % (uint32_t)W), by = (int)(h32(k, 2, 81) % (uint32_t)(H * 85 / 100)), br = 3 + (int)(h32(k, 3, 81) % 11);
+        for (int y = by - br - 1; y <= by + br + 1; y++) for (int x = bx - br - 1; x <= bx + br + 1; x++) {
+            if (x < 0 || y < 0 || x >= W || y >= H) continue;
+            int dx = x - bx, dy = y - by, d = isq(dx * dx + dy * dy); uint32_t* q = &b[y * W + x];
+            if (d == br || d == br - 1) *q = wmix(*q, 0x00C8F6FFu, d == br ? 170 : 90);
+            else if (d < br) *q = wmix(*q, 0x0080D8F0u, 28);
+            if (dx == -br / 3 && dy == -br / 3 && br > 4) *q = wmix(*q, 0x00FFFFFFu, 220);
+        }
+    }
+    for (int k = 0; k < W * H / 1500; k++) { int x = (int)(h32(k, 1, 91) % (uint32_t)W), y = (int)(h32(k, 2, 91) % (uint32_t)H); b[y * W + x] = wmix(b[y * W + x], 0x00D8F8FFu, 70 + (int)(h32(k, 3, 91) % 120)); }
+}
+/* Zynex-Hintergrund: das eingebettete Bild (1024x559) bildfuellend auf den Bildschirm skaliert (bilinear) */
+static void wand_zynex(uint32_t* b) {
+    int64_t s16 = (int64_t)W * 65536 / HB_W; int64_t sh16 = (int64_t)H * 65536 / HB_H; if (sh16 > s16) s16 = sh16;      /* Faktor in 16.16 */
+    int64_t ox = ((int64_t)HB_W * s16 - (int64_t)W * 65536) / 2, oy = ((int64_t)HB_H * s16 - (int64_t)H * 65536) / 2;
+    for (int y = 0; y < H; y++) {
+        int64_t v = ((int64_t)y * 65536 + oy) * 65536 / s16; int y0 = (int)(v >> 16), fy = (int)((v >> 8) & 255); if (y0 < 0) y0 = 0; if (y0 >= HB_H - 1) { y0 = HB_H - 2; fy = 255; }
+        const uint16_t* r0 = hintergrund_bild + y0 * HB_W; const uint16_t* r1 = r0 + HB_W;
+        for (int x = 0; x < W; x++) {
+            int64_t u = ((int64_t)x * 65536 + ox) * 65536 / s16; int x0 = (int)(u >> 16), fx = (int)((u >> 8) & 255); if (x0 < 0) x0 = 0; if (x0 >= HB_W - 1) { x0 = HB_W - 2; fx = 255; }
+            uint32_t a = mix(c565(r0[x0]), c565(r0[x0 + 1]), fx), c = mix(c565(r1[x0]), c565(r1[x0 + 1]), fx);
+            b[y * W + x] = mix(a, c, fy);
         }
     }
 }
 static int wand_bereit(void) {                                           /* 1 = Hintergrundbild im Speicher passend zur Wahl */
     if (hg_nr < 4) return 0;
     if (!wand) { uint32_t s = ((uint32_t)W * (uint32_t)H * 4 + 4095) / 4096; if (pmm_get_free_pages() < s + 8192) return 0; wand = (uint32_t*)pmm_alloc_pages(s); if (!wand) return 0; }
-    if (wand_art == hg_nr && (hg_nr == 4 || hg_nr == 6 || ueq(wand_name, hg_datei))) return 1;
+    if (wand_art == hg_nr && (hg_nr == 4 || hg_nr == 6 || hg_nr == 7 || ueq(wand_name, hg_datei))) return 1;
     if (hg_nr == 5) { if (wand_bild(hg_datei, wand) != 0) { kprint("[DESKTOP] Hintergrundbild nicht lesbar: "); kprint(hg_datei); kprint("\n"); hg_nr = 4; } else { scopy(wand_name, hg_datei, 32); wand_art = 5; kprint("[DESKTOP] Hintergrundbild: "); kprint(hg_datei); kprint("\n"); return 1; } }
+    if (hg_nr == 7) { wand_zynex(wand); wand_art = 7; kprint("[DESKTOP] Zynex-Hintergrund berechnet\n"); return 1; }
     if (hg_nr == 6) { wand_wasser(wand); wand_art = 6; kprint("[DESKTOP] Wasser-Hintergrund berechnet\n"); return 1; }
     wand_futur(wand); wand_art = 4; kprint("[DESKTOP] Futuristischer Hintergrund berechnet\n");
     return 1;
@@ -378,38 +453,40 @@ static int isin(int deg) {
 static int icos(int deg) { return isin(deg + 90); }
 /* Welle: ein Ring laeuft vom Klick nach aussen und verzerrt das Bild darunter (Bildausschnitt wird gesichert und danach wiederhergestellt) */
 extern uint32_t* gfx_fbptr(uint32_t* pitch_px);
-static uint32_t wsnap[520 * 520];
+static uint32_t* wsnap;
 static int isqw(int v) { int r = 0; for (int b = 1 << 15; b; b >>= 1) { int t = r | b; if (t * t <= v) r = t; } return r; }
-static void wasser_welle(int cx, int cy) {
+extern void virtiogpu_tick(void);
+static void wasser_welle(int cx, int cy) {                                  /* Ring laeuft ueber den ganzen Bildschirm, zeitgesteuert (~1,3 s) */
     uint32_t pp; uint32_t* f = gfx_fbptr(&pp); if (!f) return;
-    int R = W / 9; if (R < 100) R = 100; if (R > 255) R = 255;
-    int x0 = cx - R, y0 = cy - R, x1 = cx + R, y1 = cy + R;
-    if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 > W) x1 = W; if (y1 > H) y1 = H;
-    int w = x1 - x0, h = y1 - y0; if (w <= 8 || h <= 8) return;
+    if (!wsnap) { uint32_t pg = ((uint32_t)W * (uint32_t)H * 4 + 4095) / 4096; if (pmm_get_free_pages() < pg + 4096) return; wsnap = (uint32_t*)pmm_alloc_pages(pg); if (!wsnap) return; }
     gfx_begin();
-    for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) wsnap[y * w + x] = f[(uint64_t)(y0 + y) * pp + x0 + x];
-    const int N = 20, W0 = 34;
-    for (int fr = 1; fr <= N; fr++) {
-        uint32_t t0 = timer_get_ticks();
-        int r = fr * (R + W0) / N, A = 3 + 11 * (N - fr) / N;                      /* Frontradius, Wellenhoehe in Pixeln */
-        for (int y = 0; y < h; y++) {
-            uint32_t* row = f + (uint64_t)(y0 + y) * pp + x0; int dy = (y0 + y) - cy;
-            int dmin = r - W0, dmax = r + W0;
-            for (int x = 0; x < w; x++) {
-                int dx = (x0 + x) - cx, d2 = dx * dx + dy * dy;
-                if ((dmin > 0 && d2 < dmin * dmin) || d2 > dmax * dmax) { row[x] = wsnap[y * w + x]; continue; }
-                int d = isqw(d2); int u = d - r; int au = u < 0 ? -u : u;
-                if (au >= W0 || d == 0) { row[x] = wsnap[y * w + x]; continue; }
-                int off = isin(u * 11) * A / 1024 * (W0 - au) / W0;
+    for (int y = 0; y < H; y++) { uint32_t* row = f + (uint64_t)y * pp; uint32_t* sn = wsnap + (uint64_t)y * W; for (int x = 0; x < W; x++) sn[x] = row[x]; }
+    int ex = cx > W - cx ? cx : W - cx, ey = cy > H - cy ? cy : H - cy, Rm = isqw(ex * ex + ey * ey);
+    const int W0 = 40, T = 130;
+    uint32_t t0 = timer_get_ticks(); int rprev = -1000;
+    for (;;) {
+        int el = (int)(timer_get_ticks() - t0); if (el > T) break;
+        int r = (int)((int64_t)(Rm + W0) * el / T), A = 2 + 12 * (T - el) / T;                      /* Frontradius, Wellenhoehe in Pixeln */
+        int dmax = r + W0, dminp = rprev - W0; if (dmax > Rm + W0) dmax = Rm + W0;
+        int ya = cy - dmax; if (ya < 0) ya = 0; int yb = cy + dmax; if (yb >= H) yb = H - 1;
+        for (int y = ya; y <= yb; y++) {
+            int dy = y - cy, xo2 = dmax * dmax - dy * dy; if (xo2 < 0) continue;
+            int xo = isqw(xo2), xi = (dminp > 0 && dminp * dminp > dy * dy) ? isqw(dminp * dminp - dy * dy) : -1;
+            uint32_t* row = f + (uint64_t)y * pp; uint32_t* sn = wsnap + (uint64_t)y * W;
+            for (int x = cx - xo < 0 ? 0 : cx - xo; x <= cx + xo && x < W; x++) {
+                int dx = x - cx; if (xi >= 0 && dx > -xi && dx < xi) { x = cx + xi - 1; continue; }
+                int d = isqw(dx * dx + dy * dy), u = d - r, au = u < 0 ? -u : u;
+                if (au >= W0 || d == 0) { row[x] = sn[x]; continue; }
+                int off = isin(u * 9) * A / 1024 * (W0 - au) / W0;
                 int sx = x + dx * off / d, sy = y + dy * off / d;
-                if (sx < 0) sx = 0; if (sx >= w) sx = w - 1; if (sy < 0) sy = 0; if (sy >= h) sy = h - 1;
-                uint32_t c = wsnap[sy * w + sx];
-                row[x] = off > 0 ? mix(c, 0x00FFFFFFu, off * 10) : off < 0 ? mix(c, 0x00000000u, -off * 7) : c;
+                if (sx < 0) sx = 0; if (sx >= W) sx = W - 1; if (sy < 0) sy = 0; if (sy >= H) sy = H - 1;
+                uint32_t c = wsnap[(uint64_t)sy * W + sx];
+                row[x] = off > 0 ? mix(c, 0x00FFFFFFu, off * 9) : off < 0 ? mix(c, 0x00000000u, -off * 6) : c;
             }
         }
-        while (timer_get_ticks() - t0 < 3) __asm__ volatile ("pause");
+        rprev = r; virtiogpu_tick();
     }
-    for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) f[(uint64_t)(y0 + y) * pp + x0 + x] = wsnap[y * w + x];
+    for (int y = 0; y < H; y++) { uint32_t* row = f + (uint64_t)y * pp; uint32_t* sn = wsnap + (uint64_t)y * W; for (int x = 0; x < W; x++) row[x] = sn[x]; }
     gfx_end();
 }
 static void lader(int cx, int cy, int R, uint32_t fr, uint32_t bg) {
@@ -592,48 +669,32 @@ static int zr_h(void) { return SC(232); }
 static int ruhend(void) { return timer_get_ticks() - letzte_eingabe > IDLE_TICKS && timer_get_ticks() > sprech_bis; }
 
 static void zynie(int cx, int cy, uint32_t ph) {
-    /* Zynie: ein schwebendes Leuchtwesen - glaenzende Kugel mit grossen Augen, Fuehler mit Leuchtspitze, weicher Schein */
+    /* Zynie: das gezeichnete Leuchtwesen (eingebettetes Bild). Schwarz ist durchsichtig (Bildschirm-Mischung), die Figur schwebt ueber ihrer Plattform */
+    (void)cx; (void)cy;
     uint32_t t = timer_get_ticks();
     int spricht = t < sprech_bis, ruhe = ruhend();
     int puls = (int)((ph / 3) % 16); if (puls > 8) puls = 16 - puls;
-    int blink = !ruhe && (ph % 12) == 0;
-    uint32_t bgc = hg_zeile(cy);
-    uint32_t glow = ruhe ? 0x00206A80u : mix(0x0000A8C8u, C_CYAN, puls * 32);
-    uint32_t akz = spricht ? C_VIOLET : glow;
+    int st = ruhe ? 110 : spricht ? 256 : 200 + puls * 7;                                   /* Helligkeit 0..256 */
+    int bob = ruhe ? 0 : (isin((int)((t / 5) % 360)) + 1024) * SC(12) / 2048;               /* 0 .. SC(12) Pixel nach unten */
     hg(zr_x(), zr_y(), zr_w(), zr_h());
-    static const int bx[8] = { 0, 5, 0, -5, 4, -4, 0, 3 }, by[8] = { 0, 0, 3, 0, -2, 2, -3, 1 };
-    static const int lipp[6] = { 3, 12, 18, 8, 14, 5 };
-    int k = (int)((t / 150) % 8), ex = ruhe ? 0 : spricht ? 3 : bx[k] * 2 / 3, ey = ruhe ? 2 : spricht ? 1 : by[k] / 2;
-    int bob = ruhe ? 0 : isin((int)((t / 5) % 360)) * SC(6) / 1024;                   /* schwebt sanft auf und ab */
-    int sy0 = cy; cy += bob;
-    int R = SC(62), mx = cx, my = cy + SC(6);                                          /* Kugelmitte */
-    rrect(cx - SC(40) + bob / 2, sy0 + SC(100), SC(80) - bob, SC(8), SC(4), mix(bgc, 0x00000000u, 80));      /* Schatten */
-    rrect(mx - R - SC(16), my - R - SC(16), 2 * (R + SC(16)), 2 * (R + SC(16)), R + SC(16), mix(bgc, akz, 26));  /* Schein */
-    rrect(mx - R - SC(8), my - R - SC(8), 2 * (R + SC(8)), 2 * (R + SC(8)), R + SC(8), mix(bgc, akz, 55));
-    rrect(mx - SC(3), my - R - SC(26), SC(6), SC(26), SC(3), 0x0058779Eu);                                    /* Fuehler */
-    rrect(mx - SC(8), my - R - SC(36), SC(16), SC(16), SC(8), mix(akz, 0x00FFFFFFu, 60));
-    rrect(mx - SC(4), my - R - SC(32), SC(8), SC(8), SC(4), 0x00FFFFFFu);
-    rrect(mx - R, my - R, 2 * R, 2 * R, R, 0x001B2A4Au);                                                     /* Kugel: Rand, Verlauf, Glanz */
-    rrect(mx - R + SC(3), my - R + SC(3), 2 * R - SC(6), 2 * R - SC(6), R - SC(3), 0x003E5E8Eu);
-    rrect(mx - R + SC(6), my - R + SC(5), 2 * R - SC(14), 2 * R - SC(14), R - SC(7), 0x007AA2D8u);
-    rrect(mx - R + SC(12), my - R + SC(10), 2 * R - SC(30), 2 * R - SC(34), R - SC(16), 0x00B4D0F2u);
-    rrect(mx - R + SC(16), my - R + SC(12), SC(40), SC(22), SC(11), 0x00EAF4FFu);                             /* Glanzlicht */
-    int eh = blink ? 3 : ruhe ? 5 : 32, ew = SC(20);
-    int eyy = my - SC(14) + SC((32 - eh) / 2 + ey);
-    for (int s = 0; s < 2; s++) {
-        int exx = (s ? mx + SC(11) : mx - SC(31)) + SC(ex);
-        rrect(exx, eyy, ew, SC(eh) < 3 ? 3 : SC(eh), SC(10), 0x000F1B33u);                                    /* Auge */
-        if (!blink && !ruhe) {
-            rrect(exx + SC(3), eyy + SC(8), ew - SC(6), SC(eh) - SC(14) < 3 ? 3 : SC(eh) - SC(14), SC(7), glow);
-            rrect(exx + SC(4), eyy + SC(4), SC(6), SC(6), SC(3), 0x00FFFFFFu);
+    uint32_t pp; uint32_t* f = gfx_fbptr(&pp);
+    int x0 = zr_x(), y0 = zr_y(), w = zr_w(), h = zr_h(), dh = h - SC(12), split = ZB_SPLIT * dh / ZB_H;
+    if (f && dh > 8 && w > 8) {
+        for (int y = 0; y < dh; y++) {
+            int yy = y0 + y + (y < split ? bob : 0); if (yy < 0 || yy >= H) continue;
+            const uint16_t* sr = zynie_bild + (y * ZB_H / dh) * ZB_W; uint32_t* row = f + (uint64_t)yy * pp;
+            for (int x = 0; x < w; x++) {
+                uint16_t v = sr[x * ZB_W / w]; if (!v) continue;
+                int xx = x0 + x; if (xx < 0 || xx >= W) continue;
+                uint32_t c = c565(v), bg = row[xx], o = 0;
+                for (int sh = 0; sh <= 16; sh += 8) { int cc = (int)((c >> sh) & 255) * st / 256, bb = (int)((bg >> sh) & 255); o |= (uint32_t)(255 - (255 - bb) * (255 - cc) / 255) << sh; }
+                row[xx] = o;
+            }
         }
     }
-    rrect(mx - SC(46), my + SC(20), SC(14), SC(8), SC(4), mix(0x007AA2D8u, 0x00FF8FB0u, 110));                  /* Waengchen */
-    rrect(mx + SC(32), my + SC(20), SC(14), SC(8), SC(4), mix(0x007AA2D8u, 0x00FF8FB0u, 110));
-    if (spricht) { int oh = 4 + lipp[(t / 6) % 6] * 2 / 3; rrect(mx - SC(9), my + SC(30) - SC(oh) / 4, SC(18), SC(oh), SC(oh) / 2 + 1, 0x000F1B33u); rrect(mx - SC(5), my + SC(30) + SC(oh) / 4, SC(10), SC(oh) / 3 + 1, SC(2), 0x00D26A8Au); }   /* Mund bewegt sich */
-    else rrect(mx - SC(9), my + SC(30), SC(18), ruhe ? 3 : SC(5), SC(3), 0x000F1B33u);                      /* Laecheln */
-    if (ruhe) { gfx_text(cx + SC(66), cy - SC(80), "z", 0x00647488u, 1 + zs / 120); gfx_text(cx + SC(80), cy - SC(96), "Z", 0x00647488u, 1 + zs / 100); }
-    int gx = zr_x() + zr_w() - 12, gy = zr_y() + zr_h() - 12;                                         /* Griff zum Vergroessern */
+    if (ruhe) { gfx_text(x0 + w * 70 / 100, y0 + h * 12 / 100, "z", 0x00647488u, 1 + zs / 120); gfx_text(x0 + w * 80 / 100, y0 + h * 4 / 100, "Z", 0x00647488u, 1 + zs / 100); }
+    if (spricht) { gfx_rect(x0 + w / 2 - 20, y0 + h - 6, 40, 2, C_VIOLET); }
+    int gx = x0 + w - 12, gy = y0 + h - 12;                                         /* Griff zum Vergroessern */
     gfx_rect(gx, gy + 10, 12, 2, 0x00475569u); gfx_rect(gx + 10, gy, 2, 12, 0x00475569u); gfx_rect(gx + 5, gy + 5, 2, 2, 0x00475569u);
 }
 
@@ -1998,7 +2059,7 @@ static void einst_klick(int id) {
     else if (k == K_ETEST) { ek_feld = 0; scopy(ek_meldung, TR("Pruefe ...", "Checking ..."), 100); zeichne_einst(); ext_pruefen(); }
     else if (k >= K_ETHEMA && k < K_ETHEMA + 6) { th_nr = k - K_ETHEMA; th_speichern(); }
     else if (k >= K_EHG && k < K_EHG + 5) { hg_nr = k - K_EHG; th_speichern(); }
-    else if (k == K_EHG + 6) { hg_nr = 6; th_speichern(); }
+    else if (k == K_EHG + 6 || k == K_EHG + 7) { hg_nr = (int)(k - K_EHG); th_speichern(); }
     else if (k == K_EHG + 5) {                                              /* eigenes Bild: naechste Bilddatei */
         static const char* const END[] = { ".png", ".jpg", ".jpeg", ".gif", 0 }; char nm[32]; int i = 0, gef = -1;
         while (synfs_nte_datei(i, END, nm, 32)) { if (ueq(nm, hg_datei)) gef = i; i++; }
@@ -2052,6 +2113,7 @@ static void einst_kurztaste(uint8_t k, int shift, int altgr) {            /* Tas
         if (c >= '1' && c <= '6') { th_nr = c - '1'; th_speichern(); zeichne_desktop(); }
         else if (c == 'h' || c == 'H') { hg_nr = (hg_nr + 1) % 5; th_speichern(); zeichne_desktop(); }
         else if (c == 'w' || c == 'W') { hg_nr = 6; th_speichern(); zeichne_desktop(); }
+        else if (c == 'z' || c == 'Z') { hg_nr = 7; th_speichern(); zeichne_desktop(); }
     } else if (einst_tab == 1) {
         if (c >= '0' && c <= '3') einst_klick(K_EIN0 + 10 + (c - '0'));
         else if ((c == 'm' || c == 'M') && ext_quelle()) { modell_wechsel(1); zeichne_einst(); }
@@ -2138,9 +2200,9 @@ static void zeichne_einst(void) {
         }
         y += 24 + 2 * 78 + 6;
         gtxt(x, y, T5("Hintergrund", "Background", "Arriere-plan", "Sfondo", "Fondo"), C_MUTED, 1);
-        { static const char* const hn[7][2] = { { "Verlauf", "Gradient" }, { "Aurora", "Aurora" }, { "Raster", "Grid" }, { "Einfarbig", "Solid" }, { "Futuristisch", "Futuristic" }, { "Eigenes Bild", "Own image" }, { "Wasser", "Water" } };
-          int w3 = (bw - 2 * 8) / 3; for (int i = 0; i < 7; i++) knopf(K_EIN0 + K_EHG + i, hn[i][lang == 0 ? 0 : 1], x + (i % 3) * (w3 + 8), y + 22 + (i / 3) * 42, w3, i == hg_nr);
-          y += 84; if (hg_nr == 5) { char t[60]; scopy(t, TR("Bild: ", "Image: "), 60); cat(t, hg_datei, 60); cat(t, TR("  (nochmals klicken = naechstes)", "  (click again = next)"), 60); gfx_text_f(x, y + 70, t, C_MUTED, 12); }
+        { static const char* const hn[8][2] = { { "Verlauf", "Gradient" }, { "Aurora", "Aurora" }, { "Raster", "Grid" }, { "Einfarbig", "Solid" }, { "Futuristisch", "Futuristic" }, { "Eigenes Bild", "Own image" }, { "Wasser", "Water" }, { "Zynex", "Zynex" } };
+          int w3 = (bw - 2 * 8) / 3; for (int i = 0; i < 8; i++) knopf(K_EIN0 + K_EHG + i, hn[i][lang == 0 ? 0 : 1], x + (i % 3) * (w3 + 8), y + 22 + (i / 3) * 42, w3, i == hg_nr);
+          y += 126; if (hg_nr == 5) { char t[60]; scopy(t, TR("Bild: ", "Image: "), 60); cat(t, hg_datei, 60); cat(t, TR("  (nochmals klicken = naechstes)", "  (click again = next)"), 60); gfx_text_f(x, y + 70, t, C_MUTED, 12); }
           if (ek_meldung[0] && einst_tab == 2) gfx_text_f(x, y + 88, l1(ek_meldung), 0x00F59E0Bu, 12); }
         gtxt(x, y + 70, TR("Die Aenderung ist sofort hinter dem Fenster zu sehen.", "The change is visible right away behind the window."), C_MUTED, 1);
     }
@@ -2948,7 +3010,7 @@ static void maus_runter(int x, int y) {
     if (fok) { fok = 0; zustand = Z_DESK; zeichne_desktop(); }
     if (zustand == Z_DESK && flaeche == 0 && x >= zr_x() && x < zr_x() + zr_w() && y >= zr_y() && y < zr_y() + zr_h()) {
         if (x >= zr_x() + zr_w() - 24 && y >= zr_y() + zr_h() - 24) zdrag = 2; else { zdrag = 1; zdx = x - zx; zdy = y - zy; }
-    } else { if (hg_nr == 6 && zustand == Z_DESK && flaeche == 0 && y > 48) wasser_welle(x, y); klick(x, y, -1); }
+    } else { if ((hg_nr == 6 || hg_nr == 7) && zustand == Z_DESK && flaeche == 0 && y > 48) wasser_welle(x, y); klick(x, y, -1); }
 }
 
 static void tick(void) {
