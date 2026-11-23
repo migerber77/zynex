@@ -139,7 +139,7 @@ def basis():
     print("=========== SERIELLE AUSGABE ===========")
     print(out)
     print("=========== PRUEFUNG ===========")
-    pruefe("Text auf dem Bildschirm sichtbar (%d helle Pixel)" % hell, hell > 500)
+    pruefe("Text auf dem Bildschirm sichtbar (%d helle Pixel)" % hell, hell > 5000)
     for name, muster, anzahl in [
         ("Shell antwortet auf help", "syncreate", 1),
         ("Hardware-Uebersicht listet Geraete mit Treiber", "Hardware-Uebersicht", 1),
@@ -279,7 +279,7 @@ def vgpu():
     vm.ende()
     pruefe("VirtIO-GPU: Kernel startet mit virtio-gpu als einziger Anzeige", start)
     pruefe("VirtIO-GPU: Treiber richtet die Anzeige ein", "[VirtIO-GPU] Anzeige" in out and "bereit" in out)
-    pruefe("VirtIO-GPU: Bildschirm zeigt Inhalt (Screendump nicht schwarz: %d helle Pixel)" % hell, hell > 500)
+    pruefe("VirtIO-GPU: Bildschirm zeigt Inhalt (Screendump nicht schwarz: %d helle Pixel)" % hell, hell > 5000)
 
 
 def sata():

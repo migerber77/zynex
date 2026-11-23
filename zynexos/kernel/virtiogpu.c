@@ -12,7 +12,7 @@ extern void kprint(const char* str);
 extern void kprint_dec(uint32_t val);
 extern int  gfx_available(void);
 extern void gfx_size(int* w, int* h);
-extern void gfx_umleiten(void* neu, uint32_t pitch_bytes);
+extern void gfx_umleiten(void* neu, uint32_t pitch_bytes, uint32_t w, uint32_t h);
 
 #define QS 16
 struct vdesc { uint64_t addr; uint32_t len; uint16_t flags, next; } __attribute__((packed));
@@ -42,12 +42,12 @@ static volatile uint8_t* karte(const struct pci_dev* d, uint8_t bar, uint32_t of
 }
 
 /* Befehl senden (w = Woerter, n = Anzahl), auf die Antwort warten; 0 = OK_NODATA (0x1100) */
-static int cmd(const uint32_t* w, int n) {
+static int cmd2(const uint32_t* w, int n, uint32_t rlen) {
     uint32_t* r = (uint32_t*)req;
     zero(req, 4096);
     for (int i = 0; i < n; i++) r[i] = w[i];
     desc[0].addr = (uint64_t)(uintptr_t)req;          desc[0].len = (uint32_t)(n * 4); desc[0].flags = 1; desc[0].next = 1;
-    desc[1].addr = (uint64_t)(uintptr_t)(req + 2048); desc[1].len = 24;                desc[1].flags = 2; desc[1].next = 0;
+    desc[1].addr = (uint64_t)(uintptr_t)(req + 2048); desc[1].len = rlen;             desc[1].flags = 2; desc[1].next = 0;
     uint16_t idx = avail[1];
     avail[2 + (idx % QS)] = 0;
     fence(); avail[1] = (uint16_t)(idx + 1); fence();
@@ -55,8 +55,10 @@ static int cmd(const uint32_t* w, int n) {
     uint32_t t0 = timer_get_ticks();
     for (;;) { fence(); if (used[1] != last_used) break; if (timer_get_ticks() - t0 > 300) return -3; }
     last_used++;
-    return *(volatile uint32_t*)(req + 2048) == 0x1100u ? 0 : -4;
+    uint32_t rt = *(volatile uint32_t*)(req + 2048);
+    return (rt == 0x1100u || rt == 0x1101u) ? 0 : -4;
 }
+static int cmd(const uint32_t* w, int n) { return cmd2(w, n, 24); }
 
 int virtiogpu_aktiv(void) { return ready; }
 
@@ -64,7 +66,7 @@ int virtiogpu_init(void) {
     struct pci_dev* d = 0;
     for (int i = 0; i < pci_count(); i++) { struct pci_dev* x = pci_get(i); if (x->vendor == 0x1AF4 && x->device == 0x1050) { d = x; break; } }
     if (!d) { kprint("[VirtIO-GPU] kein virtio-gpu-Geraet unter "); kprint_dec((uint32_t)pci_count()); kprint(" PCI-Geraeten\n"); return -1; }
-    if (!gfx_available()) { kprint("[VirtIO-GPU] Geraet gefunden, aber kein Framebuffer vom Lader\n"); return -1; }
+
     pci_enable(d);
     uint32_t cp = pci_read32(d, 0x34) & 0xFF; int hc = 0, hn = 0;
     for (int guard = 0; cp && guard < 48; guard++) {
@@ -92,7 +94,15 @@ int virtiogpu_init(void) {
     notify_off = r16(30); w16(28, 1);
     w8(20, 15);
 
-    gfx_size(&W, &H);
+    if (gfx_available()) gfx_size(&W, &H);
+    else {                                                  /* kein GOP-Bildschirm: bevorzugte Groesse vom Geraet erfragen */
+        W = 1280; H = 800;
+        uint32_t gi[6] = { 0x0100, 0, 0, 0, 0, 0 };
+        if (cmd2(gi, 6, 24 + 16 * 24) == 0) {
+            volatile uint32_t* r = (volatile uint32_t*)(req + 2048 + 24);
+            for (int i = 0; i < 16; i++, r += 6) if (r[4] && r[2] >= 640 && r[3] >= 480 && r[2] <= 3840 && r[3] <= 2160) { W = (int)r[2]; H = (int)r[3]; break; }
+        }
+    }
     uint32_t pages = ((uint32_t)W * (uint32_t)H * 4 + 4095) / 4096;
     uint8_t* buf = (uint8_t*)pmm_alloc_pages(pages);
     if (!buf) { kprint("[VirtIO-GPU] Kein Speicher fuer den Bildspeicher\n"); return -6; }
@@ -104,7 +114,7 @@ int virtiogpu_init(void) {
     /* SET_SCANOUT: Rechteck, Scanout 0, Ressource 1 */
     uint32_t c3[12] = { 0x0103, 0, 0, 0, 0, 0, 0, 0, (uint32_t)W, (uint32_t)H, 0, 1 };
     if (cmd(c1, 10) || cmd(c2, 12) || cmd(c3, 12)) { kprint("[VirtIO-GPU] Anzeige konnte nicht eingerichtet werden\n"); return -7; }
-    gfx_umleiten(buf, (uint32_t)W * 4);
+    gfx_umleiten(buf, (uint32_t)W * 4, (uint32_t)W, (uint32_t)H);
     ready = 1; lastflush = 0;
     virtiogpu_tick();
     kprint("[VirtIO-GPU] Anzeige "); kprint_dec((uint32_t)W); kprint("x"); kprint_dec((uint32_t)H); kprint(" bereit (eigener Bildspeicher, Scanout 0)\n");

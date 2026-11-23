@@ -146,10 +146,13 @@ void gfx_console(int an){ con_aus=!an; if(an&&mode==1){ fb_clear(); cursor_x=0; 
 uint32_t* gfx_fbptr(uint32_t* pitch_px){ if(mode!=1) return 0; *pitch_px=fb_pitch/4; return (uint32_t*)fb; }
 extern void virtiogpu_tick(void);
 /* Anzeige umleiten (z. B. virtio-gpu): Bildinhalt in den neuen Speicher uebernehmen, ab jetzt wird dort gezeichnet */
-void gfx_umleiten(void* neu,uint32_t pitch_bytes){
-    if(mode!=1) return;
-    for(uint32_t y=0;y<fb_h;y++){ uint32_t* s=(uint32_t*)(fb+(uint64_t)y*fb_pitch); uint32_t* d=(uint32_t*)((uint8_t*)neu+(uint64_t)y*pitch_bytes); for(uint32_t x=0;x<fb_w;x++) d[x]=s[x]; }
-    fb=(uint8_t*)neu; fb_pitch=pitch_bytes;
+void gfx_umleiten(void* neu,uint32_t pitch_bytes,uint32_t w,uint32_t h){
+    if(mode==1){
+        for(uint32_t y=0;y<fb_h&&y<h;y++){ uint32_t* s=(uint32_t*)(fb+(uint64_t)y*fb_pitch); uint32_t* d=(uint32_t*)((uint8_t*)neu+(uint64_t)y*pitch_bytes); for(uint32_t x=0;x<fb_w&&x<w;x++) d[x]=s[x]; }
+        fb=(uint8_t*)neu; fb_pitch=pitch_bytes; fb_w=w; fb_h=h; cols=(int)w/8; rows=(int)h/16;
+    } else if(mode==0){                                   /* kein Bildschirm vom Lader (z. B. nur virtio-gpu): neu aufsetzen */
+        fb=(uint8_t*)neu; fb_pitch=pitch_bytes; fb_w=w; fb_h=h; fb_rgb=0; cols=(int)w/8; rows=(int)h/16; cursor_x=0; cursor_y=0; mode=1; fb_clear();
+    }
 }
 void gfx_begin(void){ if(mode==1&&cur_x>=0) cursor_xor(cur_x,cur_y); }
 void gfx_end(void){ if(mode==1&&cur_x>=0) cursor_xor(cur_x,cur_y); virtiogpu_tick(); }
