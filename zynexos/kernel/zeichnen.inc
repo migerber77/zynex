@@ -353,6 +353,19 @@ static int wand_bild(const char* name, uint32_t* ziel) {
     for (int y = 0; y < H; y++) { int qy = sy + y * sh / H; const uint32_t* zq = m_bild + (uint32_t)qy * (uint32_t)w; for (int x = 0; x < W; x++) ziel[y * W + x] = zq[sx + x * sw / W]; }
     return 0;
 }
+/* Profilfoto: Bild laden, quadratisch zuschneiden (Mitte) und auf S x S verkleinern (4 Proben je Pixel) */
+static int av_laden(const char* name, uint32_t* ziel, int S) {
+    if (!name[0] || m_puffer()) return -1;
+    int r = synfs_read(name, m_ladepuffer, 2048u * 4096u); if (r <= 0) return -2;
+    int w, h; if (bild_dekodieren(m_ladepuffer, (uint32_t)r, m_bild, 2048u * 1024u, m_arb, 3072u * 4096u, &w, &h) != 0) return -3;
+    int q = w < h ? w : h, sx = (w - q) / 2, sy = (h - q) / 2;
+    for (int y = 0; y < S; y++) for (int x = 0; x < S; x++) {
+        uint32_t rr = 0, gg = 0, bb = 0;
+        for (int k = 0; k < 4; k++) { int px = sx + (x * 2 + (k & 1)) * q / (S * 2), py = sy + (y * 2 + (k >> 1)) * q / (S * 2); uint32_t c = m_bild[(uint32_t)py * (uint32_t)w + (uint32_t)px]; rr += (c >> 16) & 255; gg += (c >> 8) & 255; bb += c & 255; }
+        ziel[y * S + x] = ((rr / 4) << 16) | ((gg / 4) << 8) | (bb / 4);
+    }
+    return 0;
+}
 static void mal_als_hintergrund(void) {
     if (m_geaendert || !mname[0]) mal_speichern();
     scopy(hg_datei, mname, 32); zdb_put("ui.hgbild", hg_datei); hg_nr = 5; th_speichern(); wand_art = -1;

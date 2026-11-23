@@ -772,7 +772,7 @@ static const char* const chip_text[6] = { "text erstellen", "rechne 12*7", "syst
 static int bar_x, bar_y, bar_w;
 
 /* ---------- Fenster und Widgets (verschiebbar, schliessbar, mehrere gleichzeitig) ---------- */
-enum { FT_EDIT = 1, FT_WEB, FT_RECH, FT_INFO, FT_EINST, FT_CHATS, FT_GED, FT_TAB, FT_PRAES, FT_BOARD, FT_MAL, FT_DATEI };
+enum { FT_EDIT = 1, FT_WEB, FT_RECH, FT_INFO, FT_EINST, FT_CHATS, FT_GED, FT_TAB, FT_PRAES, FT_BOARD, FT_MAL, FT_DATEI, FT_BENUTZER };
 static void zeichne_tabelle(void); static void zeichne_praes(void); static void zeichne_board(void); static void zeichne_mal(void);
 static int ob_vollbild;                                     /* Praesentation laeuft im Vollbild */
 static void praes_vollbild_zeichnen(void);
@@ -805,7 +805,7 @@ static int flaeche;
 static char alog[10][100]; static int nalog, alauf = -1, pend;
 static void aufg_laden(void); static int aufg_zeile(int n, char* out, int max); static int aufg_zahl(void);
 static const char* const ag_name[9][2] = { { "Morgen-Briefing", "Morning briefing" }, { "Sicherheits-Agent", "Security agent" }, { "Wartungs-Agent", "Maintenance agent" }, { "Aufgaben-Agent", "Task agent" }, { "Dokument-Agent", "Document agent" }, { "Tabellen-Agent", "Sheet agent" }, { "Folien-Agent", "Slides agent" }, { "Ablauf-Agent (SmartBoard)", "Flow agent (SmartBoard)" }, { "Bild-Agent", "Image agent" } };
-static void zeichne_datei(void); static void zeichne_einst(void); static void zeichne_chats(void); static void zeichne_ged(void); static void zeichne_desktop(void); static void zeichne_editor(int voll); static void zeichne_web(int voll); static void zeichne_rechner(void); static void zeichne_info(void);
+static void zeichne_benutzer(void); static void zeichne_datei(void); static void zeichne_einst(void); static void zeichne_chats(void); static void zeichne_ged(void); static void zeichne_desktop(void); static void zeichne_editor(int voll); static void zeichne_web(int voll); static void zeichne_rechner(void); static void zeichne_info(void);
 static int fenster_idx(int typ) { for (int i = 0; i < nfen; i++) if (fen[i].typ == typ) return i; return -1; }
 static int schneidet(int x, int y, int w, int h, int x2, int y2, int w2, int h2) { return !(x + w <= x2 || x2 + w2 <= x || y + h <= y2 || y2 + h2 <= y); }
 static int deckt(int x, int y, int w, int h) {                /* liegt ein Fenster oder Widget ueber diesem Bereich? */
@@ -829,7 +829,7 @@ static int rad_modus(void);                                      /* 1 = Befehlsr
 static void rad_weg(void);
 static void busy_tick(void) { uint32_t f = timer_get_ticks() / 5; if (!busy_an || f != busy_f) { busy_an = 1; busy_f = f; lader(W - 70, H - 70, 28, f, C_WALL); } }
 static void busy_ende(void) { if (!busy_an) return; busy_an = 0; gfx_begin(); hg(W - 70 - 40, H - 70 - 40, 80, 80); gfx_end(); zeichne_desktop(); }
-static const char* fenster_titel(int typ) { if (typ == FT_MAL) return TR("Zynex Zeichnen", "Zynex Draw"); if (typ == FT_TAB) return TR("Zynex Tabelle", "Zynex Sheets"); if (typ == FT_PRAES) return TR("Zynex Praesentation", "Zynex Slides"); if (typ == FT_BOARD) return "SmartBoard"; if (typ == FT_GED) return TR("Gedaechtnis", "Memory"); if (typ == FT_DATEI) return TR("Datei-Explorer", "File Explorer"); if (typ == FT_EINST) return TR("Einstellungen", "Settings"); if (typ == FT_CHATS) return "Chats"; return typ == FT_EDIT ? TR("Zynex Text", "Zynex Text") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
+static const char* fenster_titel(int typ) { if (typ == FT_MAL) return TR("Zynex Zeichnen", "Zynex Draw"); if (typ == FT_TAB) return TR("Zynex Tabelle", "Zynex Sheets"); if (typ == FT_PRAES) return TR("Zynex Praesentation", "Zynex Slides"); if (typ == FT_BOARD) return "SmartBoard"; if (typ == FT_GED) return TR("Gedaechtnis", "Memory"); if (typ == FT_DATEI) return TR("Datei-Explorer", "File Explorer"); if (typ == FT_BENUTZER) return TR("Benutzerverwaltung", "User management"); if (typ == FT_EINST) return TR("Einstellungen", "Settings"); if (typ == FT_CHATS) return "Chats"; return typ == FT_EDIT ? TR("Zynex Text", "Zynex Text") : typ == FT_WEB ? "Browser" : typ == FT_RECH ? TR("Rechner", "Calculator") : TR("System-Info", "System info"); }
 static void fenster_zeichnen(int i) {
     struct fenster* f = &fen[i]; int top = (i == nfen - 1 && fok);
     gfx_begin();
@@ -863,7 +863,7 @@ static void fenster_zeichnen(int i) {
     rrect(f->x + f->w - 32, f->y + 5, 22, 20, 10, top ? 0x00EF4444u : C_OFF); gtxt(f->x + f->w - 25, f->y + 7, "x", 0x00FFFFFFu, 1);
     }
     kn_owner = i;
-    if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else if (f->typ == FT_EINST) zeichne_einst(); else if (f->typ == FT_CHATS) zeichne_chats(); else if (f->typ == FT_GED) zeichne_ged(); else if (f->typ == FT_DATEI) zeichne_datei(); else if (f->typ == FT_TAB) zeichne_tabelle(); else if (f->typ == FT_PRAES) zeichne_praes(); else if (f->typ == FT_BOARD) zeichne_board(); else if (f->typ == FT_MAL) zeichne_mal(); else zeichne_info();
+    if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else if (f->typ == FT_EINST) zeichne_einst(); else if (f->typ == FT_CHATS) zeichne_chats(); else if (f->typ == FT_GED) zeichne_ged(); else if (f->typ == FT_DATEI) zeichne_datei(); else if (f->typ == FT_BENUTZER) zeichne_benutzer(); else if (f->typ == FT_TAB) zeichne_tabelle(); else if (f->typ == FT_PRAES) zeichne_praes(); else if (f->typ == FT_BOARD) zeichne_board(); else if (f->typ == FT_MAL) zeichne_mal(); else zeichne_info();
     kn_owner = -1;
     gfx_end();
 }
@@ -1293,17 +1293,23 @@ static void zeichne_f_aufgaben(void) {
 }
 
 /* ---------- Dock: Programme unten in der Mitte (Glas, Symbole, Punkt = offen) ---------- */
-enum { K_DOCK0 = 260, NDOCK = 11, K_ORB = 290 };
-static const int dock_typ[NDOCK] = { FT_EDIT, FT_TAB, FT_PRAES, FT_BOARD, FT_MAL, FT_WEB, FT_RECH, FT_CHATS, FT_GED, FT_EINST, FT_DATEI };
+enum { K_DOCK0 = 260, NDOCK = 12, K_ORB = 290 };
+static const int dock_typ[NDOCK] = { FT_EDIT, FT_TAB, FT_PRAES, FT_BOARD, FT_MAL, FT_WEB, FT_RECH, FT_CHATS, FT_GED, FT_EINST, FT_DATEI, FT_BENUTZER };
 static const uint32_t dock_f[NDOCK][2] = { { 0x004F86E8u, 0x002B579Au }, { 0x0033A86Bu, 0x00217346u }, { 0x00F0703Cu, 0x00C43E1Cu }, { 0x009B4BE0u, 0x007719AAu }, { 0x00FACC15u, 0x00EA580Cu }, { 0x0038BDF8u, 0x000284C7u },
-                                          { 0x0094A3B8u, 0x00475569u }, { 0x002DD4BFu, 0x000F9488u }, { 0x00F472B6u, 0x00BE185Du }, { 0x0094A3B8u, 0x0064748Bu }, { 0x00FBBF24u, 0x00D97706u } };
+                                          { 0x0094A3B8u, 0x00475569u }, { 0x002DD4BFu, 0x000F9488u }, { 0x00F472B6u, 0x00BE185Du }, { 0x0094A3B8u, 0x0064748Bu }, { 0x00FBBF24u, 0x00D97706u }, { 0x00A78BFAu, 0x006D28D9u } };
 static const char* const dock_n[NDOCK][2] = { { "Text", "Text" }, { "Tabelle", "Sheets" }, { "Praesentation", "Slides" }, { "SmartBoard", "SmartBoard" }, { "Zeichnen", "Draw" }, { "Browser", "Browser" },
-                                              { "Rechner", "Calculator" }, { "Chats", "Chats" }, { "Gedaechtnis", "Memory" }, { "Einstellungen", "Settings" }, { "Dateien", "Files" } };
+                                              { "Rechner", "Calculator" }, { "Chats", "Chats" }, { "Gedaechtnis", "Memory" }, { "Einstellungen", "Settings" }, { "Dateien", "Files" }, { "Benutzer", "Users" } };
 static void dock_symbol(int i, int x, int y, int s) {
     if (i == 4) {                                                       /* Zeichnen: Palette mit Farbtupfern */
         rrect(x, y, s, s, s / 4, dock_f[4][1]); rrect(x, y, s, s * 3 / 5, s / 4, dock_f[4][0]); gfx_rect(x, y + s * 2 / 5, s, s / 5, mix(dock_f[4][0], dock_f[4][1], 128));
         int u = s / 12; rrect(x + 2 * u, y + 2 * u, 8 * u, 8 * u, 4 * u, 0x00FFFFFFu); rrect(x + 6 * u, y + 6 * u, 3 * u, 3 * u, 3 * u / 2, dock_f[4][1]);
         rrect(x + 3 * u, y + 4 * u, 2 * u, 2 * u, u, 0x00EF4444u); rrect(x + 5 * u, y + 3 * u, 2 * u, 2 * u, u, 0x003B82F6u); rrect(x + 3 * u, y + 7 * u, 2 * u, 2 * u, u, 0x0022C55Eu); rrect(x + 7 * u, y + 4 * u, 2 * u, 2 * u, u, 0x00EAB308u);
+        return;
+    }
+    if (i == 11) {                                                      /* Benutzer: Person */
+        if (Q_GLAS && s > 24) { rrect(x, y, s, s, s / 4, mix(dock_f[11][0], dock_f[11][1], 128)); rr_grad(x + 2, y + 2, s - 4, s - 4, s / 4 - 2, mix(0x000E2038u, dock_f[11][0], 90), mix(0x00050B1Cu, dock_f[11][1], 110)); }
+        else { rrect(x, y, s, s, s / 4, dock_f[11][1]); rrect(x, y, s, s * 3 / 5, s / 4, dock_f[11][0]); }
+        int u = s / 12; rrect(x + 4 * u, y + 2 * u + u / 2, 4 * u, 4 * u, 2 * u, 0x00FFFFFFu); rrect(x + 2 * u + u / 2, y + 7 * u, 7 * u, 4 * u, 2 * u, 0x00FFFFFFu);
         return;
     }
     if (i == 10) {                                                      /* Dateien: Ordner */
@@ -1508,6 +1514,7 @@ static void fenster_oeffnen(int typ) {
         int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 660 : typ == FT_CHATS ? 720 : typ == FT_GED ? 700 : 480;
         int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 600 : typ == FT_CHATS ? 470 : typ == FT_GED ? 480 : 250;
         if (typ == FT_DATEI) { w = 740; h = 500; }
+        if (typ == FT_BENUTZER) { w = 760; h = 520; }
         if (typ == FT_WEB && w < 640) w = W - 40;
         if (typ == FT_EDIT || typ == FT_TAB || typ == FT_PRAES || typ == FT_BOARD || typ == FT_WEB || typ == FT_MAL) { w = W - 60 < 1500 ? W - 60 : 1500; h = H - 70 < 900 ? H - 70 : 900; }
         int x = 60 + nfen * 36, y = 56 + nfen * 30;
@@ -1683,7 +1690,7 @@ static int pdf_drucken(const char* titel, const char* text) {
 #include "browser_ui.inc"
 
 /* ---------- Rechtsklick-Menue ---------- */
-enum { M_NEUDOK = 30, M_BROWSER, M_RECHNER, M_INFO, M_EINST, M_CHATS, M_GED, M_DATEI, M_WUHR, M_WSYS, M_WAUF, M_WAGENT, M_WNOTIZ, M_WSCHL, M_FSCHL, M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN, M_BILDHG = 60 };
+enum { M_NEUDOK = 30, M_BROWSER, M_RECHNER, M_INFO, M_EINST, M_CHATS, M_GED, M_DATEI, M_BENUTZER, M_WUHR, M_WSYS, M_WAUF, M_WAGENT, M_WNOTIZ, M_WSCHL, M_FSCHL, M_AUSSCHN = 1, M_KOPIEREN, M_EINFUEGEN, M_ALLES, M_DRUCKEN, M_ZURUECK, M_VOR, M_NEULADEN, M_LINKOEFFNEN, M_LINKKOPIEREN, M_LESEZEICHEN, M_SEITEKOPIEREN, M_SEITESPEICHERN, M_SPEICHERN, M_SCHLIESSEN, M_NAECHSTE, M_VORIGE, M_LEEREN, M_BILDHG = 60 };
 static int menu_bild = -1;
 static struct { int offen, x, y, w, n, hover, ziel; struct { int id; const char* de; const char* en; } p[16]; } menu;
 static int menu_link, menu_wid;
@@ -1728,7 +1735,7 @@ static void menu_oeffnen(int x, int y) {
     } else if (flaeche == 0) {
         menu_add(M_NEUDOK, "Neues Dokument", "New document"); menu_add(M_BROWSER, "Browser", "Browser"); menu_add(M_RECHNER, "Rechner", "Calculator"); menu_add(M_INFO, "System-Info", "System info");
         menu_add(M_WUHR, "Widget: Uhr", "Widget: clock"); menu_add(M_WSYS, "Widget: System", "Widget: system"); menu_add(M_WAUF, "Widget: Aufgaben", "Widget: tasks"); menu_add(M_WAGENT, "Widget: Agenten", "Widget: agents"); menu_add(M_WNOTIZ, "Notizzettel", "Sticky note");
-        menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_CHATS, "Chats", "Chats"); menu_add(M_GED, "Gedaechtnis", "Memory"); menu_add(M_DATEI, "Dateien", "Files"); menu_add(M_EINST, "Einstellungen", "Settings");
+        menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_CHATS, "Chats", "Chats"); menu_add(M_GED, "Gedaechtnis", "Memory"); menu_add(M_DATEI, "Dateien", "Files"); menu_add(M_BENUTZER, "Benutzer", "Users"); menu_add(M_EINST, "Einstellungen", "Settings");
     } else {
         menu_add(M_NAECHSTE, "Naechste Arbeitsflaeche", "Next workspace"); menu_add(M_VORIGE, "Vorherige Arbeitsflaeche", "Previous workspace");
     }
@@ -1792,6 +1799,7 @@ static void menu_aktion(int id) {
     case M_CHATS: fenster_oeffnen(FT_CHATS); return;
     case M_GED: fenster_oeffnen(FT_GED); return;
     case M_DATEI: fenster_oeffnen(FT_DATEI); return;
+    case M_BENUTZER: fenster_oeffnen(FT_BENUTZER); return;
     case M_WUHR: widget_neu(WG_UHR); return; case M_WSYS: widget_neu(WG_SYS); return; case M_WAUF: widget_neu(WG_AUF); return; case M_WAGENT: widget_neu(WG_AGENT); return; case M_WNOTIZ: widget_neu(WG_NOTIZ); return;
     case M_WSCHL: widget_weg(menu_wid); break;
     case M_FSCHL: if (nfen) { fenster_schliessen_typ(fen[nfen - 1].typ); return; } break;
@@ -2200,6 +2208,7 @@ static void zeichne_einst(void) {
     gfx_begin(); gfx_rect(f->x + 2, f->y + WT_H, f->w - 4, f->h - WT_H - 2, C_BG);
     { int tw = (bw - 12) / 3; const char* tn[3] = { T5("Allgemein", "General", "General", "Generale", "General"), T5("KI-Modelle", "AI models", "Modeles IA", "Modelli IA", "Modelos IA"), T5("Aussehen", "Appearance", "Apparence", "Aspetto", "Aspecto") };
       for (int i = 0; i < 3; i++) knopf(K_EIN0 + K_ETAB + i, tn[i], x + i * (tw + 6), y, tw, i == einst_tab); }
+    if (Q_GLAS) h_grad(x, y + 44, bw, 2, mix(C_BG, Q_CY, 130), mix(C_BG, Q_VIO, 130));
     y += 50;
     if (einst_tab == 0) {
         gtxt(x, y, T5("Sprache", "Language", "Langue", "Lingua", "Idioma"), C_MUTED, 1);
@@ -2692,6 +2701,126 @@ static void da_klick(int id) {
     }
     zeichne_desktop();
 }
+
+/* ---------- Benutzerverwaltung ---------- */
+enum { K_BE0 = 950, K_BE_NEU = 960, K_BE_EDIT, K_BE_PW, K_BE_FOTO, K_BE_DEL, K_BE_ROLLE, K_BE_FO0 = 970, K_BE_END = 990 };
+static int be_sel, be_modus, be_schritt, be_rolle_neu = 1, be_vfrage; static char be_buf[40], be_msg[100], be_name1[20];
+static char av_name[8][16]; static uint32_t av_px[8][64 * 64]; static int av_ok[8];
+static const char* be_rolletxt(int r) { return r == 2 ? TR("Admin", "Admin") : r == 1 ? TR("Benutzer", "User") : TR("Gast", "Guest"); }
+static int be_admin(void) { return benutzer_rolle() == ROLLE_ADMIN; }
+static void be_fotokey(const char* n, char* k) { scopy(k, "bf.", 24); cat(k, n, 24); }
+static void be_av_weg(const char* n) { for (int i = 0; i < 8; i++) if (ueq(av_name[i], n)) { av_name[i][0] = 0; av_ok[i] = 0; } }
+static int be_av(const char* n) {                              /* Cache-Platz mit geladenem Foto, sonst -1 */
+    char k[24]; be_fotokey(n, k); const char* f = zdb_get(k); if (!f || !f[0]) return -1;
+    for (int i = 0; i < 8; i++) if (av_ok[i] && ueq(av_name[i], n)) return i;
+    int fr = -1; for (int i = 0; i < 8; i++) if (!av_ok[i]) { fr = i; break; } if (fr < 0) fr = 0;
+    if (av_laden(f, av_px[fr], 64) != 0) { scopy(av_name[fr], n, 16); av_ok[fr] = 0; return -1; }
+    scopy(av_name[fr], n, 16); av_ok[fr] = 1; return fr;
+}
+static void be_avatar(int cx, int cy, int D, const char* n, uint32_t c1, uint32_t c2) {
+    int sl = be_av(n); int r = D / 2;
+    for (int y = 0; y < D; y++) {
+        int dy = y - r, w2 = isq(r * r - dy * dy); if (w2 <= 0) continue;
+        if (sl >= 0) { for (int x = r - w2; x < r + w2; x++) gfx_rect(cx - r + x, cy - r + y, 1, 1, av_px[sl][(y * 64 / D) * 64 + x * 64 / D]); }
+        else gfx_rect(cx - w2, cy - r + y, 2 * w2, 1, mix(c1, c2, y * 256 / D));
+    }
+    if (sl < 0) { char t[2] = { n[0] >= 'a' && n[0] <= 'z' ? (char)(n[0] - 32) : n[0], 0 }; int sc = D >= 80 ? 3 : 2; gtxt(cx - gtw(t, sc) / 2, cy - 8 * sc, t, 0x00FFFFFFu, sc); }
+}
+static int be_name_at(int i, char* n, int* r) { return benutzer_nth(i, n, r); }
+static void be_fehler(int e) {
+    scopy(be_msg, e == -1 ? TR("Name: nur a-z, 0-9, _ - . (max. 15)", "Name: only a-z, 0-9, _ - . (max 15)") : e == -2 ? TR("Name vergeben oder unbekannt.", "Name taken or unknown.") : e == -3 ? TR("Maximal 8 Konten.", "Maximum 8 accounts.") : e == -5 ? TR("Passwort: mindestens 4 Zeichen.", "Password: at least 4 characters.") : e == -6 ? TR("Der letzte Admin bleibt.", "The last admin stays.") : TR("Fehler beim Speichern.", "Save failed."), 100);
+}
+static void be_taste(uint8_t k, int shift, int altgr) {
+    int n = slen(be_buf); char sn[16]; int sr; int have = be_name_at(be_sel, sn, &sr);
+    if (k == 0x29) { be_modus = 0; be_buf[0] = 0; be_msg[0] = 0; }
+    else if (k == 0x28 || k == 0x58) {
+        int e = 0;
+        if (be_modus == 1 && be_schritt == 0) { if (!n) return; scopy(be_name1, be_buf, 20); be_buf[0] = 0; be_schritt = 1; scopy(be_msg, TR("Passwort eingeben, dann Enter.", "Enter a password, then Enter."), 100); zeichne_desktop(); return; }
+        if (be_modus == 1) { e = benutzer_neu(be_name1, be_buf, be_rolle_neu); if (!e) { kprint("[DESKTOP] Benutzer angelegt: "); kprint(be_name1); kprint("\n"); scopy(be_msg, TR("Benutzer angelegt.", "User created."), 100); } else be_fehler(e); }
+        else if (be_modus == 2 && have) { e = benutzer_umbenennen(sn, be_buf); if (!e) { char a[24], b[24]; be_fotokey(sn, a); be_fotokey(be_buf, b); const char* f = zdb_get(a); if (f && f[0] && !ueq(sn, be_buf)) { zdb_put(b, f); zdb_put(a, ""); } be_av_weg(sn); kprint("[DESKTOP] Benutzer umbenannt: "); kprint(be_buf); kprint("\n"); scopy(be_msg, TR("Gespeichert.", "Saved."), 100); } else be_fehler(e); }
+        else if (be_modus == 3 && have) { e = benutzer_passwort(sn, be_buf); if (!e) { kprint("[DESKTOP] Passwort geaendert: "); kprint(sn); kprint("\n"); scopy(be_msg, TR("Passwort geaendert.", "Password changed."), 100); } else be_fehler(e); }
+        { int i = 0; while (be_buf[i]) be_buf[i++] = 0; } be_modus = 0; be_schritt = 0;
+    }
+    else if (k == 0x2A) { if (n) be_buf[n - 1] = 0; }
+    else { char c = usb_key_char(k, shift, altgr); if (be_modus != 3 && !(be_modus == 1 && be_schritt == 1) && c >= 'A' && c <= 'Z') c = (char)(c + 32); if (c >= 33 && c < 127 && n < 38) { be_buf[n] = c; be_buf[n + 1] = 0; } else return; }
+    zeichne_desktop();
+}
+static void be_klick(int id) {
+    char sn[16]; int sr = 0; int anz = 0; { char t[16]; while (be_name_at(anz, t, 0)) anz++; }
+    int have = be_name_at(be_sel, sn, &sr); int admin = be_admin(); int selbst = have && ueq(sn, benutzer_name());
+    be_msg[0] = 0;
+    if (id >= K_BE0 && id < K_BE0 + 8) { if (id - K_BE0 < anz) be_sel = id - K_BE0; be_modus = 0; be_vfrage = 0; }
+    else if (id == K_BE_NEU) { if (!admin) scopy(be_msg, TR("Nur Admins legen Konten an.", "Only admins create accounts."), 100); else { be_modus = 1; be_schritt = 0; be_buf[0] = 0; scopy(be_msg, TR("Name eingeben, dann Enter.", "Enter a name, then Enter."), 100); } be_vfrage = 0; }
+    else if (id == K_BE_EDIT && have) { if (!admin) scopy(be_msg, TR("Nur Admins bearbeiten Konten.", "Only admins edit accounts."), 100); else { be_modus = 2; scopy(be_buf, sn, 40); } be_vfrage = 0; }
+    else if (id == K_BE_ROLLE) { if (be_modus == 1 || !have) be_rolle_neu = (be_rolle_neu + 1) % 3; else if (!admin) scopy(be_msg, TR("Nur Admins aendern Rollen.", "Only admins change roles."), 100); else { int e = benutzer_rolle_setzen(sn, (sr + 1) % 3); if (e) be_fehler(e); else kprint("[DESKTOP] Benutzerrolle geaendert\n"); } be_vfrage = 0; }
+    else if (id == K_BE_PW && have) { if (!admin && !selbst) scopy(be_msg, TR("Nur das eigene Passwort.", "Only your own password."), 100); else { be_modus = 3; be_buf[0] = 0; scopy(be_msg, TR("Neues Passwort, dann Enter.", "New password, then Enter."), 100); } be_vfrage = 0; }
+    else if (id == K_BE_FOTO && have) { if (!admin && !selbst) scopy(be_msg, TR("Nur das eigene Foto.", "Only your own photo."), 100); else be_modus = be_modus == 4 ? 0 : 4; be_vfrage = 0; }
+    else if (id >= K_BE_FO0 && id < K_BE_FO0 + 12 && have && be_modus == 4) {
+        char nm[32]; if (id == K_BE_FO0 + 11) { char k[24]; be_fotokey(sn, k); zdb_put(k, ""); be_av_weg(sn); be_modus = 0; scopy(be_msg, TR("Foto entfernt.", "Photo removed."), 100); }
+        else if (synfs_nte_datei(id - K_BE_FO0, DA_BILD, nm, 32)) { char k[24]; be_fotokey(sn, k); zdb_put(k, nm); be_av_weg(sn); kprint("[DESKTOP] Benutzerfoto gesetzt: "); kprint(sn); kprint("\n"); be_modus = 0; if (be_av(sn) < 0) scopy(be_msg, TR("Bild nicht lesbar.", "Image not readable."), 100); }
+    }
+    else if (id == K_BE_DEL && have) {
+        if (!admin) scopy(be_msg, TR("Nur Admins loeschen Konten.", "Only admins delete accounts."), 100);
+        else if (!be_vfrage) be_vfrage = 1;
+        else { int e = benutzer_loeschen(sn); be_vfrage = 0; if (e) be_fehler(e); else { char k[24]; be_fotokey(sn, k); zdb_put(k, ""); be_av_weg(sn); kprint("[DESKTOP] Benutzer geloescht: "); kprint(sn); kprint("\n"); if (be_sel > 0) be_sel--; if (!benutzer_name()[0]) { zeichne_desktop(); return; } } }
+    }
+    zeichne_desktop();
+}
+static void zeichne_benutzer(void) {
+    int wi = fenster_idx(FT_BENUTZER); if (wi < 0) return;
+    struct fenster* f = &fen[wi]; int ko = kn_owner; kn_owner = wi; kn_loesche_owner(wi);
+    int x0 = f->x + 2, y0 = f->y + WT_H, bh = f->h - WT_H - 4, lw = 250;
+    gfx_begin(); gfx_rect(x0, y0, f->w - 4, bh, C_BG);
+    int anz = 0; { char t[16]; while (be_name_at(anz, t, 0)) anz++; }
+    if (be_sel >= anz) be_sel = anz ? anz - 1 : 0;
+    char sn[16] = ""; int sr = 0; int have = be_name_at(be_sel, sn, &sr);
+    for (int i = 0; i < anz && i < 8; i++) {
+        char nm[16]; int r = 0; be_name_at(i, nm, &r); int ry = y0 + 12 + i * 52, on = i == be_sel;
+        if (on) { rrect(x0 + 8, ry, lw, 46, 14, mix(C_BG, Q_CY, 120)); if (Q_GLAS) h_pille(x0 + 9, ry + 1, lw - 2, 44, 0x00083A55u, 0x002A1058u); else rrect(x0 + 9, ry + 1, lw - 2, 44, 13, mix(C_CARD, C_ACC, 90)); }
+        else rrect_rand(x0 + 8, ry, lw, 46, 14, C_CARD, C_BORDER);
+        be_avatar(x0 + 34, ry + 23, 34, nm, Q_SKY, Q_VIO);
+        gtxt(x0 + 60, ry + 6, nm, on ? 0x00FFFFFFu : C_TEXT, 1); gtxt(x0 + 60, ry + 24, be_rolletxt(r), on ? 0x00B8E4FFu : C_MUTED, 1);
+        if (ueq(nm, benutzer_name())) { int tw = gtw(TR("du", "you"), 1) + 14; rrect(x0 + lw - tw - 2, ry + 12, tw, 20, 10, mix(C_BG, Q_CY, 100)); gtxt(x0 + lw - tw + 5, ry + 14, TR("du", "you"), 0x00FFFFFFu, 1); }
+        kn_reg(K_BE0 + i, x0 + 8, ry, lw, 46);
+    }
+    if (!anz) gtxt(x0 + 20, y0 + 24, TR("Noch keine Konten.", "No accounts yet."), C_MUTED, 1);
+    int rx = x0 + lw + 24, rw = f->w - 4 - lw - 34;
+    if (Q_GLAS) { rrect(rx, y0 + 12, rw, 150, 18, mix(C_BG, Q_SKY, 60)); rr_grad(rx + 1, y0 + 13, rw - 2, 148, 17, 0x00081A33u, 0x00050B1Cu); } else rrect_rand(rx, y0 + 12, rw, 150, 18, C_CARD, C_BORDER);
+    if (have) {
+        be_avatar(rx + 70, y0 + 87, 96, sn, Q_SKY, Q_VIO);
+        gtxt(rx + 140, y0 + 50, sn, C_TEXT, 2);
+        { const char* rt = be_rolletxt(sr); int tw = gtw(rt, 1) + 20; h_pille(rx + 140, y0 + 90, tw, 24, mix(0x00062033u, Q_CY, 90), mix(0x001A0B3Au, Q_VIO, 120)); gtxt(rx + 150, y0 + 94, rt, 0x00FFFFFFu, 1); }
+        { char k[24]; be_fotokey(sn, k); const char* fo = zdb_get(k); gtxt(rx + 140, y0 + 124, fo && fo[0] ? fo : TR("kein Foto", "no photo"), C_MUTED, 1); }
+    }
+    int by = y0 + 176, bw = (rw - 16) / 3;
+    knopf(K_BE_NEU, TR("Neuer Benutzer", "New user"), rx, by, bw, 1);
+    knopf(K_BE_EDIT, TR("Bearbeiten", "Edit"), rx + bw + 8, by, bw, 0);
+    knopf(K_BE_PW, TR("Passwort aendern", "Change password"), rx + 2 * (bw + 8), by, bw, 0);
+    knopf(K_BE_FOTO, TR("Foto waehlen", "Choose photo"), rx, by + 42, bw, be_modus == 4);
+    { char t[40]; scopy(t, TR("Rolle: ", "Role: "), 40); cat(t, be_rolletxt(be_modus == 1 ? be_rolle_neu : sr), 40); knopf(K_BE_ROLLE, t, rx + bw + 8, by + 42, bw, 0); }
+    knopf(K_BE_DEL, be_vfrage ? TR("Wirklich loeschen?", "Really delete?") : TR("Loeschen", "Delete"), rx + 2 * (bw + 8), by + 42, bw, be_vfrage);
+    int ey = by + 94;
+    if (be_modus >= 1 && be_modus <= 3) {
+        const char* lb = be_modus == 1 ? (be_schritt == 0 ? TR("Neuer Name", "New name") : TR("Passwort", "Password")) : be_modus == 2 ? TR("Name aendern", "Rename") : TR("Neues Passwort", "New password");
+        gtxt(rx, ey, lb, C_MUTED, 1);
+        rrect_rand(rx, ey + 22, rw, 40, 10, C_FIELD, C_ACC);
+        char t[44]; int n = slen(be_buf); if (n > 36) n = 36; int mask = be_modus == 3 || (be_modus == 1 && be_schritt == 1);
+        for (int i = 0; i < n; i++) t[i] = mask ? '*' : be_buf[i]; t[n] = 0;
+        gfx_text(rx + 14, ey + 34, t, C_TEXT, 1); gfx_rect(rx + 14 + n * 8, ey + 32, 2, 20, C_TEXT);
+        gtxt(rx, ey + 70, TR("Enter = uebernehmen, Esc = abbrechen", "Enter = apply, Esc = cancel"), C_MUTED, 1);
+    } else if (be_modus == 4) {
+        gtxt(rx, ey, TR("Bild als Profilfoto waehlen:", "Choose an image as profile photo:"), C_MUTED, 1);
+        char nm[32]; int rows = 0;
+        for (int i = 0; i < 10 && synfs_nte_datei(i, DA_BILD, nm, 32); i++) {
+            int ry = ey + 22 + i * 26; rrect_rand(rx, ry, rw, 24, 8, C_CARD, C_BORDER); gtxt(rx + 12, ry + 4, nm, C_TEXT, 1); kn_reg(K_BE_FO0 + i, rx, ry, rw, 24); rows++;
+        }
+        if (!rows) gtxt(rx, ey + 24, TR("Keine Bilder in SynFS (png/jpg/gif).", "No images in SynFS (png/jpg/gif)."), C_MUTED, 1);
+        int ry = ey + 22 + 10 * 26 > y0 + bh - 60 ? y0 + bh - 60 : ey + 22 + 10 * 26; (void)ry;
+        knopf(K_BE_FO0 + 11, TR("Foto entfernen", "Remove photo"), rx + rw - 170, y0 + bh - 46, 170, 0);
+    }
+    if (be_msg[0]) gtxt(rx, y0 + bh - 30, be_msg, mix(C_MUTED, Q_CY, 140), 1);
+    gfx_end(); kn_owner = ko;
+}
 static void zeichne_datei(void) {
     int wi = fenster_idx(FT_DATEI); if (wi < 0) return;
     struct fenster* f = &fen[wi]; int ko = kn_owner; kn_owner = wi; kn_loesche_owner(wi);
@@ -2735,6 +2864,7 @@ static void taste_roh(uint8_t k, int shift, int altgr) {
     if (menu.offen) { if (k == 0x29) menu_schliessen(); return; }
     if (zustand != Z_LOGIN && k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }
     if (zustand == Z_RECH) { rech_taste(k, shift, altgr); return; }
+    if (zustand == Z_INFO && be_modus >= 1 && be_modus <= 3 && fenster_idx(FT_BENUTZER) >= 0) { be_taste(k, shift, altgr); return; }
     if (zustand == Z_INFO && ek_feld && fenster_idx(FT_EINST) >= 0) { einst_taste(k, shift, altgr); return; }
     if (zustand == Z_INFO && nfen && fen[nfen - 1].typ == FT_EINST && k != 0x29) { einst_kurztaste(k, shift, altgr); return; }
     if (zustand == Z_INFO) { if (k == 0x29 && nfen) fenster_schliessen_typ(fen[nfen - 1].typ); return; }
@@ -3087,6 +3217,7 @@ static void klick(int x, int y, int owner) {
         else if (zustand == Z_INFO && id >= K_CH0 && id < K_CH_DEL + 1) chats_klick(id);
         else if (zustand == Z_INFO && id >= K_GED_SCHLAF && id <= K_GED_VERG) ged_klick(id);
         else if (zustand == Z_INFO && id >= K_DA0 && id < K_DA_END) da_klick(id);
+        else if (zustand == Z_INFO && id >= K_BE0 && id < K_BE_END) be_klick(id);
         else if (zustand == Z_RECH && id >= K_RB0 && id < K_RB0 + 20) { rech_druecke(rtasten[id - K_RB0]); zeichne_rechner(); }
         else if (zustand == Z_DESK && id == K_AUFLEER) { aufg_leeren(); kprint("[DESKTOP] Aufgaben geleert\n"); zeichne_desktop(); }
         else if (zustand == Z_EDIT && id == K_SPEICHERN) { dok_speichern(); zeichne_editor(0); }

@@ -130,3 +130,25 @@ void benutzer_liste(void) {
     }
     if (!benutzer_anzahl()) kprint("  (keine - der erste Benutzer wird Admin: benutzer neu <name> admin)\n");
 }
+
+int benutzer_nth(int n, char* name, int* rolle) {
+    for (int i = 0; i < MAXB; i++) if (kto[i].used && n-- == 0) { for (int k = 0; k < 16; k++) name[k] = kto[i].name[k]; if (rolle) *rolle = kto[i].rolle; return 1; }
+    return 0;
+}
+int benutzer_umbenennen(const char* alt, const char* neu) {
+    int i = suche(alt); if (i < 0) return -2;
+    if (!name_ok(neu)) return -1;
+    if (seq(alt, neu)) return 0;
+    if (suche(neu) >= 0) return -2;
+    char bak[16]; for (int k = 0; k < 16; k++) bak[k] = kto[i].name[k];
+    for (uint32_t k = 0; k <= slen(neu); k++) kto[i].name[k] = neu[k];
+    if (speichern() < 0) { for (int k = 0; k < 16; k++) kto[i].name[k] = bak[k]; return -4; }
+    return 0;
+}
+int benutzer_rolle_setzen(const char* name, int rolle) {
+    int i = suche(name); if (i < 0) return -2;
+    if (rolle < 0 || rolle > 2) return -1;
+    if (kto[i].rolle == ROLLE_ADMIN && rolle != ROLLE_ADMIN && admins() <= 1) return -6;
+    kto[i].rolle = (uint8_t)rolle;
+    return speichern() < 0 ? -4 : 0;
+}
