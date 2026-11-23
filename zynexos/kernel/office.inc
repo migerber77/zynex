@@ -72,6 +72,7 @@ static int ob_naechste(const char* pre, const char* ext, const char* akt, char* 
     return 0;
 }
 static int ob_speichere(const char* name, const char* d, int n) {
+    if (!ra_darf(name, ST_MITARB)) { scopy(ob_meld, TR("Kein Schluessel zum Speichern in diesem Raum.", "No key to save in this room."), 100); return -1; }
     synfs_create(name, SYNFS_FILE);
     int r = synfs_write(name, d, (uint32_t)n); synfs_sync();
     kprint("[OFFICE] Gespeichert: "); kprint(name); kprint(" ("); kprint_dec((uint32_t)n); kprint(" Bytes)\n");
@@ -262,6 +263,7 @@ static void ob_word(int voll) {
     gfx_end();
 }
 static void dok_laden(const char* name) {
+    if (!ra_darf(name, ST_SEHEN)) { reply1(TR("Fuer diese Datei fehlt dir der Schluessel.", "You do not have the key for this file.")); return; }
     int r = synfs_read(name, dok, DOK_MAX); if (r < 0) return;
     doklen = r; dok[doklen] = 0; dokcur = 0; dokscroll = 0; dokgeaendert = 0; doksel = -1; dok_cst = ST_STD; scopy(dokname, name, 24);
     for (int i = 0; i <= doklen && i <= DOK_MAX; i++) dokst[i] = ST_STD;
@@ -437,7 +439,7 @@ static void t_fmt_laden(void) {
         if (r < TZ && c < TS) tzs[r][c] = (uint8_t)(h * 16 + l);
     }
 }
-static void t_laden(const char* name) { static char b[24000]; int r = synfs_read(name, b, sizeof(b) - 1); if (r < 0) return; b[r] = 0; t_leeren(); t_aus_text(b, 0, 0); t_geaendert = 0; scopy(tabname, name, 28); t_fmt_laden(); kprint("[OFFICE] Tabelle geoeffnet: "); kprint(name); kprint("\n"); }
+static void t_laden(const char* name) { static char b[24000]; if (!ra_darf(name, ST_SEHEN)) return; int r = synfs_read(name, b, sizeof(b) - 1); if (r < 0) return; b[r] = 0; t_leeren(); t_aus_text(b, 0, 0); t_geaendert = 0; scopy(tabname, name, 28); t_fmt_laden(); kprint("[OFFICE] Tabelle geoeffnet: "); kprint(name); kprint("\n"); }
 static void t_setze(int r, int c, const char* v) {
     scopy(tz[r][c], v, 48); t_geaendert = 1;
     char n[8], a[48]; t_zellname(r, c, n); t_anzeige(r, c, a);
@@ -608,7 +610,7 @@ static void pf_text(char* o, int max) {
 }
 static void pf_speichern(void) { static char b[14000]; pf_text(b, sizeof(b)); char d[16] = "@design "; dec(d + 8, (uint32_t)pf_design); cat(d, "\n", 16); static char g[14300]; scopy(g, d, sizeof(g)); { char sl[4 * NF + 12]; int o = 0; static const char hx[] = "0123456789ABCDEF"; scopy(sl, "@stile ", 12); o = 7; for (int q = 0; q < pf_n; q++) for (int k = 0; k < 2; k++) { sl[o++] = hx[pf_st[q][k] >> 4]; sl[o++] = hx[pf_st[q][k] & 15]; } sl[o++] = 10; sl[o] = 0; cat(g, sl, sizeof(g)); } cat(g, b, sizeof(g)); ob_speichere(pfname, g, slen(g)); pf_geaendert = 0; }
 static void pf_laden(const char* name) {
-    static char b[14300]; int r = synfs_read(name, b, sizeof(b) - 1); if (r < 0) return; b[r] = 0;
+    static char b[14300]; if (!ra_darf(name, ST_SEHEN)) return; int r = synfs_read(name, b, sizeof(b) - 1); if (r < 0) return; b[r] = 0;
     pf_leeren(); const char* t = b; if (t[0] == '@') { pf_design = (t[8] - '0') & 3; while (*t && *t != '\n') t++; }
     if (*t == '\n') t++;
     if (t[0] == '@' && t[1] == 's') { const char* q = t + 7; int idx = 0; while (idx < 2 * NF && t_hexv(q[0]) >= 0 && t_hexv(q[1]) >= 0) { pf_st[idx / 2][idx % 2] = (uint8_t)(t_hexv(q[0]) * 16 + t_hexv(q[1])); q += 2; idx++; } while (*t && *t != '\n') t++; }
@@ -887,7 +889,7 @@ static void b_speichern(void) {
 }
 static int b_zahl(const char** p) { while (**p == ' ') (*p)++; int v = 0, ok = 0; while (**p >= '0' && **p <= '9') { v = v * 10 + (**p - '0'); (*p)++; ok = 1; } return ok ? v - 10000 : -99999; }
 static void b_laden(const char* name) {
-    static char d[48000]; int r = synfs_read(name, d, sizeof(d) - 1); if (r < 0) return; d[r] = 0;
+    static char d[48000]; if (!ra_darf(name, ST_SEHEN)) return; int r = synfs_read(name, d, sizeof(d) - 1); if (r < 0) return; d[r] = 0;
     b_leeren(); const char* p = d;
     while (*p) {
         const char* e = p; while (*e && *e != '\n') e++;

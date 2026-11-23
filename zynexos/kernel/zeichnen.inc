@@ -145,7 +145,7 @@ static void m_speichern_als(const char* name, const uint32_t* px) {
 }
 static void mal_speichern(void) { m_speichern_als(mname, mz); m_geaendert = 0; }
 static void mal_laden(const char* name) {
-    if (mal_speicher() || m_puffer()) return;
+    if (mal_speicher() || m_puffer() || !ra_darf(name, ST_SEHEN)) return;
     int r = synfs_read(name, m_ladepuffer, 2048u * 4096u); if (r <= 0) return;
     int w, h; if (bild_dekodieren(m_ladepuffer, (uint32_t)r, m_bild, 2048u * 1024u, m_arb, 3072u * 4096u, &w, &h) != 0) { scopy(ob_meld, TR("Bild nicht lesbar", "Image not readable"), 100); return; }
     m_merken();

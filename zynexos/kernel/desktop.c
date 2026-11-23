@@ -685,6 +685,7 @@ static void antwort_setze(const char* a, const char* b, const char* c, const cha
     sprech_bis = timer_get_ticks() + (uint32_t)zeichen * 4 + 40; letzte_eingabe = timer_get_ticks();     /* ca. 40 ms je Zeichen */
 }
 static void reply1(const char* s) { antwort_setze(s, 0, 0, 0, 0, 0); }
+static int ra_darf(const char* name, int stufe) { return raum_stufe(datei_raum(name), benutzer_name(), benutzer_rolle()) >= stufe; }   /* Raum-Schluessel der Datei */
 
 /* ---------- Zynos, der Roboter (verschiebbar, skalierbar, spricht, schaut, Ruhemodus) ---------- */
 static int zx, zy, zs = 160;                              /* Mitte, Groesse in Prozent */
@@ -747,7 +748,7 @@ static void feld(int idx, const char* label, const char* text, int maskiert, int
     gfx_text(x + 14, y + 34, t, C_TEXT, 1);
     if (idx == ffocus) gfx_rect(x + 14 + n * 8, y + 32, 2, 20, C_TEXT);
 }
-static int entsperr;     /* 1 = die Platte ist verschluesselt und gesperrt: statt der Anmeldung wird das Plattenpasswort abgefragt */
+static char lg_info[80]; static void lg_rad_start(void); static int rw_aktiv; static int entsperr;     /* 1 = die Platte ist verschluesselt und gesperrt: statt der Anmeldung wird das Plattenpasswort abgefragt */
 static void zeichne_login(void) {
     thema_anwenden(0);
     gfx_begin();
@@ -765,6 +766,9 @@ static void zeichne_login(void) {
     feld(1, TR("Passwort", "Password"), fpw, 1, cx, y + 80, cw);
     if (fmsg) gtxt(cx, y + 160, TR("Anmeldung fehlgeschlagen", "Sign-in failed"), C_ERR, 1);
     gtxt(cx, y + 190, TR("Weiter mit Enter", "Continue with Enter"), C_MUTED, 1);
+    rrect(cx, y + 222, cw, 40, 14, mix(C_SPL, Q_CY, 120)); rrect(cx + 1, y + 223, cw - 2, 38, 13, mix(C_SPL, C_CARD, 200));
+    { const char* t = TR("Mit Rad-Schluessel anmelden (F2)", "Sign in with wheel key (F2)"); gtxt(cx + (cw - gtw(t, 1)) / 2, y + 233, t, Q_CY, 1); }
+    if (lg_info[0]) gtxt(cx, y + 274, lg_info, C_ERR, 1);
     gfx_end();
     hv_status_zeichnen();
 }
@@ -1526,7 +1530,7 @@ static void fenster_oeffnen(int typ) {
         int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 660 : typ == FT_CHATS ? 720 : typ == FT_GED ? 840 : 480;
         int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 600 : typ == FT_CHATS ? 470 : typ == FT_GED ? 580 : 250;
         if (typ == FT_DATEI) { w = 1000; h = 580; }
-        if (typ == FT_BENUTZER) { w = 760; h = 520; }
+        if (typ == FT_BENUTZER) { w = 760; h = 600; }
         if (typ == FT_WEB && w < 640) w = W - 40;
         if (typ == FT_EDIT || typ == FT_TAB || typ == FT_PRAES || typ == FT_BOARD || typ == FT_WEB || typ == FT_MAL) { w = W - 60 < 1500 ? W - 60 : 1500; h = H - 70 < 900 ? H - 70 : 900; }
         int x = 60 + nfen * 36, y = 56 + nfen * 30;
@@ -1577,6 +1581,7 @@ static void ob_word(int voll);
 static void zeichne_editor(int voll) { ob_word(voll); }
 static void dok_fmtname(char* out) { scopy(out, dokname, 24); int n = slen(out); if (n > 4 && out[n - 4] == '.') { out[n - 3] = 'f'; out[n - 2] = 'm'; out[n - 1] = 't'; } }
 static void dok_speichern(void) {
+    if (!ra_darf(dokname, ST_MITARB)) { reply1(TR("Kein Schluessel zum Speichern in diesem Raum.", "No key to save in this room.")); return; }
     synfs_create(dokname, SYNFS_FILE);
     int r = synfs_write(dokname, dok, (uint32_t)doklen);
     { static uint8_t rl[2 * DOK_MAX + 4]; int o = 0, i = 0;                              /* Formatdatei: Lauflaengen (Anzahl, Stil) */
@@ -2738,6 +2743,79 @@ static void entsperren_versuch(void) {
 #include "autotext.inc"
 #include "office.inc"
 
+/* ---------- Rad-Schluessel: passwortlose Anmeldung ----------
+ * Ein Rad aus 12 Symbolen. Das Geheimnis ist eine Folge von 6 Symbolen, jedes in einer von 3 Farben (Klick auf die Mitte
+ * wechselt die Farbe). Nach jedem Griff mischt das Rad die Symbole neu und dreht sich: Mitschauen, Fingerspuren und
+ * gemerkte Klickpositionen verraten nichts. Nach 3 Fehlversuchen waechst die Wartezeit. Das Passwort bleibt als Alternative. */
+#define RW_N 6
+static char be_msg[100];
+static int rw_aktiv, rw_zweck, rw_n, rw_tint, rw_perm[12], rw_rot, rw_runde; static char rw_code[16], rw_erst[16], rw_ziel[16], rw_msg[100];
+static void anmeld_fertig(void) {
+    kprint("[DESKTOP] Willkommen, "); kprint(benutzer_name()); kprint(" ("); kprint(benutzer_rollentext(benutzer_rolle())); kprint(")\n");
+    zustand = Z_DESK; einlen = 0; eingabe[0] = 0;
+    char g[100]; scopy(g, TR("Hallo ", "Hello "), 100); cat(g, benutzer_name(), 100); cat(g, TR("! Ich bin Zynos. Was moechtest du tun?", "! I am Zynos. What would you like to do?"), 100);
+    reply1(g); zeichne_desktop();
+}
+static void rw_mischen(void) {
+    uint8_t r[13]; krand(r, 13); for (int i = 0; i < 12; i++) rw_perm[i] = i;
+    for (int i = 11; i > 0; i--) { int j = r[i] % (i + 1), t = rw_perm[i]; rw_perm[i] = rw_perm[j]; rw_perm[j] = t; }
+    rw_rot = r[12] % 30;
+}
+static void rw_zeichne(void) {
+    static const uint32_t tc[3] = { Q_CY, 0x00C084FCu, Q_ROSA };
+    thema_anwenden(0); gfx_begin(); gfx_rect(0, 0, W, H, C_SPL);
+    int cx = W / 2, cy = H / 2 + 6, R = H / 2 - 120; if (R > 190) R = 190; if (R < 110) R = 110; int s = R * 33 / 100;
+    char t[100]; scopy(t, rw_zweck == 1 ? TR("Rad-Schluessel: ", "Wheel key: ") : TR("Rad-Schluessel einrichten: ", "Set up wheel key: "), 100); cat(t, rw_ziel, 100);
+    gtxt(cx - gtw(t, 1) / 2, cy - R - s / 2 - 46, t, 0x00FFFFFFu, 1);
+    { const char* h = rw_zweck == 2 && rw_runde == 1 ? TR("Zur Bestaetigung dieselbe Folge noch einmal.", "Enter the same sequence once more to confirm.") : TR("Waehle 6 Symbole. Klick auf die Mitte wechselt die Farbe.", "Pick 6 symbols. Click the centre to change colour."); gtxt(cx - gtw(h, 1) / 2, cy - R - s / 2 - 24, h, C_MUTED, 1); }
+    for (int k = 0; k < 12; k++) {
+        int d = -90 + k * 30 + rw_rot, x = cx + R * icos(d) / 1024, y = cy + R * isin(d) / 1024;
+        rrect(x - s / 2 - 3, y - s / 2 - 3, s + 6, s + 6, s * 26 / 100 + 3, mix(C_SPL, tc[rw_tint], 150));
+        fl_icon(rw_perm[k], x - s / 2, y - s / 2, s, 0);
+    }
+    rrect(cx - 74, cy - 74, 148, 148, 74, mix(C_SPL, tc[rw_tint], 90)); fl_hub(cx, cy, 58, 0);
+    for (int i = 0; i < RW_N; i++) { int dx = cx - (RW_N * 18) / 2 + i * 18 + 9, dy = cy + 96; rrect(dx - 5, dy - 5, 10, 10, 5, i < rw_n ? tc[rw_tint] : mix(C_SPL, C_MUTED, 90)); }
+    int sek = rw_zweck == 1 ? benutzer_rad_sperre() : 0;
+    if (sek > 0) { char m[80], a[12]; dec(a, (uint32_t)sek); scopy(m, TR("Gesperrt, noch ", "Locked, "), 80); cat(m, a, 80); cat(m, TR(" s", " s left"), 80); gtxt(cx - gtw(m, 1) / 2, cy + R + s / 2 + 18, m, C_ERR, 1); }
+    else if (rw_msg[0]) gtxt(cx - gtw(rw_msg, 1) / 2, cy + R + s / 2 + 18, rw_msg, rw_msg[0] == 'F' ? C_ERR : Q_CY, 1);
+    knopf(0, TR("Zurueck", "Back"), cx - 170, H - 66, 150, 0); knopf(0, TR("Neu beginnen", "Start over"), cx + 20, H - 66, 150, 0);
+    gfx_end(); hv_status_zeichnen();
+}
+static void rw_start(int zweck, const char* name) {
+    rw_aktiv = 1; rw_zweck = zweck; rw_n = 0; rw_tint = 0; rw_runde = 0; rw_msg[0] = 0; scopy(rw_ziel, name, 16); rw_code[0] = 0; rw_mischen(); rw_zeichne();
+}
+static void rw_ende(void) { rw_aktiv = 0; rw_code[0] = rw_erst[0] = 0; if (zustand == Z_LOGIN) zeichne_login(); else zeichne_desktop(); }
+static void rw_pick(int icon) {
+    if (rw_zweck == 1 && benutzer_rad_sperre() > 0) { rw_zeichne(); return; }
+    rw_code[rw_n * 2] = (char)('a' + icon); rw_code[rw_n * 2 + 1] = (char)('0' + rw_tint); rw_n++; rw_code[rw_n * 2] = 0; rw_tint = 0; rw_msg[0] = 0;
+    if (rw_n < RW_N) { rw_mischen(); rw_zeichne(); return; }
+    if (rw_zweck == 1) {
+        if (benutzer_rad_login(rw_ziel, rw_code) == 0) { rw_aktiv = 0; rw_code[0] = 0; anmeld_fertig(); return; }
+        kprint("[DESKTOP] Rad-Anmeldung fehlgeschlagen\n"); scopy(rw_msg, TR("Falscher Rad-Schluessel.", "Wrong wheel key."), 100);
+    } else if (rw_runde == 0) { scopy(rw_erst, rw_code, 16); rw_runde = 1; }
+    else {
+        int gleich = ueq(rw_erst, rw_code);
+        if (gleich && benutzer_rad_setzen(rw_ziel, rw_code) == 0) { kprint("[DESKTOP] Rad-Schluessel gesetzt: "); kprint(rw_ziel); kprint("\n"); scopy(be_msg, TR("Rad-Schluessel gespeichert.", "Wheel key saved."), 100); rw_ende(); return; }
+        scopy(rw_msg, gleich ? TR("Fehler beim Speichern.", "Could not save.") : TR("Die Folgen waren verschieden. Nochmal von vorn.", "The sequences differed. Start again."), 100); rw_runde = 0;
+    }
+    rw_n = 0; rw_code[0] = 0; rw_tint = 0; rw_mischen(); rw_zeichne();
+}
+static void rw_klick(int mx, int my) {
+    int cx = W / 2, cy = H / 2 + 6, R = H / 2 - 120; if (R > 190) R = 190; if (R < 110) R = 110; int s = R * 33 / 100;
+    if (my >= H - 66 && my < H - 26) {
+        if (mx >= cx - 170 && mx < cx - 20) { rw_ende(); return; }
+        if (mx >= cx + 20 && mx < cx + 170) { rw_n = 0; rw_code[0] = 0; rw_tint = 0; rw_runde = 0; rw_msg[0] = 0; rw_mischen(); rw_zeichne(); return; }
+    }
+    if ((mx - cx) * (mx - cx) + (my - cy) * (my - cy) < 70 * 70) { rw_tint = (rw_tint + 1) % 3; rw_zeichne(); return; }
+    for (int k = 0; k < 12; k++) { int d = -90 + k * 30 + rw_rot, x = cx + R * icos(d) / 1024, y = cy + R * isin(d) / 1024; if (mx >= x - s / 2 && mx < x + s / 2 && my >= y - s / 2 && my < y + s / 2) { rw_pick(rw_perm[k]); return; } }
+}
+static void lg_rad_start(void) {
+    if (!fname[0]) { scopy(lg_info, TR("Erst den Benutzernamen eintippen.", "Type the user name first."), 80); zeichne_login(); return; }
+    if (!benutzer_rad_hat(fname)) { scopy(lg_info, TR("Dieses Konto hat keinen Rad-Schluessel.", "This account has no wheel key."), 80); zeichne_login(); return; }
+    lg_info[0] = 0; rw_start(1, fname);
+}
+static void lg_klick(int mx, int my) { int cw = 360, cx = (W - cw) / 2, y = H / 2 - 250 + zynex_logo_h + 24 + 222; if (mx >= cx && mx < cx + cw && my >= y && my < y + 40) lg_rad_start(); }
+
 /* ---------- Datei-Explorer (SynFS + Raeume/Schluessel) ---------- */
 enum { K_DA0 = 1000, K_DA_OEFF = 1020, K_DA_DEL, K_DA_UP, K_DA_DN, K_DA_NEU, K_DA_MOVE, K_DA_KEY, K_DA_HOCH, K_DA_F0 = 1030, K_DA_R0 = 1040, K_DA_SICHT = 1055, K_DA_RDEL, K_DA_ZURUECK, K_DA_S0 = 1060, K_DA_END = 1070 };
 static int da_filter, da_sel, da_scroll, da_vfrage, da_raum, da_modus, da_mv; static char da_buf[24], da_msg[100], da_mvname[32];
@@ -2823,8 +2901,8 @@ static void da_taste(uint8_t k, int shift, int altgr) {
 }
 
 /* ---------- Benutzerverwaltung ---------- */
-enum { K_BE0 = 950, K_BE_NEU = 960, K_BE_EDIT, K_BE_PW, K_BE_FOTO, K_BE_DEL, K_BE_ROLLE, K_BE_FO0 = 970, K_BE_END = 990 };
-static int be_sel, be_modus, be_schritt, be_rolle_neu = 1, be_vfrage; static char be_buf[40], be_msg[100], be_name1[20];
+enum { K_BE0 = 950, K_BE_NEU = 960, K_BE_EDIT, K_BE_PW, K_BE_FOTO, K_BE_DEL, K_BE_ROLLE, K_BE_RAD, K_BE_RADX, K_BE_FO0 = 970, K_BE_END = 990 };
+static int be_sel, be_modus, be_schritt, be_rolle_neu = 1, be_vfrage; static char be_buf[40], be_name1[20];
 static char av_name[8][16]; static uint32_t av_px[8][64 * 64]; static int av_ok[8];
 static const char* be_rolletxt(int r) { return r == 2 ? TR("Admin", "Admin") : r == 1 ? TR("Benutzer", "User") : TR("Gast", "Guest"); }
 static int be_admin(void) { return benutzer_rolle() == ROLLE_ADMIN; }
@@ -2874,6 +2952,8 @@ static void be_klick(int id) {
     else if (id == K_BE_EDIT && have) { if (!admin) scopy(be_msg, TR("Nur Admins bearbeiten Konten.", "Only admins edit accounts."), 100); else { be_modus = 2; scopy(be_buf, sn, 40); } be_vfrage = 0; }
     else if (id == K_BE_ROLLE) { if (be_modus == 1 || !have) be_rolle_neu = (be_rolle_neu + 1) % 3; else if (!admin) scopy(be_msg, TR("Nur Admins aendern Rollen.", "Only admins change roles."), 100); else { int e = benutzer_rolle_setzen(sn, (sr + 1) % 3); if (e) be_fehler(e); else kprint("[DESKTOP] Benutzerrolle geaendert\n"); } be_vfrage = 0; }
     else if (id == K_BE_PW && have) { if (!admin && !selbst) scopy(be_msg, TR("Nur das eigene Passwort.", "Only your own password."), 100); else { be_modus = 3; be_buf[0] = 0; scopy(be_msg, TR("Neues Passwort, dann Enter.", "New password, then Enter."), 100); } be_vfrage = 0; }
+    else if (id == K_BE_RAD && have) { if (!admin && !selbst) scopy(be_msg, TR("Nur der eigene Rad-Schluessel.", "Only your own wheel key."), 100); else { be_modus = 0; rw_start(2, sn); return; } }
+    else if (id == K_BE_RADX && have) { if (!admin && !selbst) scopy(be_msg, TR("Nur der eigene Rad-Schluessel.", "Only your own wheel key."), 100); else { benutzer_rad_entfernen(sn); scopy(be_msg, TR("Rad-Schluessel entfernt.", "Wheel key removed."), 100); } }
     else if (id == K_BE_FOTO && have) { if (!admin && !selbst) scopy(be_msg, TR("Nur das eigene Foto.", "Only your own photo."), 100); else be_modus = be_modus == 4 ? 0 : 4; be_vfrage = 0; }
     else if (id >= K_BE_FO0 && id < K_BE_FO0 + 12 && have && be_modus == 4) {
         char nm[32]; if (id == K_BE_FO0 + 11) { char k[24]; be_fotokey(sn, k); zdb_put(k, ""); be_av_weg(sn); be_modus = 0; scopy(be_msg, TR("Foto entfernt.", "Photo removed."), 100); }
@@ -2919,7 +2999,8 @@ static void zeichne_benutzer(void) {
     knopf(K_BE_FOTO, TR("Foto waehlen", "Choose photo"), rx, by + 42, bw, be_modus == 4);
     { char t[40]; scopy(t, TR("Rolle: ", "Role: "), 40); cat(t, be_rolletxt(be_modus == 1 ? be_rolle_neu : sr), 40); knopf(K_BE_ROLLE, t, rx + bw + 8, by + 42, bw, 0); }
     knopf(K_BE_DEL, be_vfrage ? TR("Wirklich loeschen?", "Really delete?") : TR("Loeschen", "Delete"), rx + 2 * (bw + 8), by + 42, bw, be_vfrage);
-    int ey = by + 94;
+    { int hr = have && benutzer_rad_hat(sn); knopf(K_BE_RAD, hr ? TR("Rad-Schluessel neu", "New wheel key") : TR("Rad-Schluessel einrichten", "Set up wheel key"), rx, by + 84, bw + bw / 2, 0); if (hr) knopf(K_BE_RADX, TR("Rad-Schluessel entfernen", "Remove wheel key"), rx + bw + bw / 2 + 8, by + 84, bw + bw / 2, 0); }
+    int ey = by + 136;
     if (be_modus >= 1 && be_modus <= 3) {
         const char* lb = be_modus == 1 ? (be_schritt == 0 ? TR("Neuer Name", "New name") : TR("Passwort", "Password")) : be_modus == 2 ? TR("Name aendern", "Rename") : TR("Neues Passwort", "New password");
         gtxt(rx, ey, lb, C_MUTED, 1);
@@ -3022,6 +3103,7 @@ static void zeichne_datei(void) {
 }
 
 static void taste_roh(uint8_t k, int shift, int altgr) {
+    if (rw_aktiv) { if (k == 0x29) rw_ende(); return; }
     if (menu.offen) { if (k == 0x29) menu_schliessen(); return; }
     if (zustand != Z_LOGIN && k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }
     if (zustand == Z_RECH) { rech_taste(k, shift, altgr); return; }
@@ -3043,6 +3125,7 @@ static void taste_roh(uint8_t k, int shift, int altgr) {
     }
     if (zustand == Z_LOGIN) {
         char* t = ffocus == 0 ? fname : fpw; int max = ffocus == 0 ? 15 : 39; int n = slen(t);
+        if (k == 0x3B) { lg_rad_start(); return; }
         if (k == 0x2B || k == 0x51 || k == 0x52) { ffocus = !ffocus; zeichne_login(); }
         else if (k == 0x28 || k == 0x58) { if (ffocus == 0) { ffocus = 1; zeichne_login(); } else anmelden(); }
         else if (k == 0x2A) { if (n) { t[n - 1] = 0; fmsg = 0; zeichne_login(); } }
@@ -3487,9 +3570,11 @@ static void tick(void) {
         int rd = (p->buttons & 2) != 0;
         { int wd = usb_wheel_take(); if (wd && rad.offen && !menu.offen) rad_drehen(wd > 0 ? -1 : 1); else if (wd && zustand == Z_WEB && !menu.offen && fenster_idx(FT_WEB) == nfen - 1) web_scroll(wd > 0 ? -120 : 120); }               /* Mausrad dreht das Befehlsrad */
         { static int was_mid; int mid = (p->buttons & 4) != 0; if (mid && !was_mid && rad.offen) rad_einfuegen(0); was_mid = mid; }
-        if (rd && !was_r && zustand != Z_LOGIN) rad_weg();
-        if (rd && !was_r && zustand != Z_LOGIN) { if (menu.offen) menu_schliessen(); else { fokus_bei(p->x, p->y); menu_oeffnen(p->x, p->y); } }
+        if (rd && !was_r && zustand != Z_LOGIN && !rw_aktiv) rad_weg();
+        if (rd && !was_r && zustand != Z_LOGIN && !rw_aktiv) { if (menu.offen) menu_schliessen(); else { fokus_bei(p->x, p->y); menu_oeffnen(p->x, p->y); } }
         was_r = rd;
+        if (rw_aktiv) { if (down && !was_down) rw_klick(p->x, p->y); was_down = down; return; }
+        if (zustand == Z_LOGIN && !entsperr && down && !was_down) lg_klick(p->x, p->y);
         if (menu.offen) {
             int i = menu_treffer(p->x, p->y); if (i != menu.hover) { menu.hover = i; zeichne_menu(); }
             if (down && !was_down) { was_down = down; if (i >= 0) menu_aktion(menu.p[i].id); else menu_schliessen(); }
