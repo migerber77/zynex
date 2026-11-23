@@ -8,6 +8,7 @@
 #include "krypto.h"
 #include "block.h"
 #include "benutzer.h"
+#include "raeume.h"
 #include "zyndb.h"
 #include "layouts.h"
 #include "extki.h"
@@ -1524,7 +1525,7 @@ static void fenster_oeffnen(int typ) {
         if (nfen >= 6) { reply1(TR("Es sind schon 6 Fenster offen.", "6 windows are already open.")); return; }
         int w = typ == FT_EDIT ? (W - 80 < 760 ? W - 80 : 760) : typ == FT_WEB ? W * 3 / 4 : typ == FT_RECH ? 300 : typ == FT_EINST ? 660 : typ == FT_CHATS ? 720 : typ == FT_GED ? 840 : 480;
         int h = typ == FT_EDIT ? (H - 140 < 560 ? H - 140 : 560) : typ == FT_WEB ? H * 3 / 4 : typ == FT_RECH ? 372 : typ == FT_EINST ? 600 : typ == FT_CHATS ? 470 : typ == FT_GED ? 580 : 250;
-        if (typ == FT_DATEI) { w = 740; h = 500; }
+        if (typ == FT_DATEI) { w = 1000; h = 580; }
         if (typ == FT_BENUTZER) { w = 760; h = 520; }
         if (typ == FT_WEB && w < 640) w = W - 40;
         if (typ == FT_EDIT || typ == FT_TAB || typ == FT_PRAES || typ == FT_BOARD || typ == FT_WEB || typ == FT_MAL) { w = W - 60 < 1500 ? W - 60 : 1500; h = H - 70 < 900 ? H - 70 : 900; }
@@ -2728,7 +2729,7 @@ static void entsperren_versuch(void) {
     if (krypto_entsperren(dev, fpw) != 0) { kprint("[DESKTOP] Entsperren fehlgeschlagen\n"); fpw[0] = 0; fmsg = 1; ffocus = 0; zeichne_login(); return; }
     if (block_select(dev) != 0 || synfs_mount() != 0) { fpw[0] = 0; fmsg = 1; zeichne_login(); return; }
     kprint("[DESKTOP] Festplatte entsperrt\n");
-    benutzer_laden(); fw_laden(); zdb_init(); th_laden(); ged_neu_laden();
+    benutzer_laden(); raum_laden(); fw_laden(); zdb_init(); th_laden(); ged_neu_laden();
     entsperr = 0; fpw[0] = 0; fmsg = 0; ffocus = 0; fname[0] = 0;
     if (benutzer_gesperrt()) zeichne_login();
     else { zustand = Z_DESK; einlen = 0; eingabe[0] = 0; reply1(TR("Festplatte entsperrt. Was moechtest du tun?", "Disk unlocked. What would you like to do?")); zeichne_desktop(); }
@@ -2737,29 +2738,87 @@ static void entsperren_versuch(void) {
 #include "autotext.inc"
 #include "office.inc"
 
-/* ---------- Datei-Explorer (SynFS) ---------- */
-enum { K_DA0 = 900, K_DA_F0 = 920, K_DA_OEFF = 925, K_DA_DEL, K_DA_UP, K_DA_DN, K_DA_END };
-static int da_filter, da_sel, da_scroll, da_vfrage;
+/* ---------- Datei-Explorer (SynFS + Raeume/Schluessel) ---------- */
+enum { K_DA0 = 1000, K_DA_OEFF = 1020, K_DA_DEL, K_DA_UP, K_DA_DN, K_DA_NEU, K_DA_MOVE, K_DA_KEY, K_DA_HOCH, K_DA_F0 = 1030, K_DA_R0 = 1040, K_DA_SICHT = 1055, K_DA_RDEL, K_DA_ZURUECK, K_DA_S0 = 1060, K_DA_END = 1070 };
+static int da_filter, da_sel, da_scroll, da_vfrage, da_raum, da_modus, da_mv; static char da_buf[24], da_msg[100], da_mvname[32];
 static const char* const DA_ALLE[] = { "", 0 }, * const DA_TXT[] = { ".txt", 0 }, * const DA_BILD[] = { ".png", ".jpg", ".jpeg", ".gif", 0 };
 static const char* const* da_endungen(void) { return da_filter == 1 ? DA_TXT : da_filter == 2 ? DA_BILD : DA_ALLE; }
-static int da_zahl(void) { char nm[32]; int n = 0; while (synfs_nte_datei(n, da_endungen(), nm, 32)) n++; return n; }
+static int da_st(int r) { return raum_stufe(r, benutzer_name(), benutzer_rolle()); }
+static int da_nsub(void) { int n = 0; while (raum_unter(da_raum, n, benutzer_name(), benutzer_rolle()) >= 0) n++; return n; }
+static int da_zahl(void) { return da_nsub() + datei_zahl(da_raum, da_endungen()); }
+static const char* da_stufetxt(int s) { return s >= 3 ? TR("Verwalten", "Manage") : s == 2 ? TR("Mitarbeiten", "Contribute") : s == 1 ? TR("Sehen", "View") : TR("Gesperrt", "Locked"); }
+static uint32_t da_stufefarbe(int s) { return s >= 3 ? Q_VIO : s == 2 ? Q_CY : s == 1 ? Q_SKY : 0x00F43F5Eu; }
 static int da_ist_bild(const char* n) { int l = slen(n); if (l < 4) return 0; const char* e = n + l - 4; return (e[0] == '.' && ((e[1] == 'p' && e[2] == 'n' && e[3] == 'g') || (e[1] == 'j' && e[2] == 'p' && e[3] == 'g') || (e[1] == 'g' && e[2] == 'i' && e[3] == 'f'))) || (l > 5 && n[l - 5] == '.' && n[l - 4] == 'j' && n[l - 3] == 'p' && n[l - 2] == 'e' && n[l - 1] == 'g'); }
 static int da_ist_txt(const char* n) { int l = slen(n); return l > 4 && n[l - 4] == '.' && n[l - 3] == 't' && n[l - 2] == 'x' && n[l - 1] == 't'; }
+static int da_baum(int* id, int* tief, int max) {               /* Raumbaum (Tiefensuche) fuer die Seitenleiste */
+    int n = 0, st[6], si[6], sp = 0; id[n] = 0; tief[n++] = 0; st[0] = 0; si[0] = 0; sp = 1;
+    while (sp > 0 && n < max) {
+        int p = st[sp - 1], k = raum_unter(p, si[sp - 1]++, benutzer_name(), benutzer_rolle());
+        if (k < 0) { sp--; continue; }
+        id[n] = k; tief[n++] = sp; if (sp < 5) { st[sp] = k; si[sp] = 0; sp++; }
+    }
+    return n;
+}
+static void da_msg_set(const char* de, const char* en) { scopy(da_msg, TR(de, en), 100); }
 static void da_klick(int id) {
-    char nm[32];
-    if (id >= K_DA0 && id < K_DA0 + 16) { da_sel = da_scroll + (id - K_DA0); da_vfrage = 0; }
-    else if (id >= K_DA_F0 && id < K_DA_F0 + 3) { da_filter = id - K_DA_F0; da_sel = 0; da_scroll = 0; da_vfrage = 0; }
+    char nm[32]; int ns = da_nsub(), sel_raum = da_sel < ns ? raum_unter(da_raum, da_sel, benutzer_name(), benutzer_rolle()) : -1, st = da_st(da_raum);
+    int has_file = da_sel >= ns && datei_nth(da_raum, da_endungen(), da_sel - ns, nm, 32);
+    if (id != K_DA_DEL && id != K_DA_RDEL) da_vfrage = 0;
+    if (id >= K_DA0 && id < K_DA0 + 16) { da_sel = da_scroll + (id - K_DA0); da_msg[0] = 0; }
+    else if (id >= K_DA_F0 && id < K_DA_F0 + 3) { da_filter = id - K_DA_F0; da_sel = 0; da_scroll = 0; }
+    else if (id >= K_DA_R0 && id < K_DA_R0 + 14) { int ids[14], td[14]; int n = da_baum(ids, td, 14); if (id - K_DA_R0 < n) { da_raum = ids[id - K_DA_R0]; da_sel = 0; da_scroll = 0; da_modus = 0; da_msg[0] = 0; } }
     else if (id == K_DA_UP) { if (da_scroll > 0) da_scroll--; }
     else if (id == K_DA_DN) { if (da_scroll + 1 < da_zahl()) da_scroll++; }
-    else if (id == K_DA_OEFF && synfs_nte_datei(da_sel, da_endungen(), nm, 32)) {
-        kprint("[DESKTOP] Explorer oeffnet: "); kprint(nm); kprint("\n");
-        if (da_ist_txt(nm)) { editor_oeffnen(); dok_laden(nm); }
-        else if (da_ist_bild(nm)) { scopy(hg_datei, nm, 32); zdb_put("ui.hgbild", hg_datei); hg_nr = 5; th_speichern(); }
-        else reply1(TR("Diese Dateiart kann ich noch nicht oeffnen.", "I cannot open this file type yet."));
+    else if (id == K_DA_HOCH) { int p = raum_parent(da_raum); if (p >= 0) { da_raum = p; da_sel = 0; da_scroll = 0; da_modus = 0; } }
+    else if (id == K_DA_OEFF) {
+        if (sel_raum >= 0) { da_raum = sel_raum; da_sel = 0; da_scroll = 0; da_msg[0] = 0; }
+        else if (has_file) {
+            kprint("[DESKTOP] Explorer oeffnet: "); kprint(nm); kprint("\n");
+            if (da_ist_txt(nm)) { editor_oeffnen(); dok_laden(nm); }
+            else if (da_ist_bild(nm)) { scopy(hg_datei, nm, 32); zdb_put("ui.hgbild", hg_datei); hg_nr = 5; th_speichern(); }
+            else reply1(TR("Diese Dateiart kann ich noch nicht oeffnen.", "I cannot open this file type yet."));
+        }
     }
-    else if (id == K_DA_DEL && synfs_nte_datei(da_sel, da_endungen(), nm, 32)) {
-        if (da_vfrage) { synfs_delete(nm); kprint("[DESKTOP] Explorer geloescht: "); kprint(nm); kprint("\n"); da_vfrage = 0; if (da_sel > 0) da_sel--; } else da_vfrage = 1;
+    else if (id == K_DA_DEL) {
+        if (sel_raum >= 0) {
+            if (!da_vfrage) da_vfrage = 1;
+            else { int e = raum_loeschen(sel_raum, benutzer_name(), benutzer_rolle()); da_vfrage = 0; if (e == 0) { da_msg_set("Raum geloescht.", "Room deleted."); if (da_sel > 0) da_sel--; } else if (e == -2) da_msg_set("Dafuer fehlt dir der Schluessel (Verwalten).", "You need the Manage key for that."); else da_msg_set("Raum ist nicht leer.", "Room is not empty."); }
+        } else if (has_file) {
+            if (st < ST_MITARB) { da_msg_set("Dafuer fehlt dir die Stufe Mitarbeiten.", "You need the Contribute level."); da_vfrage = 0; }
+            else if (da_vfrage) { synfs_delete(nm); datei_vergessen(nm); kprint("[DESKTOP] Explorer geloescht: "); kprint(nm); kprint("\n"); da_vfrage = 0; if (da_sel > 0) da_sel--; da_msg[0] = 0; } else da_vfrage = 1;
+        }
     }
+    else if (id == K_DA_NEU) { if (st < ST_MITARB) da_msg_set("In diesem Raum darfst du nichts anlegen.", "You may not create anything here."); else { da_modus = 1; da_buf[0] = 0; da_msg[0] = 0; } }
+    else if (id == K_DA_MOVE) {
+        if (da_mv) { if (st < ST_MITARB) da_msg_set("Hier darfst du nichts ablegen.", "You may not put anything here."); else { datei_zuordnen(da_mvname, da_raum); da_mv = 0; da_msg_set("Verschoben.", "Moved."); } }
+        else if (has_file) { if (st < ST_MITARB) da_msg_set("Dafuer fehlt dir die Stufe Mitarbeiten.", "You need the Contribute level."); else { da_mv = 1; scopy(da_mvname, nm, 32); da_msg_set("Gehe in den Zielraum und waehle \"Hierher\".", "Go to the target room and choose \"Here\"."); } }
+    }
+    else if (id == K_DA_KEY) { if (st < ST_VERW) da_msg_set("Schluessel verwalten darf nur, wer diesen Raum verwaltet.", "Only managers of this room can edit keys."); else { da_modus = da_modus == 2 ? 0 : 2; da_msg[0] = 0; } }
+    else if (id == K_DA_ZURUECK) da_modus = 0;
+    else if (id == K_DA_SICHT && st >= ST_VERW) raum_sicht_setzen(da_raum, (raum_sicht(da_raum) + 1) % 3);
+    else if (id == K_DA_RDEL && da_raum > 0 && st >= ST_VERW) {
+        if (!da_vfrage) da_vfrage = 1;
+        else { int p = raum_parent(da_raum), e = raum_loeschen(da_raum, benutzer_name(), benutzer_rolle()); da_vfrage = 0; if (e == 0) { da_raum = p < 0 ? 0 : p; da_modus = 0; da_sel = 0; da_scroll = 0; da_msg_set("Raum geloescht.", "Room deleted."); } else da_msg_set("Raum ist nicht leer.", "Room is not empty."); }
+    }
+    else if (id >= K_DA_S0 && id < K_DA_S0 + 8 && st >= ST_VERW) {
+        char un[16]; int ur; if (benutzer_nth(id - K_DA_S0, un, &ur)) {
+            int k = raum_schluessel(da_raum, un); int nx = k < 0 ? ST_SEHEN : k == ST_SEHEN ? ST_MITARB : k == ST_MITARB ? ST_VERW : k == ST_VERW ? ST_GESPERRT : -1;
+            raum_schluessel_setzen(da_raum, un, nx);
+        }
+    }
+    zeichne_desktop();
+}
+static void da_taste(uint8_t k, int shift, int altgr) {
+    int n = slen(da_buf);
+    if (k == 0x29) { da_modus = 0; da_buf[0] = 0; }
+    else if (k == 0x28 || k == 0x58) {
+        if (n) { int e = raum_neu(da_raum, da_buf, benutzer_name(), benutzer_rolle());
+            if (e > 0) { kprint("[DESKTOP] Raum angelegt: "); kprint(da_buf); kprint("\n"); da_msg_set("Raum angelegt (privat). Mit \"Schluessel\" teilen.", "Room created (private). Share it with \"Keys\"."); }
+            else if (e == -3) da_msg_set("Diesen Raum gibt es hier schon.", "This room already exists."); else if (e == -2) da_msg_set("Keine freien Raeume mehr.", "No free rooms left."); else if (e == -4) da_msg_set("Dafuer fehlt dir die Stufe Mitarbeiten.", "You need the Contribute level."); else da_msg_set("Ungueltiger Name.", "Invalid name."); }
+        da_buf[0] = 0; da_modus = 0;
+    }
+    else if (k == 0x2A) { if (n) da_buf[n - 1] = 0; }
+    else { char c = usb_key_char(k, shift, altgr); if (c >= 32 && c < 127 && c != '/' && c != ':' && n < 18) { da_buf[n] = c; da_buf[n + 1] = 0; } else return; }
     zeichne_desktop();
 }
 
@@ -2882,42 +2941,83 @@ static void zeichne_benutzer(void) {
     if (be_msg[0]) gtxt(rx, y0 + bh - 30, be_msg, mix(C_MUTED, Q_CY, 140), 1);
     gfx_end(); kn_owner = ko;
 }
+static void da_ordner(int x, int y, uint32_t c) { rrect(x, y + 1, 9, 5, 2, c); rrect(x, y + 4, 20, 14, 4, c); gfx_rect(x + 3, y + 8, 14, 1, mix(c, 0x00FFFFFFu, 150)); }
 static void zeichne_datei(void) {
     int wi = fenster_idx(FT_DATEI); if (wi < 0) return;
     struct fenster* f = &fen[wi]; int ko = kn_owner; kn_owner = wi; kn_loesche_owner(wi);
-    int x0 = f->x + 2, y0 = f->y + WT_H, bh = f->h - WT_H - 4, sw = 170;
+    int x0 = f->x + 2, y0 = f->y + WT_H, bh = f->h - WT_H - 4, sw = 190;
     gfx_begin(); gfx_rect(x0, y0, f->w - 4, bh, C_BG);
-    int n = da_zahl(); if (da_sel >= n) da_sel = n ? n - 1 : 0; if (da_scroll > da_sel) da_scroll = da_sel;
-    int rows = (bh - 130) / 34; if (rows > 16) rows = 16; if (rows < 1) rows = 1; if (da_sel >= da_scroll + rows) da_scroll = da_sel - rows + 1;
-    static const char* const fn_de[3] = { "Alle Dateien", "Dokumente", "Bilder" }, * const fn_en[3] = { "All files", "Documents", "Images" };
-    for (int i = 0; i < 3; i++) {
-        int ry = y0 + 14 + i * 42, on = da_filter == i;
-        if (on) { rrect(x0 + 8, ry, sw - 8, 36, 12, mix(C_BG, Q_SKY, 110)); if (Q_GLAS) h_pille(x0 + 9, ry + 1, sw - 10, 34, 0x00083A55u, 0x002A1058u); else rrect(x0 + 9, ry + 1, sw - 10, 34, 11, mix(C_CARD, C_ACC, 90)); }
-        else rrect_rand(x0 + 8, ry, sw - 8, 36, 12, C_CARD, C_BORDER);
-        rrect(x0 + 20, ry + 11, 14, 14, 4, i == 0 ? Q_SKY : i == 1 ? Q_VIO : Q_ROSA); rrect(x0 + 22, ry + 13, 10, 10, 3, on ? 0x00FFFFFFu : mix(C_BG, C_CARD, 128));
-        gtxt(x0 + 44, ry + 9, lang == 0 ? fn_de[i] : fn_en[i], on ? 0x00FFFFFFu : C_TEXT, 1); kn_reg(K_DA_F0 + i, x0 + 8, ry, sw - 8, 36);
-    }
-    { char t[40], a[8]; dec(a, (uint32_t)n); scopy(t, a, 40); cat(t, TR(" Dateien in SynFS", " files in SynFS"), 40); gtxt(x0 + 14, y0 + bh - 30, t, C_MUTED, 1); }
+    int st = da_st(da_raum), ns = da_nsub(), n = ns + datei_zahl(da_raum, da_endungen());
+    if (da_sel >= n) da_sel = n ? n - 1 : 0; if (da_scroll > da_sel) da_scroll = da_sel;
+    int rows = (bh - 136) / 34; if (rows > 16) rows = 16; if (rows < 1) rows = 1; if (da_sel >= da_scroll + rows) da_scroll = da_sel - rows + 1;
+    gtxt(x0 + 14, y0 + 10, TR("RAEUME", "ROOMS"), C_MUTED, 1);
+    { int ids[14], td[14]; int bn = da_baum(ids, td, 14);
+      for (int i = 0; i < bn; i++) {
+          int ry = y0 + 30 + i * 28, ix = x0 + 8 + td[i] * 10, on = ids[i] == da_raum; if (ry + 26 > y0 + bh - 70) break;
+          if (on) { rrect(ix, ry, sw - 8 - td[i] * 10, 26, 10, mix(C_BG, Q_SKY, 110)); if (Q_GLAS) h_pille(ix + 1, ry + 1, sw - 10 - td[i] * 10, 24, 0x00083A55u, 0x002A1058u); else rrect(ix + 1, ry + 1, sw - 10 - td[i] * 10, 24, 9, mix(C_CARD, C_ACC, 90)); }
+          da_ordner(ix + 8, ry + 4, on ? 0x00FFFFFFu : ids[i] == 0 ? Q_SKY : Q_VIO);
+          gtxt(ix + 34, ry + 5, raum_name(ids[i]), on ? 0x00FFFFFFu : C_TEXT, 1); kn_reg(K_DA_R0 + i, ix, ry, sw - 8 - td[i] * 10, 26);
+      } }
+    { static const char* const fd[3] = { "Alle", "Text", "Bilder" }, * const fe[3] = { "All", "Text", "Images" };
+      for (int i = 0; i < 3; i++) { int fx = x0 + 10 + i * 58, on = da_filter == i; rrect(fx, y0 + bh - 62, 54, 22, 11, on ? mix(C_BG, Q_CY, 130) : mix(C_BG, C_BORDER, 60)); gtxt(fx + (54 - gtw(lang == 0 ? fd[i] : fe[i], 1)) / 2, y0 + bh - 58, lang == 0 ? fd[i] : fe[i], on ? 0x00FFFFFFu : C_MUTED, 1); kn_reg(K_DA_F0 + i, fx, y0 + bh - 62, 54, 22); } }
+    { const char* t = da_stufetxt(st); int tw = gtw(t, 1) + 22; rrect(x0 + 10, y0 + bh - 32, tw, 22, 11, mix(C_BG, da_stufefarbe(st), 110)); rrect(x0 + 18, y0 + bh - 25, 8, 8, 4, da_stufefarbe(st)); gtxt(x0 + 32, y0 + bh - 28, t, 0x00FFFFFFu, 1); }
     int rx = x0 + sw + 14, rw = f->w - 4 - sw - 22;
     rrect_rand(rx, y0 + 12, rw, 30, 15, mix(C_BG, C_CARD, 128), C_BORDER);
-    { char t[60]; scopy(t, "zynex:/", 60); cat(t, lang == 0 ? fn_de[da_filter] : fn_en[da_filter], 60); gtxt(rx + 16, y0 + 19, t, Q_GLAS ? Q_CY : C_ACC2, 1); }
+    { char t[100]; raum_pfad(da_raum, t, 100); gtxt(rx + 16, y0 + 19, t, Q_GLAS ? Q_CY : C_ACC2, 1); if (da_raum > 0) { int sv = raum_sicht(da_raum); const char* sx = sv == 0 ? TR("PRIVAT", "PRIVATE") : sv == 1 ? TR("GETEILT: SEHEN", "SHARED: VIEW") : TR("GETEILT", "SHARED"); int w2 = gtw(sx, 1) + 16; rrect(rx + rw - w2 - 8, y0 + 17, w2, 20, 10, mix(C_BG, sv == 0 ? 0x00F43F5Eu : Q_CY, 70)); gtxt(rx + rw - w2, y0 + 19, sx, 0x00FFFFFFu, 1); } }
     int ly = y0 + 54;
+    if (da_modus == 2) {                                                                                 /* Schluessel-Ansicht */
+        gtxt(rx + 4, ly, TR("Schluessel fuer diesen Raum", "Keys for this room"), 0x00FFFFFFu, 1);
+        gtxt(rx + 4, ly + 20, TR("Wer darf hier was? Gilt auch fuer alle Unterraeume.", "Who may do what here? Applies to all sub-rooms too."), C_MUTED, 1);
+        { int sv = da_raum >= 0 ? raum_sicht(da_raum) : 0; char t[60]; scopy(t, TR("Alle anderen: ", "Everyone else: "), 60); cat(t, sv == 0 ? TR("Gesperrt (privat)", "Locked (private)") : sv == 1 ? TR("Sehen", "View") : TR("Mitarbeiten", "Contribute"), 60); knopf(K_DA_SICHT, t, rx + 4, ly + 46, 300, sv != 0); }
+        gtxt(rx + 4, ly + 92, TR("PERSONEN (Klick wechselt: kein Schluessel > Sehen > Mitarbeiten > Verwalten > Gesperrt)", "PEOPLE (click cycles: no key > View > Contribute > Manage > Locked)"), C_MUTED, 1);
+        for (int i = 0; i < 8; i++) {
+            char un[16]; int ur; if (!benutzer_nth(i, un, &ur)) break; int ry = ly + 114 + i * 32; if (ry + 30 > y0 + bh - 60) break;
+            int k = raum_schluessel(da_raum, un), own = !ueq(raum_besitzer(da_raum), un) ? 0 : 1;
+            rrect(rx, ry, rw, 28, 11, mix(C_BG, C_BORDER, 40)); rrect(rx + 1, ry + 1, rw - 2, 26, 10, mix(C_BG, C_CARD, 150));
+            gtxt(rx + 14, ry + 6, un, C_TEXT, 1); gtxt(rx + 150, ry + 6, benutzer_rollentext(ur), C_MUTED, 1);
+            const char* t = own ? TR("Besitzer", "Owner") : k < 0 ? TR("kein Schluessel", "no key") : da_stufetxt(k); uint32_t c = own ? Q_VIO : k < 0 ? C_MUTED : da_stufefarbe(k); int tw = gtw(t, 1) + 18;
+            rrect(rx + rw - tw - 10, ry + 4, tw, 20, 10, mix(C_BG, c, 80)); gtxt(rx + rw - tw - 1, ry + 6, t, 0x00FFFFFFu, 1); if (!own) kn_reg(K_DA_S0 + i, rx, ry, rw, 28);
+        }
+        int yb2 = y0 + bh - 46; knopf(K_DA_ZURUECK, TR("Fertig", "Done"), rx, yb2, 120, 1);
+        if (da_raum > 0) knopf(K_DA_RDEL, da_vfrage ? TR("Wirklich?", "Really?") : TR("Raum loeschen", "Delete room"), rx + 128, yb2, 170, da_vfrage);
+        if (da_msg[0]) gtxt(rx + 310, yb2 + 10, da_msg, mix(C_MUTED, Q_CY, 140), 1);
+        gfx_end(); kn_owner = ko; return;
+    }
+    if (da_modus == 1) {
+        rrect(rx, ly, rw, 34, 13, mix(C_BG, Q_CY, 140)); rrect(rx + 1, ly + 1, rw - 2, 32, 12, mix(C_BG, C_CARD, 220));
+        char t[40]; scopy(t, da_buf, 40); cat(t, "_", 40); gtxt(rx + 14, ly + 9, TR("Neuer Raum: ", "New room: "), C_MUTED, 1); gtxt(rx + 14 + gtw(TR("Neuer Raum: ", "New room: "), 1), ly + 9, t, 0x00FFFFFFu, 1);
+        gtxt(rx + 4, ly + 46, TR("Name tippen, Enter = anlegen, Esc = abbrechen. Neue Raeume sind privat.", "Type a name, Enter = create, Esc = cancel. New rooms are private."), C_MUTED, 1); ly += 70;
+    }
     for (int i = 0; i < rows; i++) {
-        char nm[32]; if (!synfs_nte_datei(da_scroll + i, da_endungen(), nm, 32)) break;
-        int ry = ly + i * 34, on = da_scroll + i == da_sel;
+        char nm[32]; int idx = da_scroll + i; int rid = idx < ns ? raum_unter(da_raum, idx, benutzer_name(), benutzer_rolle()) : -1;
+        if (idx >= n) break; if (rid < 0 && !datei_nth(da_raum, da_endungen(), idx - ns, nm, 32)) break;
+        int ry = ly + i * 34, on = idx == da_sel;
         if (on) { rrect(rx, ry, rw, 30, 11, mix(C_BG, Q_CY, 120)); if (Q_GLAS) h_pille(rx + 1, ry + 1, rw - 2, 28, 0x00083A55u, 0x002A1058u); else rrect(rx + 1, ry + 1, rw - 2, 28, 10, mix(C_CARD, C_ACC, 90)); }
         else { rrect(rx, ry, rw, 30, 11, mix(C_BG, C_BORDER, 40)); rrect(rx + 1, ry + 1, rw - 2, 28, 10, mix(C_BG, C_CARD, 150)); }
-        uint32_t ic = da_ist_bild(nm) ? Q_ROSA : da_ist_txt(nm) ? Q_SKY : C_MUTED;
-        rrect(rx + 10, ry + 6, 16, 18, 4, ic); rrect(rx + 12, ry + 8, 12, 14, 3, mix(C_BG, ic, 60)); gfx_rect(rx + 15, ry + 12, 6, 1, 0x00FFFFFFu); gfx_rect(rx + 15, ry + 16, 6, 1, 0x00FFFFFFu);
-        gtxt(rx + 36, ry + 7, nm, on ? 0x00FFFFFFu : C_TEXT, 1);
-        { const char* tg = da_ist_bild(nm) ? TR("BILD", "IMAGE") : da_ist_txt(nm) ? TR("TEXT", "TEXT") : "DATA"; int tw = gtw(tg, 1) + 16; rrect(rx + rw - tw - 10, ry + 5, tw, 20, 10, mix(C_BG, ic, 70)); gtxt(rx + rw - tw - 2, ry + 7, tg, 0x00FFFFFFu, 1); }
+        if (rid >= 0) {
+            da_ordner(rx + 8, ry + 5, Q_VIO); gtxt(rx + 36, ry + 7, raum_name(rid), on ? 0x00FFFFFFu : C_TEXT, 1);
+            int s2 = da_st(rid), sv = raum_sicht(rid); char tg[24]; scopy(tg, sv == 0 ? TR("PRIVAT", "PRIVATE") : TR("GETEILT", "SHARED"), 24); int tw = gtw(tg, 1) + 16, tw2 = gtw(da_stufetxt(s2), 1) + 16;
+            rrect(rx + rw - tw - 10, ry + 5, tw, 20, 10, mix(C_BG, sv == 0 ? 0x00F43F5Eu : Q_CY, 70)); gtxt(rx + rw - tw - 2, ry + 7, tg, 0x00FFFFFFu, 1);
+            rrect(rx + rw - tw - tw2 - 18, ry + 5, tw2, 20, 10, mix(C_BG, da_stufefarbe(s2), 70)); gtxt(rx + rw - tw - tw2 - 10, ry + 7, da_stufetxt(s2), 0x00FFFFFFu, 1);
+        } else {
+            uint32_t ic = da_ist_bild(nm) ? Q_ROSA : da_ist_txt(nm) ? Q_SKY : C_MUTED;
+            rrect(rx + 10, ry + 6, 16, 18, 4, ic); rrect(rx + 12, ry + 8, 12, 14, 3, mix(C_BG, ic, 60)); gfx_rect(rx + 15, ry + 12, 6, 1, 0x00FFFFFFu); gfx_rect(rx + 15, ry + 16, 6, 1, 0x00FFFFFFu);
+            gtxt(rx + 36, ry + 7, nm, on ? 0x00FFFFFFu : C_TEXT, 1);
+            const char* tg = da_ist_bild(nm) ? TR("BILD", "IMAGE") : da_ist_txt(nm) ? TR("TEXT", "TEXT") : "DATA"; int tw = gtw(tg, 1) + 16; rrect(rx + rw - tw - 10, ry + 5, tw, 20, 10, mix(C_BG, ic, 70)); gtxt(rx + rw - tw - 2, ry + 7, tg, 0x00FFFFFFu, 1);
+        }
         kn_reg(K_DA0 + i, rx, ry, rw, 30);
     }
-    if (!n) gtxt(rx + 10, ly + 8, TR("Keine Dateien. Speichere z.B. ein Dokument in Zynex Text.", "No files. Save a document in Zynex Text, for example."), C_MUTED, 1);
+    if (!n) gtxt(rx + 10, ly + 8, TR("Dieser Raum ist leer.", "This room is empty."), C_MUTED, 1);
     int yb = y0 + bh - 46;
-    knopf(K_DA_OEFF, TR("Oeffnen", "Open"), rx, yb, 120, 1);
-    knopf(K_DA_DEL, da_vfrage ? TR("Wirklich?", "Really?") : TR("Loeschen", "Delete"), rx + 128, yb, 130, da_vfrage);
-    knopf(K_DA_UP, "^", rx + rw - 84, yb, 38, 0); knopf(K_DA_DN, "v", rx + rw - 40, yb, 38, 0);
+    knopf(K_DA_HOCH, "<", rx, yb, 38, 0);
+    knopf(K_DA_OEFF, TR("Oeffnen", "Open"), rx + 46, yb, 100, 1);
+    knopf(K_DA_DEL, da_vfrage ? TR("Wirklich?", "Really?") : TR("Loeschen", "Delete"), rx + 154, yb, 110, da_vfrage);
+    knopf(K_DA_NEU, TR("Neuer Raum", "New room"), rx + 272, yb, 128, 0);
+    knopf(K_DA_MOVE, da_mv ? TR("Hierher", "Here") : TR("Verschieben", "Move"), rx + 408, yb, 124, da_mv);
+    knopf(K_DA_KEY, TR("Schluessel", "Keys"), rx + 540, yb, 120, 0);
+    if (rx + 690 < rx + rw - 90) { knopf(K_DA_UP, "^", rx + rw - 84, yb, 38, 0); knopf(K_DA_DN, "v", rx + rw - 40, yb, 38, 0); }
+    if (da_msg[0]) gtxt(rx + 4, yb - 20, da_msg, mix(C_MUTED, Q_CY, 140), 1);
+    else if (da_mv) { char t[60]; scopy(t, TR("Verschiebe: ", "Moving: "), 60); cat(t, da_mvname, 60); gtxt(rx + 4, yb - 20, t, mix(C_MUTED, Q_VIO, 160), 1); }
     gfx_end(); kn_owner = ko;
 }
 
@@ -2925,6 +3025,7 @@ static void taste_roh(uint8_t k, int shift, int altgr) {
     if (menu.offen) { if (k == 0x29) menu_schliessen(); return; }
     if (zustand != Z_LOGIN && k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }
     if (zustand == Z_RECH) { rech_taste(k, shift, altgr); return; }
+    if (zustand == Z_INFO && da_modus == 1 && fenster_idx(FT_DATEI) >= 0) { da_taste(k, shift, altgr); return; }
     if (zustand == Z_INFO && be_modus >= 1 && be_modus <= 3 && fenster_idx(FT_BENUTZER) >= 0) { be_taste(k, shift, altgr); return; }
     if (zustand == Z_INFO && ek_feld && fenster_idx(FT_EINST) >= 0) { einst_taste(k, shift, altgr); return; }
     if (zustand == Z_INFO && nfen && fen[nfen - 1].typ == FT_EINST && k != 0x29) { einst_kurztaste(k, shift, altgr); return; }
