@@ -36,5 +36,16 @@ xorriso -as mkisofs -iso-level 3 -r -J -joliet-long -V ZYNEXOS \
   -append_partition 2 0xef "$W/efi.img" -appended_part_as_gpt \
   -e --interval:appended_partition_2:all:: -no-emul-boot \
   -o "$OUT" "$T" 2>&1 | tail -3
+# MBR bereinigen: --mbr-force-bootable legt einen zweiten, ueberlappenden Dummy-Eintrag (Typ 0x00, LBA 0, 1 Sektor) an.
+# balenaEtcher meldet daran "Missing partition table", manche Firmware auch. Stattdessen den Schutz-Eintrag (0xEE)
+# selbst bootfaehig markieren und den Dummy entfernen: eine saubere, nicht ueberlappende Tabelle mit Boot-Flag.
+python3 - "$OUT" <<'PY'
+import sys
+f = open(sys.argv[1], 'r+b'); m = bytearray(f.read(512))
+assert m[510:512] == b'\x55\xaa' and m[446 + 4] == 0xEE, "unerwarteter MBR"
+m[446] = 0x80
+for i in range(1, 4): m[446 + 16 * i:462 + 16 * i] = bytes(16)
+f.seek(0); f.write(m); f.close()
+PY
 rm -rf "$W"
 ls -la "$OUT"
