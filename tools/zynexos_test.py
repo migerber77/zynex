@@ -275,6 +275,7 @@ def vgpu():
         hell = sum(1 for i in range(0, len(px) - 2, 3) if px[i] + px[i + 1] + px[i + 2] > 120)
     except Exception:
         hell = 0
+    print("\n".join(l for l in out.splitlines() if "VirtIO-GPU" in l or "LOADER" in l or "[PCI]" in l or "1af4" in l.lower())[:3000])
     vm.ende()
     pruefe("VirtIO-GPU: Kernel startet mit virtio-gpu als einziger Anzeige", start)
     pruefe("VirtIO-GPU: Treiber richtet die Anzeige ein", "[VirtIO-GPU] Anzeige" in out and "bereit" in out)
