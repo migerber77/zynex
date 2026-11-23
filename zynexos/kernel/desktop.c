@@ -53,7 +53,7 @@ extern const uint32_t zynex_logo[], zynex_logo_gross[];
 
 /* Farbschemas: die Farben sind Variablen (Einstellungen > Aussehen). Reihenfolge: bg, card, border, text, muted, acc, acc2, field, off, Hintergrund oben/unten, Leuchtflecken 1/2 */
 static const struct thema { const char* de; const char* en; uint32_t c[13]; } THEMEN[6] = {
-    { "Nacht", "Night",     { 0x000A111Fu, 0x00121A2Bu, 0x002A3752u, 0x00E9EDF5u, 0x008995B0u, 0x004A72F5u, 0x006F90FBu, 0x000E1525u, 0x00334155u, 0x00060B16u, 0x00122350u, 0x002A47B8u, 0x006A32B8u } },
+    { "Nacht", "Night",     { 0x000A1222u, 0x00101C34u, 0x001E4467u, 0x00E2E8F0u, 0x0094A3B8u, 0x0038BDF8u, 0x00C084FCu, 0x00091428u, 0x00334155u, 0x00040711u, 0x00091124u, 0x000E3A55u, 0x004A2380u } },
     { "Ozean", "Ocean",     { 0x00071A22u, 0x000E2631u, 0x001F4658u, 0x00E6F4F8u, 0x0088AEBDu, 0x000FA9B8u, 0x005CD8E2u, 0x00061820u, 0x00284A58u, 0x00041218u, 0x000B3A4Au, 0x00139AAAu, 0x002070B8u } },
     { "Violett", "Violet",  { 0x000E0A1Fu, 0x001A1330u, 0x003A2D66u, 0x00EFE9FAu, 0x009E94C0u, 0x008B5CF6u, 0x00A78BFAu, 0x00120C26u, 0x003F3560u, 0x000A0618u, 0x002A1457u, 0x007C3AEDu, 0x00D02A80u } },
     { "Wald", "Forest",     { 0x000A1410u, 0x00112019u, 0x00264636u, 0x00E8F3ECu, 0x0086A998u, 0x002FB67Cu, 0x005FD39Eu, 0x000A1812u, 0x002F4A3Cu, 0x00070F0Bu, 0x00123D2Au, 0x00208F5Fu, 0x0090A82Cu } },
@@ -200,6 +200,28 @@ static void glas(int x0, int y0, int w, int h, int rr, uint32_t tint, int a) {
     }
 }
 static void rrect_rand(int x, int y, int w, int h, int r, uint32_t fill, uint32_t rand) { rrect(x, y, w, h, r, rand); rrect(x + 1, y + 1, w - 2, h - 2, r - 1 > 0 ? r - 1 : 0, fill); }
+/* ---------- Liquid-Glass-Helfer (Fluidic-Design: dunkles Glas, Cyan -> Blau -> Violett) ---------- */
+static uint32_t mix(uint32_t a, uint32_t b, int t);
+#define Q_GLAS (th_nr != 5)                                   /* Hell-Schema behaelt das schlichte Aussehen */
+#define Q_CY    0x0000F2FEu
+#define Q_SKY   0x0038BDF8u
+#define Q_BLAU  0x004FACFEu
+#define Q_VIO   0x00A855F7u
+#define Q_ROSA  0x00E879F9u
+static void h_grad(int x, int y, int w, int h, uint32_t c1, uint32_t c2) {          /* waagerechter Farbverlauf (Spaltenstreifen) */
+    if (w <= 0 || h <= 0) return;
+    for (int i = 0; i < w; i += 2) gfx_rect(x + i, y, w - i < 2 ? w - i : 2, h, mix(c1, c2, i * 256 / (w > 1 ? w - 1 : 1)));
+}
+static void rr_grad(int x, int y, int w, int h, int r, uint32_t c1, uint32_t c2) {  /* abgerundetes Rechteck mit senkrechtem Verlauf (c1 oben, c2 unten) */
+    if (w <= 2 * r || h <= 2 * r) { rrect(x, y, w, h, r, mix(c1, c2, 128)); return; }
+    rrect(x, y, w, h, r, c1);
+    for (int j = r; j < h - r; j++) gfx_rect(x, y + j, w, 1, mix(c1, c2, j * 256 / h));
+    rrect(x, y + h - 2 * r, w, 2 * r, r, c2);
+    for (int j = h - 2 * r + r; j < h - r; j++) gfx_rect(x, y + j, w, 1, mix(c1, c2, j * 256 / h));
+}
+static void h_pille(int x, int y, int w, int h, uint32_t c1, uint32_t c2) {          /* Pille/Knopf mit waagerechtem Verlauf */
+    int r = h / 2 < 12 ? h / 2 : 12; rrect(x, y, 2 * r + 2, h, r, c1); rrect(x + w - 2 * r - 2, y, 2 * r + 2, h, r, c2); h_grad(x + r, y, w - 2 * r, h, mix(c1, c2, 256 * r / (w ? w : 1)), mix(c1, c2, 256 - 256 * r / (w ? w : 1)));
+}
 
 static uint32_t mix(uint32_t a, uint32_t b, int t /*0..256*/) {
     uint32_t r = 0;
@@ -643,8 +665,13 @@ static int ed_x, ed_y, ed_w, ed_h, ed_cols, ed_rows, ed_s;
 static int kn_owner = -1;
 static void kn_reg(int id, int x, int y, int w, int h) { if (nkn < 320) { knoepfe[nkn].owner = kn_owner; knoepfe[nkn].x = x; knoepfe[nkn].y = y; knoepfe[nkn].w = w; knoepfe[nkn].h = h; knoepfe[nkn].id = id; nkn++; } }
 static void knopf(int id, const char* label, int x, int y, int w, int primaer) {
-    rrect_rand(x, y, w, 34, 10, primaer ? C_ACC : C_CARD, primaer ? C_ACC : C_BORDER);
-    gtxt(x + (w - gtw(label, 1)) / 2, y + 9, label, primaer ? 0x00FFFFFFu : C_TEXT, 1);
+    if (Q_GLAS) {
+        if (primaer) { rrect(x - 1, y - 1, w + 2, 36, 13, mix(C_BG, Q_CY, 60)); h_pille(x, y, w, 34, 0x0006B6D4u, 0x002563EBu); gtxt(x + (w - gtw(label, 1)) / 2, y + 9, label, 0x00031221u, 1); }
+        else { rrect(x, y, w, 34, 12, mix(C_BG, 0x00FFFFFFu, 34)); rrect(x + 1, y + 1, w - 2, 32, 11, mix(C_BG, C_CARD, 200)); gtxt(x + (w - gtw(label, 1)) / 2, y + 9, label, C_TEXT, 1); }
+    } else {
+        rrect_rand(x, y, w, 34, 10, primaer ? C_ACC : C_CARD, primaer ? C_ACC : C_BORDER);
+        gtxt(x + (w - gtw(label, 1)) / 2, y + 9, label, primaer ? 0x00FFFFFFu : C_TEXT, 1);
+    }
     kn_reg(id, x, y, w, 34);
 }
 
@@ -805,6 +832,24 @@ static const char* fenster_titel(int typ) { if (typ == FT_MAL) return TR("Zynex 
 static void fenster_zeichnen(int i) {
     struct fenster* f = &fen[i]; int top = (i == nfen - 1 && fok);
     gfx_begin();
+    if (Q_GLAS) {
+        uint32_t w0 = hg_zeile(f->y + f->h / 2);
+        rrect(f->x - 6, f->y - 2, f->w + 12, f->h + 14, 26, mix(w0, 0x00000000u, 40));                                 /* weicher Schatten */
+        rrect(f->x - 3, f->y + 2, f->w + 6, f->h + 8, 22, mix(w0, 0x00000000u, 90));
+        if (top) { rrect(f->x - 5, f->y - 4, f->w + 10, f->h + 8, 24, mix(w0, Q_VIO, 22)); rrect(f->x - 2, f->y - 2, f->w + 4, f->h + 4, 21, mix(w0, Q_CY, 34)); }   /* Leuchtrand */
+        rrect(f->x, f->y, f->w, f->h, 18, top ? mix(0x00122A44u, Q_SKY, 150) : mix(C_BG, Q_SKY, 70));                 /* Rand */
+        rr_grad(f->x + 1, f->y + 1, f->w - 2, f->h - 2, 17, mix(C_CARD, C_BG, 100), mix(C_BG, 0x00000000u, 90));      /* Glaskoerper */
+        uint32_t t1 = top ? mix(C_BG, Q_CY, 52) : mix(C_BG, Q_CY, 22), t2 = top ? mix(C_BG, Q_VIO, 78) : mix(C_BG, Q_VIO, 30);
+        rrect(f->x + 1, f->y + 1, 40, WT_H, 16, t1); rrect(f->x + f->w - 41, f->y + 1, 40, WT_H, 16, t2);
+        h_grad(f->x + 20, f->y + 1, f->w - 40, WT_H - 1, mix(t1, t2, 256 * 20 / (f->w > 0 ? f->w : 1)), mix(t1, t2, 256 - 256 * 20 / (f->w > 0 ? f->w : 1)));
+        gfx_rect(f->x + 2, f->y + WT_H - 1, f->w - 4, 1, top ? mix(C_BG, Q_SKY, 130) : mix(C_BG, Q_SKY, 50));
+        { uint32_t oc = ob_farbe(f->typ); uint32_t ac = oc ? oc : (top ? Q_CY : C_OFF);                                 /* Mini-Symbol */
+          rrect(f->x + 11, f->y + 6, 20, 20, 7, top ? mix(C_BG, Q_SKY, 150) : mix(C_BG, Q_SKY, 60)); rrect(f->x + 12, f->y + 7, 18, 18, 6, 0x00070D1Au);
+          rrect(f->x + 17, f->y + 12, 8, 8, 4, top ? ac : mix(ac, 0x00606878u, 150)); }
+        gtxt(f->x + 38, f->y + 8, fenster_titel(f->typ), top ? 0x00FFFFFFu : C_MUTED, 1);
+        rrect(f->x + f->w - 32, f->y + 5, 22, 20, 10, top ? mix(C_BG, 0x00F87171u, 150) : mix(C_BG, C_OFF, 150)); rrect(f->x + f->w - 31, f->y + 6, 20, 18, 9, top ? mix(C_BG, 0x00EF4444u, 70) : mix(C_BG, C_OFF, 50));
+        gtxt(f->x + f->w - 25, f->y + 7, "x", top ? 0x00FCA5A5u : C_MUTED, 1);
+    } else {
     { uint32_t w0 = hg_zeile(f->y + f->h / 2), sc = th_nr == 5 ? 0x00203050u : 0x00000000u; int st = th_nr == 5 ? 40 : 100;      /* weicher Schatten */
       rrect(f->x - 3, f->y + 3, f->w + 6, f->h + 8, 18, mix(w0, sc, st / 2)); rrect(f->x - 1, f->y + 5, f->w + 2, f->h + 3, 15, mix(w0, sc, st)); }
     rrect_rand(f->x, f->y, f->w, f->h, 14, C_BG, top ? C_ACC : C_BORDER);
@@ -815,6 +860,7 @@ static void fenster_zeichnen(int i) {
     rrect(f->x + 14, f->y + 10, 10, 10, 5, top ? C_ACC2 : C_OFF);
     gtxt(f->x + 32, f->y + 8, fenster_titel(f->typ), ob_farbe(f->typ) ? 0x00FFFFFFu : top ? C_TEXT : C_MUTED, 1);
     rrect(f->x + f->w - 32, f->y + 5, 22, 20, 10, top ? 0x00EF4444u : C_OFF); gtxt(f->x + f->w - 25, f->y + 7, "x", 0x00FFFFFFu, 1);
+    }
     kn_owner = i;
     if (f->typ == FT_EDIT) zeichne_editor(1); else if (f->typ == FT_WEB) zeichne_web(1); else if (f->typ == FT_RECH) zeichne_rechner(); else if (f->typ == FT_EINST) zeichne_einst(); else if (f->typ == FT_CHATS) zeichne_chats(); else if (f->typ == FT_GED) zeichne_ged(); else if (f->typ == FT_TAB) zeichne_tabelle(); else if (f->typ == FT_PRAES) zeichne_praes(); else if (f->typ == FT_BOARD) zeichne_board(); else if (f->typ == FT_MAL) zeichne_mal(); else zeichne_info();
     kn_owner = -1;
@@ -1260,8 +1306,10 @@ static void dock_symbol(int i, int x, int y, int s) {
         return;
     }
     if (i > 4) i--;
-    { int fi = i >= 4 ? i + 1 : i; rrect(x, y, s, s, s / 4, dock_f[fi][1]);
-    rrect(x, y, s, s * 3 / 5, s / 4, dock_f[fi][0]); gfx_rect(x, y + s * 2 / 5, s, s / 5, mix(dock_f[fi][0], dock_f[fi][1], 128)); }
+    { int fi = i >= 4 ? i + 1 : i;
+      if (Q_GLAS && s > 24) { rrect(x, y, s, s, s / 4, mix(dock_f[fi][0], dock_f[fi][1], 128)); rr_grad(x + 2, y + 2, s - 4, s - 4, s / 4 - 2, mix(0x000E2038u, dock_f[fi][0], 90), mix(0x00050B1Cu, dock_f[fi][1], 110)); gfx_rect(x + s / 5, y + 3, s * 3 / 5, 1, mix(0x00FFFFFFu, dock_f[fi][0], 90)); }
+      else { rrect(x, y, s, s, s / 4, dock_f[fi][1]);
+    rrect(x, y, s, s * 3 / 5, s / 4, dock_f[fi][0]); gfx_rect(x, y + s * 2 / 5, s, s / 5, mix(dock_f[fi][0], dock_f[fi][1], 128)); } }
     uint32_t w = 0x00FFFFFFu; int c = x + s / 2, m = y + s / 2, u = s / 12;
     if (i == 0) { for (int k = 0; k < 4; k++) rrect(x + 3 * u, y + 3 * u + k * 2 * u + u / 2, k == 3 ? 4 * u : 6 * u, u, u / 2, w); }
     else if (i == 1) { rrect(x + 3 * u, y + 3 * u, 6 * u, 6 * u, u, w); for (int k = 1; k < 3; k++) { gfx_rect(x + 3 * u + k * 2 * u, y + 3 * u, 1 + u / 3, 6 * u, dock_f[i >= 4 ? i + 1 : i][1]); gfx_rect(x + 3 * u, y + 3 * u + k * 2 * u, 6 * u, 1 + u / 3, dock_f[i >= 4 ? i + 1 : i][1]); } }
@@ -2242,7 +2290,7 @@ static void zeichne_ged(void) {
     int nn, ss, gg, tt; ged_zahlen(&nn, &ss, &gg, &tt);
     { char t[120], a[12]; dec(a, (uint32_t)nn); scopy(t, a, 120); cat(t, TR(" Neuronen   ", " neurons   "), 120); dec(a, (uint32_t)ss); cat(t, a, 120); cat(t, TR(" Synapsen   ", " synapses   "), 120); dec(a, (uint32_t)gg); cat(t, a, 120); cat(t, TR(" Erinnerungen", " memories"), 120);
       gtxt(x0 + 14, y0 + 10, t, C_TEXT, 1); }
-    int px0 = x0 + 8, py0 = y0 + 36; rrect_rand(px0, py0, pw, ph, 10, C_CARD, C_BORDER);
+    int px0 = x0 + 8, py0 = y0 + 36; if (Q_GLAS) { rrect(px0, py0, pw, ph, 16, mix(C_BG, Q_SKY, 60)); rr_grad(px0 + 1, py0 + 1, pw - 2, ph - 2, 15, 0x00081A33u, 0x00050B1Cu); } else rrect_rand(px0, py0, pw, ph, 10, C_CARD, C_BORDER);
     char nm[36][13]; int nu[36], er[36], sa[160], sb[160], sw[160], ns2 = 0, bx[36], by[36];
     int c = ged_netz(36, nm, nu, er, 160, sa, sb, sw, &ns2);
     int cx = px0 + pw / 2, cy = py0 + ph / 2, rx = pw / 2 - 40, ry = ph / 2 - 26;
@@ -2250,12 +2298,19 @@ static void zeichne_ged(void) {
         int deg = (i * 1375 / 10) % 360, s = c > 1 ? isqrt_i(i * 1000 / c) : 0;
         bx[i] = cx + rx * s / 31 * icos(deg) / 1024; by[i] = cy + ry * s / 31 * isin(deg) / 1024;
     }
-    for (int j = 0; j < ns2; j++) if (sw[j] >= 20) linie(bx[sa[j]], by[sa[j]], bx[sb[j]], by[sb[j]], mix(0x00243049u, C_ACC, sw[j] * 256 / 255));
+    for (int j = 0; j < ns2; j++) if (sw[j] >= 20) linie(bx[sa[j]], by[sa[j]], bx[sb[j]], by[sb[j]], Q_GLAS ? mix(mix(Q_CY, Q_VIO, (bx[sa[j]] - px0) * 256 / pw), 0x00050B1Cu, 200 - sw[j] * 150 / 255) : mix(0x00243049u, C_ACC, sw[j] * 256 / 255));
     for (int i = 0; i < c; i++) {
         int r = 3 + (nu[i] > 56 ? 7 : nu[i] / 8); int hell = er[i] >= 500;
         if (hell) rrect(bx[i] - r - 5, by[i] - r - 5, 2 * r + 10, 2 * r + 10, r + 5, mix(C_CARD, C_ACC2, 110));
+        if (Q_GLAS && i < 14) {                                                              /* Pillen-Neuron mit Name */
+            int pw2 = gtw(nm[i], 1) + 22; int qx = bx[i] - pw2 / 2, qy = by[i] - 11;
+            if (qx < px0 + 4) qx = px0 + 4; if (qx + pw2 > px0 + pw - 4) qx = px0 + pw - 4 - pw2;
+            if (hell) rrect(qx - 3, qy - 3, pw2 + 6, 28, 14, mix(0x00050B1Cu, Q_VIO, 70));
+            rrect(qx, qy, pw2, 22, 11, hell ? Q_VIO : mix(0x00050B1Cu, Q_SKY, 110)); rrect(qx + 1, qy + 1, pw2 - 2, 20, 10, hell ? 0x002A1052u : 0x000A1B33u);
+            rrect(qx + 6, qy + 8, 6, 6, 3, hell ? Q_ROSA : Q_CY); gtxt(qx + 16, qy + 3, nm[i], hell ? 0x00FFFFFFu : 0x00B8C4D6u, 1);
+        } else {
         rrect(bx[i] - r, by[i] - r, 2 * r, 2 * r, r, hell ? C_ACC2 : mix(0x00334155u, C_ACC, 80 + (nu[i] > 20 ? 176 : nu[i] * 8)));
-        if (i < 14) gtxt(bx[i] + r + 3, by[i] - 7, nm[i], hell ? C_TEXT : C_MUTED, 1);
+        if (i < 14) gtxt(bx[i] + r + 3, by[i] - 7, nm[i], hell ? C_TEXT : C_MUTED, 1); }
     }
     if (!c) gtxt(px0 + 24, py0 + ph / 2 - 8, TR("Noch leer. Sag: merk dir, dass mein Hund Bello heisst.", "Still empty. Say: remember that my dog is called Bello."), C_MUTED, 1);
     int rx0 = px0 + pw + 14, rw = f->w - 4 - (rx0 - x0) - 10;
@@ -2263,12 +2318,12 @@ static void zeichne_ged(void) {
     { int rows = (bh - 100) / 46; if (rows > 9) rows = 9; int cols = (rw - 8) / 8;
       for (int i = 0; i < rows; i++) {
           char t[112]; int art, st; if (!ged_erinnerung(i, t, 112, &art, &st)) break;
-          int ry2 = y0 + 36 + i * 46; rrect_rand(rx0, ry2, rw, 42, 8, C_CARD, C_BORDER);
+          int ry2 = y0 + 36 + i * 46; if (Q_GLAS) { rrect(rx0, ry2, rw, 42, 12, mix(C_BG, Q_SKY, 50)); rr_grad(rx0 + 1, ry2 + 1, rw - 2, 40, 11, 0x000B1A33u, 0x00070F22u); } else rrect_rand(rx0, ry2, rw, 42, 8, C_CARD, C_BORDER);
           char l1_[40], l2_[40]; int len = slen(t), cut = len > cols ? cols : len; if (cut < len) { int sp = cut; while (sp > cols / 2 && t[sp] != ' ') sp--; if (t[sp] == ' ') cut = sp; }
           int k = 0; for (; k < cut && k < 39; k++) l1_[k] = t[k]; l1_[k] = 0; int o = cut; while (t[o] == ' ') o++;
           k = 0; for (; t[o] && k < 39 && k < cols - 2; k++, o++) l2_[k] = t[o]; l2_[k] = 0; if (t[o]) { l2_[slen(l2_) > 2 ? slen(l2_) - 2 : 0] = 0; cat(l2_, "..", 40); }
           gtxt(rx0 + 8, ry2 + 3, l1_, C_TEXT, 1); gtxt(rx0 + 8, ry2 + 18, l2_, C_MUTED, 1);
-          rrect(rx0 + 8, ry2 + 36, 4 + st * (rw - 24) / 255, 3, 1, art == 2 ? 0x00F59E0Bu : art == 1 ? C_ACC2 : C_ACC);
+          if (Q_GLAS) h_grad(rx0 + 8, ry2 + 36, 4 + st * (rw - 24) / 255, 3, Q_CY, art == 2 ? 0x00F59E0Bu : Q_VIO); else rrect(rx0 + 8, ry2 + 36, 4 + st * (rw - 24) / 255, 3, 1, art == 2 ? 0x00F59E0Bu : art == 1 ? C_ACC2 : C_ACC);
       }
       if (!gg) gtxt(rx0, y0 + 40, TR("Noch keine.", "None yet."), C_MUTED, 1); }
     int yb = y0 + bh - 52;
@@ -2707,7 +2762,7 @@ static void rad_glas(int x0, int y0, int w, int h, int rr) {                    
         int yy = y0 + y; if (yy < 0 || yy >= H) continue;
         int dy = -1; if (y < rr) dy = rr - y; else if (y >= h - rr) dy = y - (h - rr - 1);
         int ix = 0; if (dy >= 0) { for (ix = 0; ix < rr; ix++) if ((rr - ix) * (rr - ix) + dy * dy <= rr * rr) break; }
-        for (int x = ix; x < w - ix; x++) { int xx = x0 + x; if (xx < 0 || xx >= W) continue; uint32_t* q = f + (uint64_t)yy * pp + xx; uint32_t v = *q; *q = ((v >> 2) & 0x003F3F3Fu) + ((v >> 3) & 0x001F1F1Fu); }
+        for (int x = ix; x < w - ix; x++) { int xx = x0 + x; if (xx < 0 || xx >= W) continue; uint32_t* q = f + (uint64_t)yy * pp + xx; uint32_t v = *q; *q = ((v >> 2) & 0x003F3F3Fu) + ((v >> 3) & 0x001F1F1Fu) + 0x00061226u; }
     }
 }
 static void rad_sichern(int bx, int by) {
@@ -2749,9 +2804,11 @@ static void rad_zeichne(void) {                                                 
     gfx_begin();
     int gx = dir > 0 ? cx + 24 : cx - 24 - (RR + 16 + RLW + 8), gw = RR + 16 + RLW + 8, gy = cy - 196, gh = 392;
     rad_glas(gx, gy, gw, gh, 22);
+    if (Q_GLAS) { h_grad(gx + 22, gy, gw - 44, 2, mix(C_BG, Q_CY, 110), mix(C_BG, Q_VIO, 110)); h_grad(gx + 22, gy + gh - 2, gw - 44, 2, mix(C_BG, Q_VIO, 110), mix(C_BG, Q_CY, 110));
+      for (int k = 0; k < 2; k++) { rrect(gx + (k ? gw - 2 : 0), gy + 22, 2, gh - 44, 1, mix(C_BG, k ? Q_VIO : Q_CY, 90)); } }
     for (int a = -84 * 4; a <= 84 * 4; a++) {                                                  /* Ring: durchgehende, weiche Linie mit Farbverlauf */
         int aa = a / 4; int cs = cos_d(aa), sn = sin_d(aa);
-        uint32_t rc2 = mix(C_BORDER, C_ACC, 40 + (84 - (aa < 0 ? -aa : aa)) * 120 / 84);
+        uint32_t rc2 = Q_GLAS ? mix(mix(Q_CY, Q_VIO, (aa + 84) * 256 / 168), C_BG, 60 + (aa < 0 ? -aa : aa) * 2) : mix(C_BORDER, C_ACC, 40 + (84 - (aa < 0 ? -aa : aa)) * 120 / 84);
         int X = (cx * 16) + dir * (RR * 16 * cs / 1024) - 8, Y = (cy * 16) + RR * 16 * sn / 1024 - 8;
         aa_pt(X, Y, rc2, 200); aa_pt(X + dir * 8, Y + 8, rc2, 120);
     }
@@ -2767,7 +2824,7 @@ static void rad_zeichne(void) {                                                 
         int x = dir > 0 ? px + 16 : px - 16 - w, y = py - 15;
         if (selk) {                                                                          /* Lichtstrahl von der Nabe zum gewaehlten Eintrag, Schein um die Pille */
             aa_linie(cx + dir * (24 * cos_d(ang) / 1024), cy + 24 * sin_d(ang) / 1024, px, py, C_ACC, 200, 2);
-            rrect(x - 4, y - 4, w + 8, 38, 19, mix(C_BG, fc, 40)); rrect(x - 2, y - 2, w + 4, 34, 17, mix(C_BG, fc, 90)); rrect(x, y, w, 30, 15, mix(C_CARD, fc, 120));
+            rrect(x - 4, y - 4, w + 8, 38, 19, mix(C_BG, fc, 40)); rrect(x - 2, y - 2, w + 4, 34, 17, mix(C_BG, fc, 90)); if (Q_GLAS) h_pille(x, y, w, 30, mix(0x00062033u, Q_CY, 70), mix(0x001A0B3Au, Q_VIO, 90)); else rrect(x, y, w, 30, 15, mix(C_CARD, fc, 120));
             rad_kreis(px, py, 9, mix(C_BG, fc, 90)); rad_kreis(px, py, 6, fc); rad_kreis(px, py, 3, 0x00FFFFFFu);
         } else { rrect_rand(x, y, w, 30, 15, mix(C_CARD, C_BG, 90), C_BORDER); rad_kreis(px, py, 4, fc); }
         rad_icon(rtyp[i] >= 0 && rtyp[i] <= 4 ? rtyp[i] : 0, x + 16, y + 15, fc);

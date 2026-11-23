@@ -156,19 +156,20 @@ static int rb_x, rb_y, rb_gx;
 static void rb_start(int x, int y) { rb_x = x + 10; rb_y = y; rb_gx = rb_x; }
 static void rb_knopf(int id, const char* t, int aktiv, uint32_t oc) {
     int w = gtw(t, 1) + 20;
-    if (aktiv) rrect_rand(rb_x, rb_y, w, 28, 4, mix(O_WEISS, oc, 40), oc); else rrect_rand(rb_x, rb_y, w, 28, 4, O_WEISS, O_HELL);
-    gtxt(rb_x + 10, rb_y + 6, t, aktiv ? oc : O_TXT, 1); kn_reg(id, rb_x, rb_y, w, 28); rb_x += w + 4;
+    if (Q_GLAS) { if (aktiv) h_pille(rb_x, rb_y, w, 28, 0x0006B6D4u, 0x007C3AEDu); else { rrect(rb_x, rb_y, w, 28, 10, mix(C_BG, Q_SKY, 70)); rrect(rb_x + 1, rb_y + 1, w - 2, 26, 9, 0x000E2140u); } gtxt(rb_x + 10, rb_y + 6, t, aktiv ? 0x00FFFFFFu : 0x00D5E3F5u, 1); }
+    else { if (aktiv) rrect_rand(rb_x, rb_y, w, 28, 4, mix(O_WEISS, oc, 40), oc); else rrect_rand(rb_x, rb_y, w, 28, 4, O_WEISS, O_HELL);
+    gtxt(rb_x + 10, rb_y + 6, t, aktiv ? oc : O_TXT, 1); } kn_reg(id, rb_x, rb_y, w, 28); rb_x += w + 4;
 }
 static void rb_gruppe(const char* name) {
     int w = rb_x - rb_gx - 4, tw = gtw(name, 1);
-    gtxt(rb_gx + (w - tw) / 2, rb_y + 34, name, 0x00A19F9Du, 1);
-    gfx_rect(rb_x + 4, rb_y - 2, 1, 52, O_HELL); rb_x += 12; rb_gx = rb_x;
+    gtxt(rb_gx + (w - tw) / 2, rb_y + 34, name, Q_GLAS ? 0x006F86A3u : 0x00A19F9Du, 1);
+    gfx_rect(rb_x + 4, rb_y - 2, 1, 52, Q_GLAS ? 0x00213A5Cu : O_HELL); rb_x += 12; rb_gx = rb_x;
 }
 /* zeichnet Reiter, Menueband (leer) und Statuszeile; liefert den Arbeitsbereich (ohne Zynie-Bereich) */
 static int oa_x, oa_y, oa_w, oa_h, os_y, kp_x;
 static void ob_rahmen(int wi, int typ, const char* status) {
     struct fenster* f = &fen[wi]; int x0 = f->x + 2, y0 = f->y + WT_H, w0 = f->w - 4, h0 = f->h - WT_H - 2; uint32_t oc = ob_farbe(typ);
-    gfx_rect(x0, y0, w0, 30, oc);
+    if (Q_GLAS) h_grad(x0, y0, w0, 30, mix(0x00061C33u, Q_CY, 70), mix(0x00160A36u, Q_VIO, 110)); else gfx_rect(x0, y0, w0, 30, oc);
     const char* tn[3] = { TR("Start", "Home"), TR("Zynie (KI)", "Zynie (AI)"), TR("Format", "Format") };
     int tx = x0 + 12; static const int tord[3] = { 0, 2, 1 }; int nt = typ == FT_EDIT ? 3 : 2;
     for (int q = 0; q < nt; q++) {
@@ -180,10 +181,10 @@ static void ob_rahmen(int wi, int typ, const char* status) {
     }
     { const char* z = TR("Zynie-Bereich", "Zynie pane"); int zw = gtw(z, 1) + 24, zx = x0 + w0 - zw - 12;
       rrect(zx, y0 + 4, zw, 22, 11, kp_auf[typ] ? O_WEISS : mix(oc, O_WEISS, 60)); gtxt(zx + 12, y0 + 7, z, kp_auf[typ] ? oc : O_WEISS, 1); kn_reg(K_OKP, zx, y0 + 4, zw, 22); }
-    gfx_rect(x0, y0 + 30, w0, 62, O_RIB); gfx_rect(x0, y0 + 91, w0, 1, O_RAND);
+    if (Q_GLAS) { rr_grad(x0, y0 + 30, w0, 62, 0, 0x000C1B35u, 0x00081227u); gfx_rect(x0, y0 + 91, w0, 1, mix(C_BG, Q_SKY, 110)); } else { gfx_rect(x0, y0 + 30, w0, 62, O_RIB); gfx_rect(x0, y0 + 91, w0, 1, O_RAND); }
     rb_start(x0, y0 + 38);
     os_y = y0 + h0 - 26;
-    rrect(x0, os_y, w0, 26, 12, oc); gfx_rect(x0, os_y, w0, 13, oc);
+    if (Q_GLAS) { rrect(x0, os_y, w0, 26, 12, 0x00071326u); gfx_rect(x0, os_y, w0, 13, 0x00071326u); gfx_rect(x0, os_y, w0, 1, mix(C_BG, Q_SKY, 90)); } else { rrect(x0, os_y, w0, 26, 12, oc); gfx_rect(x0, os_y, w0, 13, oc); }
     gtxt(x0 + 14, os_y + 5, ob_meld[0] ? ob_meld : status, O_WEISS, 1);
     oa_x = x0; oa_y = y0 + 92; oa_w = w0; oa_h = os_y - oa_y; kp_x = 0;
     if (kp_auf[typ] && w0 > 760) { kp_x = x0 + w0 - KP_B; oa_w = w0 - KP_B; kp_zeichnen(typ, kp_x, oa_y, KP_B, oa_h); }
@@ -222,7 +223,7 @@ static void ob_word(int voll) {
             rb_knopf(K_W0 + 11, TR("Dokument-Agent", "Document agent"), 0, OC_WORD); rb_knopf(K_W0 + 12, TR("Folien-Agent", "Slides agent"), 0, OC_WORD); rb_gruppe(TR("Agenten", "Agents"));
         }
         kn_owner = ko;
-        gfx_rect(oa_x, oa_y, oa_w, oa_h, 0x00E6E6E6u);
+        gfx_rect(oa_x, oa_y, oa_w, oa_h, Q_GLAS ? 0x00060D1Cu : 0x00E6E6E6u);
         pg_w = oa_w - 60 < 860 ? oa_w - 60 : 860; pg_x = oa_x + (oa_w - pg_w) / 2; pg_y = oa_y + 16; pg_h = oa_h - 16;
         ed_s = 1; ed_cols = (pg_w - 112) / 8; ed_rows = (pg_h - 60) / 20; if (ed_rows < 1) ed_rows = 1;
         gfx_rect(pg_x + 4, pg_y + 4, pg_w, pg_h - 4, 0x00C8C8C8u);
