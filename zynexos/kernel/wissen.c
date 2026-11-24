@@ -134,14 +134,15 @@ int wissen_frage(const char* frage, const char* sprache, char* out, int max, int
     out[0] = 0; if (herkunft) *herkunft = 0;
     if (!wissen_ist_frage(frage)) return -3;
     char k[160]; normal(frage, k, sizeof(k)); char ks[160]; schluessel(frage, ks, sizeof(ks));
-    { char fw[10][24]; int fn = inhalt(k, fw);
-      for (int f = 0; FAKT[f].a; f++) if (hat_wort(fw, fn, FAKT[f].a) && hat_wort(fw, fn, FAKT[f].b)) { int sl = slen(FAKT[f].ant); if (sl > max - 1) sl = max - 1; for (int i = 0; i < sl; i++) out[i] = FAKT[f].ant[i]; out[sl] = 0; if (herkunft) *herkunft = WISSEN_ENGINE; return sl; } }
     /* 1. Lernkern fragen */
     static char anf[200], ant[400], fz[200]; anf[0] = 0; kat(anf, "K:", 200); kat(anf, ks, 200); kat(anf, "\nA:", 200);
     fz[0] = 0; kat(fz, "K:", 200); kat(fz, ks, 200); kat(fz, "\n", 200);
     int n = 0;                                                                       /* Gesamtkosten unter 60 Bit: unabhaengig von der Schluessellaenge */
     if (!zeitnah(k) && zlk_pruefe(fz) * slen(fz) < 6000) n = zlk_ergaenze(anf, ant, sizeof(ant), 0);           /* kennt der Lernkern diese Frage (unter 1 Bit je Zeichen)? */
     if (n > 2 && zlk_sicherheit() < 60) { for (int i = 0; i <= n && i < max; i++) out[i] = ant[i]; out[max - 1] = 0; if (herkunft) *herkunft = WISSEN_ENGINE; return slen(out); }
+    /* 1b. Eingebaute Fakten */
+    { char fw[10][24]; int fn = inhalt(k, fw);
+      for (int f = 0; FAKT[f].a; f++) if (hat_wort(fw, fn, FAKT[f].a) && hat_wort(fw, fn, FAKT[f].b)) { int sl = slen(FAKT[f].ant); if (sl > max - 1) sl = max - 1; for (int i = 0; i < sl; i++) out[i] = FAKT[f].ant[i]; out[sl] = 0; if (herkunft) *herkunft = WISSEN_ENGINE; return sl; } }
     /* 2. Im Internet nachschlagen */
     if (!net_up()) return -1;
     char w[10][24]; int nw = inhalt(k, w); if (nw < 1) return -3;
