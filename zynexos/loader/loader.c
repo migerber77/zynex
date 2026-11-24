@@ -86,6 +86,8 @@ static void put32(unsigned char* p, unsigned v) { p[0] = (unsigned char)v; p[1] 
 static void put64(unsigned char* p, unsigned long long v) { put32(p, (unsigned)v); put32(p + 4, (unsigned)(v >> 32)); }
 
 /* GOP-Pixelformat pruefen: 0 = nicht nutzbar, 1 = BGR (8 Bit je Farbe), 2 = RGB. Format 2 (Bitmaske) haben manche Notebooks/Grafikkarten. */
+static unsigned fb_pitch_gemeldet; static int fb_pitch_korr;
+static unsigned fb_w_min(const EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* mi) { return mi->HorizontalResolution; }
 static int pixel_format(const EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* mi) {
     if (mi->PixelFormat == 1) return 1;
     if (mi->PixelFormat == 0) return 2;
@@ -217,12 +219,14 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
         EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* mi = gop->Mode->Info;
         int pf = pixel_format(mi);
         if (pf) {
-            have_fb = 1; fb_addr = gop->Mode->FrameBufferBase; fb_pitch = mi->PixelsPerScanLine * 4; fb_w = mi->HorizontalResolution; fb_h = mi->VerticalResolution;
+            have_fb = 1; fb_addr = gop->Mode->FrameBufferBase; fb_pitch = mi->PixelsPerScanLine * 4; fb_pitch_gemeldet = fb_pitch;
+            { UINT64 fs = gop->Mode->FrameBufferSize; unsigned d = mi->VerticalResolution ? (unsigned)(fs / mi->VerticalResolution) : 0;      /* manche Firmware (Intel/HP) meldet PixelsPerScanLine falsch: Groesse/Hoehe ist die echte Zeilenbreite */
+              if (d >= fb_w_min(mi) * 4 && d % 64 == 0 && d <= fb_w_min(mi) * 4 + 512 && d != fb_pitch) { fb_pitch = d; fb_pitch_korr = 1; } } fb_w = mi->HorizontalResolution; fb_h = mi->VerticalResolution;
             if (pf == 2) flags |= 2;                                      /* RGB-Reihenfolge: Kernel muss Rot/Blau tauschen */
         }
     }
     say("[LOADER] Aufloesungen: "); say_dec(nmodi); say("\n");
-    say("[LOADER] Bildschirm "); say_dec(fb_w); say("x"); say_dec(fb_h); say(", Zeilenbreite "); say_dec(fb_pitch); say(" Byte, Format "); say_dec(gop && gop->Mode->Info ? gop->Mode->Info->PixelFormat : 9); say("\n");
+    say("[LOADER] Bildschirm "); say_dec(fb_w); say("x"); say_dec(fb_h); say(", Zeilenbreite "); say_dec(fb_pitch); say(fb_pitch_korr ? " Byte (korrigiert, gemeldet " : " Byte (gemeldet "); say_dec(fb_pitch_gemeldet); say("), Format "); say_dec(gop && gop->Mode->Info ? gop->Mode->Info->PixelFormat : 9); say("\n");
 
     /* Boot-Informationen im Multiboot2-Format (unter 4 GiB) */
     EFI_PHYSICAL_ADDRESS ia = 0xFFFFFFFFull; UINT64 ipages = 64;
