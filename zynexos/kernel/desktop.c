@@ -2837,7 +2837,7 @@ static void rw_zeichne(void) {
     gfx_end(); hv_status_zeichnen();
 }
 static void rw_start(int zweck, const char* name) {
-    rw_aktiv = 1; rw_zweck = zweck; rw_n = 0; rw_tint = 0; rw_runde = 0; rw_msg[0] = 0; scopy(rw_ziel, name, 16); rw_code[0] = 0;
+    rw_aktiv = 1; rw_dr = 0; rw_zweck = zweck; rw_n = 0; rw_tint = 0; rw_runde = 0; rw_msg[0] = 0; scopy(rw_ziel, name, 16); rw_code[0] = 0;
     int nr = 0; if (benutzer_rad_info(name, &rw_mask, &rw_len, &nr) != 0) { rw_mask = 0xFFF; rw_len = 6; nr = 0; }
     rw_nurrad = zweck == 2 ? nr : 0; rw_phase = zweck == 2 ? 0 : 1; rw_mischen(); rw_zeichne();
 }
@@ -2891,6 +2891,26 @@ static void rw_klick(int mx, int my) {
     if ((mx - cx) * (mx - cx) + (my - cy) * (my - cy) < 70 * 70) { rw_tint = (rw_tint + 1) % 3; rw_zeichne(); return; }
     int akt = rw_n / 3; if (akt >= rw_ringe()) akt = rw_ringe() - 1; int s = rw_ics(akt);
     for (int k = 0; k < rw_m; k++) { int x, y; rw_pos(akt, k, &x, &y); if (mx >= x - s / 2 && mx < x + s / 2 && my >= y - s / 2 && my < y + s / 2) { rw_pick(rw_sym[rw_perm[akt][k]]); return; } }
+}
+/* Maus am Rad: Klick waehlt, Ziehen am Ring dreht ihn, Mausrad dreht um einen Schritt */
+static int rw_dr, rw_dx, rw_dy, rw_lx, rw_ly, rw_moved, rw_acc;
+static void rw_maus(int x, int y, int down, int war) {
+    int cx = rw_cx(), cy = rw_cy(), akt = rw_n / 3; if (akt >= rw_ringe()) akt = rw_ringe() - 1;
+    if (down && !war) {
+        int konf = rw_zweck == 2 && rw_phase == 0, hub = (x - cx) * (x - cx) + (y - cy) * (y - cy) < 70 * 70;
+        if (konf || y >= H - 66 || hub) { rw_klick(x, y); return; }
+        rw_dr = 1; rw_dx = rw_lx = x; rw_dy = rw_ly = y; rw_moved = 0; rw_acc = 0; return;
+    }
+    if (down && rw_dr) {
+        if (x == rw_lx && y == rw_ly) return;
+        int rx = rw_lx - cx, ry = rw_ly - cy, r2 = rx * rx + ry * ry, ddx = x - rw_lx, ddy = y - rw_ly;
+        if (r2 > 400) { int dg = (rx * ddy - ry * ddx) * 57 / r2; rw_rot[akt] += dg; rw_acc += dg; }
+        rw_lx = x; rw_ly = y;
+        { int mx = x - rw_dx, my = y - rw_dy; if (mx * mx + my * my > 49) rw_moved = 1; }
+        if (rw_moved && (rw_acc >= 3 || rw_acc <= -3)) { rw_acc = 0; rw_zeichne(); }
+        return;
+    }
+    if (!down && war && rw_dr) { rw_dr = 0; if (!rw_moved) rw_klick(rw_dx, rw_dy); else rw_zeichne(); }
 }
 static void lg_rad_start(void) {
     if (!fname[0]) { scopy(lg_info, TR("Erst den Benutzernamen eintippen.", "Type the user name first."), 80); zeichne_login(); return; }
@@ -3651,12 +3671,12 @@ static void tick(void) {
         if (p->x != lpx || p->y != lpy) { lpx = p->x; lpy = p->y; letzte_eingabe = t; }
         int down = p->buttons & 1; static int was_r;
         int rd = (p->buttons & 2) != 0;
-        { int wd = usb_wheel_take(); if (wd && rad.offen && !menu.offen) rad_drehen(wd > 0 ? -1 : 1); else if (wd && zustand == Z_WEB && !menu.offen && fenster_idx(FT_WEB) == nfen - 1) web_scroll(wd > 0 ? -120 : 120); }               /* Mausrad dreht das Befehlsrad */
+        { int wd = usb_wheel_take(); if (wd && rw_aktiv) { if (!(rw_zweck == 2 && rw_phase == 0)) rw_drehen(wd > 0 ? -1 : 1); } else if (wd && rad.offen && !menu.offen) rad_drehen(wd > 0 ? -1 : 1); else if (wd && zustand == Z_WEB && !menu.offen && fenster_idx(FT_WEB) == nfen - 1) web_scroll(wd > 0 ? -120 : 120); }               /* Mausrad dreht das Befehlsrad */
         { static int was_mid; int mid = (p->buttons & 4) != 0; if (mid && !was_mid && rad.offen) rad_einfuegen(0); was_mid = mid; }
         if (rd && !was_r && zustand != Z_LOGIN && !rw_aktiv) rad_weg();
         if (rd && !was_r && zustand != Z_LOGIN && !rw_aktiv) { if (menu.offen) menu_schliessen(); else { fokus_bei(p->x, p->y); menu_oeffnen(p->x, p->y); } }
         was_r = rd;
-        if (rw_aktiv) { if (down && !was_down) rw_klick(p->x, p->y); was_down = down; return; }
+        if (rw_aktiv) { rw_maus(p->x, p->y, down, was_down); was_down = down; return; }
         if (zustand == Z_LOGIN && !entsperr && down && !was_down) lg_klick(p->x, p->y);
         if (menu.offen) {
             int i = menu_treffer(p->x, p->y); if (i != menu.hover) { menu.hover = i; zeichne_menu(); }
