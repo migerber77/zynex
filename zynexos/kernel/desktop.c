@@ -2752,6 +2752,7 @@ static void entsperren_versuch(void) {
 #define RW_MAXN 9
 static char be_msg[100];
 static int rw_aktiv, rw_zweck, rw_n, rw_tint, rw_phase, rw_runde, rw_mask = 0xFFF, rw_len = 6, rw_nurrad, rw_m, rw_sym[12], rw_perm[3][12], rw_rot[3];
+static int rw_dr, rw_dx, rw_dy, rw_lx, rw_ly, rw_moved, rw_acc;
 static char rw_code[24], rw_erst[24], rw_ziel[16], rw_msg[100];
 static void anmeld_fertig(void) {
     kprint("[DESKTOP] Willkommen, "); kprint(benutzer_name()); kprint(" ("); kprint(benutzer_rollentext(benutzer_rolle())); kprint(")\n");
@@ -2893,7 +2894,6 @@ static void rw_klick(int mx, int my) {
     for (int k = 0; k < rw_m; k++) { int x, y; rw_pos(akt, k, &x, &y); if (mx >= x - s / 2 && mx < x + s / 2 && my >= y - s / 2 && my < y + s / 2) { rw_pick(rw_sym[rw_perm[akt][k]]); return; } }
 }
 /* Maus am Rad: Klick waehlt, Ziehen am Ring dreht ihn, Mausrad dreht um einen Schritt */
-static int rw_dr, rw_dx, rw_dy, rw_lx, rw_ly, rw_moved, rw_acc;
 static void rw_maus(int x, int y, int down, int war) {
     int cx = rw_cx(), cy = rw_cy(), akt = rw_n / 3; if (akt >= rw_ringe()) akt = rw_ringe() - 1;
     if (down && !war) {
