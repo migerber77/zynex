@@ -3661,8 +3661,9 @@ static void maus_runter(int x, int y) {
     } else { if ((hg_nr == 6 || hg_nr == 7) && zustand == Z_DESK && flaeche == 0 && y > 48) wasser_welle(x, y); klick(x, y, -1); }
 }
 
+extern void gfx_flush(void);
 static void tick(void) {
-    uint32_t t = timer_get_ticks();
+    uint32_t t = timer_get_ticks(); gfx_flush();
     if (qh != qt) letzte_eingabe = t;
     while (qh != qt) { uint16_t e = kq[qh]; qh = (qh + 1) % QN; cur_ctrl = (e >> 10) & 1; taste((uint8_t)(e & 255), (e >> 8) & 1, (e >> 9) & 1); cur_ctrl = 0; }
     const struct usb_pointer* p = usb_pointer_state();

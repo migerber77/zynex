@@ -75,6 +75,7 @@ static int cursor_x=0, cursor_y=0;
 #define FG 0x0000E060u
 #define BG 0x00101018u
 
+static int fb_hw = 0;                /* 1 = echter Bildspeicher des Grafikchips (nicht zwischengespeichert sichtbar): Cache-Zeilen muessen in den Speicher geschrieben werden */
 static int fb_rgb = 0;               /* 1 = Pixelreihenfolge RGB statt BGR */
 static inline uint32_t pc(uint32_t c){ return fb_rgb ? ((c&0xFFu)<<16)|(c&0xFF00u)|((c>>16)&0xFFu) : c; }
 
@@ -114,15 +115,25 @@ static void scroll(void){
     }
     cursor_y=rows-1;
 }
+/* Auf Notebooks liest die Grafikeinheit den Bildspeicher direkt aus dem RAM, waehrend die CPU ihre Schreibzugriffe noch im Cache haelt -> verschmierte Streifen.
+ * Darum werden die Cache-Zeilen des Bildes regelmaessig (hoechstens alle ~40 ms) in den Speicher geschrieben. */
+void gfx_flush(void){
+    if(!fb_hw||mode!=1||!fb) return;
+    static uint32_t last; uint32_t t=timer_get_ticks(); if(t&&t-last<4) return; last=t;
+    const uint8_t* p=fb; const uint8_t* e=fb+(uint64_t)fb_pitch*fb_h;
+    __asm__ volatile("mfence":::"memory");
+    for(;p<e;p+=64) __asm__ volatile("clflush (%0)"::"r"(p):"memory");
+    __asm__ volatile("mfence":::"memory");
+}
 extern void virtiogpu_tick(void);
-static void newline(void){cursor_x=0;cursor_y++;if(cursor_y>=rows)scroll();virtiogpu_tick();}
+static void newline(void){cursor_x=0;cursor_y++;if(cursor_y>=rows)scroll();virtiogpu_tick();gfx_flush();}
 static void put_cell(int x,int y,char c){
     if(mode==1) fb_glyph(x,y,c);
     else if(mode==2) ((volatile uint16_t*)fb)[y*cols+x]=(uint16_t)(unsigned char)c|(0x0A<<8);
 }
 static void console_init(void){
     if(!g_boot.has_fb) return;
-    fb=(uint8_t*)(uintptr_t)g_boot.fb_addr;
+    fb=(uint8_t*)(uintptr_t)g_boot.fb_addr; fb_hw=1;
     fb_pitch=g_boot.fb_pitch; fb_w=g_boot.fb_width; fb_h=g_boot.fb_height; fb_rgb=(g_boot.flags&BOOT_RGB)!=0;
     if(g_boot.fb_type==2){ mode=2; cols=(int)fb_w; rows=(int)fb_h; }
     else if(g_boot.fb_type==1 && g_boot.fb_bpp==32){ mode=1; cols=(int)fb_w/8; rows=(int)fb_h/16; fb_clear(); }
@@ -147,6 +158,7 @@ uint32_t* gfx_fbptr(uint32_t* pitch_px){ if(mode!=1) return 0; *pitch_px=fb_pitc
 extern void virtiogpu_tick(void);
 /* Anzeige umleiten (z. B. virtio-gpu): Bildinhalt in den neuen Speicher uebernehmen, ab jetzt wird dort gezeichnet */
 void gfx_umleiten(void* neu,uint32_t pitch_bytes,uint32_t w,uint32_t h){
+    fb_hw=0;
     if(mode==1){
         for(uint32_t y=0;y<fb_h&&y<h;y++){ uint32_t* s=(uint32_t*)(fb+(uint64_t)y*fb_pitch); uint32_t* d=(uint32_t*)((uint8_t*)neu+(uint64_t)y*pitch_bytes); for(uint32_t x=0;x<fb_w&&x<w;x++) d[x]=s[x]; }
         fb=(uint8_t*)neu; fb_pitch=pitch_bytes; fb_w=w; fb_h=h; cols=(int)w/8; rows=(int)h/16;
@@ -155,7 +167,7 @@ void gfx_umleiten(void* neu,uint32_t pitch_bytes,uint32_t w,uint32_t h){
     }
 }
 void gfx_begin(void){ if(mode==1&&cur_x>=0) cursor_xor(cur_x,cur_y); }
-void gfx_end(void){ if(mode==1&&cur_x>=0) cursor_xor(cur_x,cur_y); virtiogpu_tick(); }
+void gfx_end(void){ if(mode==1&&cur_x>=0) cursor_xor(cur_x,cur_y); virtiogpu_tick(); gfx_flush(); }
 void gfx_rect(int x,int y,int w,int h,uint32_t c){
     if(mode!=1) return;
     c=pc(c);
