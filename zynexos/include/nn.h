@@ -2,11 +2,12 @@
 #include <stdint.h>
 /*
  * Zynex Neuronales Netz: ein kleines Sprachnetz (Bengio-Art), das auf dem Geraet lernt.
- * Eingabe: die letzten 16 Bytes, je als 12-dimensionaler Vektor (Embedding); versteckte Schicht 256 Neuronen (tanh);
+ * Eingabe: die letzten 16 Bytes, je als 12-dimensionaler Vektor (Embedding); versteckte Schicht NN_NH Neuronen (512) (tanh);
  * Ausgabe: Softmax ueber alle 256 Bytes. Training: Backpropagation mit Gradientenabstieg, Byte fuer Byte, online.
  * Gleitkomma nur innerhalb von nn.c (eigene SSE-Uebersetzung); die Schnittstelle ist ganzzahlig.
  */
-#define NN_PARAMS (256 * 12 + 256 * (16 * 12) + 256 + 256 * 256 + 256)
+#define NN_NH 512                               /* Neuronen der versteckten Schicht (vorher 256) */
+#define NN_PARAMS (256 * 12 + NN_NH * (16 * 12) + NN_NH + 256 * NN_NH + 256)
 void nn_init(void);                              /* Gewichte zufaellig (fest vorgegebener Startwert) setzen */
 void nn_vorbereiten(uint64_t hist, uint64_t hist2); /* hist = letzte 8 Bytes, hist2 = die 8 davor */              /* Verteilung des naechsten Bytes fuer diesen Kontext berechnen (merkt sich alles fuer nn_lerne) */
 int  nn_bitprob(int c0);                         /* Wahrscheinlichkeit (1..4095 von 4096), dass das naechste Bit 1 ist, gegeben die schon bekannten Bits c0 (mit fuehrender 1) */

@@ -11,7 +11,7 @@ extern const char nn_start_bin[], nn_start_ende[];
 #define NW 16
 #define NE 12
 #define NI (NW * NE)
-#define NH 256
+#define NH NN_NH
 #define NV 256
 
 static float emb[NV][NE], W1[NH][NI], b1[NH], W2[NV][NH], b2[NV];
