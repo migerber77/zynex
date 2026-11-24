@@ -212,6 +212,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
         }
         if (ww) { say("[LOADER] Gewuenschte Aufloesung "); say_dec(ww); say("x"); say_dec(wh); say(wunsch >= 0 ? " wird eingestellt\n" : " gibt es hier nicht\n"); }
         if (wunsch >= 0) { best = (UINT32)wunsch; bestarea = 1; }
+        else if (gop->Mode->Info && gop->Mode->Info->HorizontalResolution >= 1024 && gop->Mode->Info->HorizontalResolution <= 2560 && pixel_format(gop->Mode->Info)) bestarea = 0;   /* Notebooks: der von der Firmware eingestellte (native) Modus ist am sichersten; die Liste bleibt fuer die Einstellungen */
         if (bestarea && best != gop->Mode->Mode) gop->SetMode(gop, best);
         EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* mi = gop->Mode->Info;
         int pf = pixel_format(mi);
@@ -221,7 +222,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
         }
     }
     say("[LOADER] Aufloesungen: "); say_dec(nmodi); say("\n");
-    say("[LOADER] Bildschirm "); say_dec(fb_w); say("x"); say_dec(fb_h); say("\n");
+    say("[LOADER] Bildschirm "); say_dec(fb_w); say("x"); say_dec(fb_h); say(", Zeilenbreite "); say_dec(fb_pitch); say(" Byte, Format "); say_dec(gop && gop->Mode->Info ? gop->Mode->Info->PixelFormat : 9); say("\n");
 
     /* Boot-Informationen im Multiboot2-Format (unter 4 GiB) */
     EFI_PHYSICAL_ADDRESS ia = 0xFFFFFFFFull; UINT64 ipages = 64;
