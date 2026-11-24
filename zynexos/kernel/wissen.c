@@ -122,8 +122,8 @@ int wissen_frage(const char* frage, const char* sprache, char* out, int max, int
     /* 1. Lernkern fragen */
     static char anf[200], ant[400], fz[200]; anf[0] = 0; kat(anf, "Q:", 200); kat(anf, ks, 200); kat(anf, "\nA:", 200);
     fz[0] = 0; kat(fz, "Q:", 200); kat(fz, ks, 200); kat(fz, "\n", 200);
-    int n = 0;
-    if (!zeitnah(k) && zlk_pruefe(fz) < 100) n = zlk_ergaenze(anf, ant, sizeof(ant), 0);           /* kennt der Lernkern diese Frage (unter 1 Bit je Zeichen)? */
+    int n = 0;                                                                       /* Gesamtkosten unter 60 Bit: unabhaengig von der Schluessellaenge */
+    if (!zeitnah(k) && zlk_pruefe(fz) * slen(fz) < 6000) n = zlk_ergaenze(anf, ant, sizeof(ant), 0);           /* kennt der Lernkern diese Frage (unter 1 Bit je Zeichen)? */
     if (n > 2 && zlk_sicherheit() < 60) { for (int i = 0; i <= n && i < max; i++) out[i] = ant[i]; out[max - 1] = 0; if (herkunft) *herkunft = WISSEN_ENGINE; return slen(out); }
     /* 2. Im Internet nachschlagen */
     if (!net_up()) return -1;
