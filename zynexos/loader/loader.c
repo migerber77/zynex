@@ -228,6 +228,30 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE* st) {
     say("[LOADER] Aufloesungen: "); say_dec(nmodi); say("\n");
     say("[LOADER] Bildschirm "); say_dec(fb_w); say("x"); say_dec(fb_h); say(", Zeilenbreite "); say_dec(fb_pitch); say(fb_pitch_korr ? " Byte (korrigiert, gemeldet " : " Byte (gemeldet "); say_dec(fb_pitch_gemeldet); say("), Format "); say_dec(gop && gop->Mode->Info ? gop->Mode->Info->PixelFormat : 9); say("\n");
 
+    /* Diagnose fuer echte Rechner (kein Hypervisor): Werte anzeigen und ein Testmuster direkt in den Bildspeicher zeichnen, dann kurz warten.
+     * So sieht man, ob direktes Schreiben in den Bildspeicher hier schon verzerrt ist (Adresse/Zeilenbreite/Kachelung) oder erst im Kernel. */
+    if (have_fb) {
+        unsigned a = 0, b, c, d; __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "0"(1), "2"(0));
+        if (!(c & (1u << 31))) {
+            const char* hx = "0123456789abcdef"; char hb[19]; hb[0] = '0'; hb[1] = 'x'; for (int i = 0; i < 16; i++) hb[2 + i] = hx[(fb_addr >> (60 - 4 * i)) & 15]; hb[18] = 0;
+            say("[LOADER] Diagnose: Bildspeicher "); say(hb); say(", Groesse "); say_dec(gop->Mode->FrameBufferSize); say(" Byte, Modus "); say_dec(gop->Mode->Mode); say(" von "); say_dec(gop->Mode->MaxMode); say("\n");
+            say("[LOADER] Testmuster unten: Balken Rot/Gruen/Blau/Weiss, weisser Rand, Diagonale. Weiter in 8 s ...\n");
+            volatile unsigned* fbp = (volatile unsigned*)(UINTN)fb_addr; unsigned pp = fb_pitch / 4; int rgb = (flags & 2) != 0;
+            #define FC(r, g, bl) (rgb ? (((unsigned)(bl) << 16) | ((unsigned)(g) << 8) | (unsigned)(r)) : (((unsigned)(r) << 16) | ((unsigned)(g) << 8) | (unsigned)(bl)))
+            unsigned y0 = fb_h > 520 ? 300 : fb_h / 2;
+            for (unsigned y = y0; y < fb_h; y++) for (unsigned x = 0; x < fb_w; x++) {
+                unsigned col = FC(16, 16, 32);
+                unsigned band = (y - y0) * 4 / (fb_h - y0 ? fb_h - y0 : 1);
+                if (band == 0) col = x * 4 / fb_w == 0 ? FC(255, 0, 0) : x * 4 / fb_w == 1 ? FC(0, 255, 0) : x * 4 / fb_w == 2 ? FC(0, 0, 255) : FC(255, 255, 255);
+                else if (band == 1) { unsigned g = x * 255 / fb_w; col = FC(g, g, g); }
+                if (x < 4 || y >= fb_h - 4 || x >= fb_w - 4 || y == y0) col = FC(255, 255, 255);
+                if (x == (y - y0) * 2 || x + 1 == (y - y0) * 2) col = FC(255, 255, 0);
+                fbp[(UINT64)y * pp + x] = col;
+            }
+            ((void(EFIAPI*)(UINTN))BS->Stall)(8000000);
+        }
+    }
+
     /* Boot-Informationen im Multiboot2-Format (unter 4 GiB) */
     EFI_PHYSICAL_ADDRESS ia = 0xFFFFFFFFull; UINT64 ipages = 64;
     if (BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, ipages, &ia) != 0) stop("Kein Speicher fuer Boot-Informationen");
