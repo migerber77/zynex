@@ -82,6 +82,7 @@ int wissen_satz(const char* text, const char* frage, char* out, int max) {
         }
         int hat_zahl = 0; for (int p = s; p < e; p++) if (text[p] >= '0' && text[p] <= '9') { hat_zahl = 1; break; }
         int zahlfrage = 0; { static const char* const Z[] = { "wie weit", "wie viel", "wie gross", "wie hoch", "wie lang", "wie alt", "wann", "how far", "how many", "how much", "how big", "how long", "how old", "when", 0 }; for (int z = 0; Z[z]; z++) { int m = slen(Z[z]), ok = 1; for (int j = 0; j < m; j++) if (k[j] != Z[z][j]) { ok = 0; break; } if (ok) zahlfrage = 1; } }
+        if (zahlfrage && !hat_zahl) { i = e; continue; }                  /* "wie weit/gross/alt ...": nur Saetze mit einer Zahl sind eine Antwort */
         int wert = score * 10 + (zahlfrage && hat_zahl ? 12 : 0);
         if (score > 0 && wert > bestn) { bestn = wert; best = score; bs = s; be = e; }
         i = e;
@@ -93,7 +94,7 @@ int wissen_satz(const char* text, const char* frage, char* out, int max) {
 }
 
 static void lerne_paar(const char* key, const char* ant) {
-    static char z[560]; z[0] = 0; kat(z, "Q:", 560); kat(z, key, 560); kat(z, "\nA:", 560);
+    static char z[560]; z[0] = 0; kat(z, "K:", 560); kat(z, key, 560); kat(z, "\nA:", 560);
     for (int i = 0; ant[i]; i++) { char c[2] = { ant[i] == '\n' ? ' ' : ant[i], 0 }; kat(z, c, 560); }
     kat(z, "\n", 560);
     for (int r = 0; r < 3; r++) zlk_lerne(z, -1);
@@ -102,6 +103,20 @@ static void lerne_paar(const char* key, const char* ant) {
 int wissen_merke(const char* frage, const char* antwort) {
     char k[160]; schluessel(frage, k, sizeof(k)); if (!k[0] || !antwort[0]) return -1;
     lerne_paar(k, antwort); return 0;
+}
+
+
+/* Eingebaute, stabile Fakten (Inhaltsworte der Frage -> Antwort). Greift vor dem Lernkern und der Wikipedia-Suche. */
+static const struct { const char* a; const char* b; const char* ant; } FAKT[] = {
+    { "mond", "erde", "Der Mond ist im Mittel rund 384.400 km von der Erde entfernt (zwischen etwa 356.500 km und 406.700 km, je nach Stelle auf seiner Bahn)." },
+    { "sonne", "erde", "Die Erde ist im Mittel rund 149,6 Millionen km von der Sonne entfernt (eine Astronomische Einheit)." },
+    { "moon", "earth", "The Moon is on average about 384,400 km (238,855 miles) from Earth." },
+    { "sun", "earth", "Earth is on average about 149.6 million km (93 million miles) from the Sun." },
+    { "mond", "umfang", "Der Mond hat einen Umfang von rund 10.921 km (Durchmesser etwa 3.474 km)." },
+    { "erde", "umfang", "Der Erdumfang betraegt am Aequator rund 40.075 km." },
+    { 0, 0, 0 } };
+static int hat_wort(char w[10][24], int nw, const char* x) {
+    int m = slen(x); for (int i = 0; i < nw; i++) { int l = slen(w[i]), ok = l >= m; for (int j = 0; ok && j < m; j++) if (w[i][j] != x[j]) ok = 0; if (ok && l <= m + 3) return 1; } return 0;
 }
 
 static void urlkodiert(const char* s, char* o, int max) {
@@ -119,9 +134,11 @@ int wissen_frage(const char* frage, const char* sprache, char* out, int max, int
     out[0] = 0; if (herkunft) *herkunft = 0;
     if (!wissen_ist_frage(frage)) return -3;
     char k[160]; normal(frage, k, sizeof(k)); char ks[160]; schluessel(frage, ks, sizeof(ks));
+    { char fw[10][24]; int fn = inhalt(k, fw);
+      for (int f = 0; FAKT[f].a; f++) if (hat_wort(fw, fn, FAKT[f].a) && hat_wort(fw, fn, FAKT[f].b)) { int sl = slen(FAKT[f].ant); if (sl > max - 1) sl = max - 1; for (int i = 0; i < sl; i++) out[i] = FAKT[f].ant[i]; out[sl] = 0; if (herkunft) *herkunft = WISSEN_ENGINE; return sl; } }
     /* 1. Lernkern fragen */
-    static char anf[200], ant[400], fz[200]; anf[0] = 0; kat(anf, "Q:", 200); kat(anf, ks, 200); kat(anf, "\nA:", 200);
-    fz[0] = 0; kat(fz, "Q:", 200); kat(fz, ks, 200); kat(fz, "\n", 200);
+    static char anf[200], ant[400], fz[200]; anf[0] = 0; kat(anf, "K:", 200); kat(anf, ks, 200); kat(anf, "\nA:", 200);
+    fz[0] = 0; kat(fz, "K:", 200); kat(fz, ks, 200); kat(fz, "\n", 200);
     int n = 0;                                                                       /* Gesamtkosten unter 60 Bit: unabhaengig von der Schluessellaenge */
     if (!zeitnah(k) && zlk_pruefe(fz) * slen(fz) < 6000) n = zlk_ergaenze(anf, ant, sizeof(ant), 0);           /* kennt der Lernkern diese Frage (unter 1 Bit je Zeichen)? */
     if (n > 2 && zlk_sicherheit() < 60) { for (int i = 0; i <= n && i < max; i++) out[i] = ant[i]; out[max - 1] = 0; if (herkunft) *herkunft = WISSEN_ENGINE; return slen(out); }

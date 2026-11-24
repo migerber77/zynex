@@ -93,6 +93,29 @@ static void fl_glyph(int id) {
                int z[8] = { 27, 42, 37, 42, 28, 49, 37, 49 }; fl_poly(z, 4, 0, Q_CY, 18, 255); break; }
     }
 }
+/* ---- die 12 Rad-Symbole (Quanten-Symbole des Multi-Ring-Tresors): ids 12..23 in fl_icon ---- */
+static void fl_ellrot(int cu, int cv, int rx, int ry, int rot, uint32_t col, int wd) {
+    int e[26]; int cr = icos(rot), sr = isin(rot);
+    for (int k = 0; k < 13; k++) { int d = k * 30, ex = rx * icos(d) / 1024, ey = ry * isin(d) / 1024; e[2 * k] = cu + (ex * cr - ey * sr) / 1024; e[2 * k + 1] = cv + (ex * sr + ey * cr) / 1024; }
+    fl_poly(e, 13, 0, col, wd, 255);
+}
+static void fl_sym(int id) {
+    switch (id) {
+    case 0: fl_circ(32, 32, 16, FLG, 24, 255, 0); fl_dot(32, 32, 60, Q_CY, 1); fl_dot(32, 12, 25, 0x00FFFFFFu, 0); break;                            /* Kern */
+    case 1: { int w[18] = { 12, 32, 16, 28, 21, 32, 26, 36, 32, 32, 38, 28, 43, 32, 48, 36, 52, 32 }; fl_poly(w, 9, 0, Q_CY, 70, 70); fl_poly(w, 9, 0, Q_CY, 30, 255); break; }   /* Welle */
+    case 2: { int b[12] = { 35, 12, 19, 34, 31, 34, 28, 52, 45, 29, 33, 29 }; fl_poly(b, 6, 1, 0x00C084FCu, 70, 70); fl_poly(b, 6, 1, 0x00C084FCu, 26, 255); break; }                    /* Blitz */
+    case 3: { int h[20] = { 32, 12, 48, 19, 48, 31, 45, 40, 39, 47, 32, 52, 25, 47, 19, 40, 16, 31, 16, 19 }; fl_poly(h, 10, 1, FLG, 26, 255); break; }                                  /* Schild */
+    case 4: { int l[48]; for (int k = 0; k < 24; k++) { int d = k * 15, sn = isin(d), cs = icos(d), den = 1024 + sn * sn / 1024; l[2 * k] = 32 + 21 * cs / den; l[2 * k + 1] = 32 + 21 * sn * cs / (1024 * den); } fl_poly(l, 24, 1, FLG, 28, 255); break; } /* Unendlich */
+    case 5: { int t[6] = { 32, 13, 50, 47, 14, 47 }; fl_poly(t, 3, 1, 0x0067E8F9u, 26, 255); fl_ln(32, 13, 32, 47, 0x00E879F9u, 16); break; }                                           /* Prisma */
+    case 6: fl_ellrot(32, 32, 20, 8, 35, Q_CY, 22); fl_ellrot(32, 32, 20, 8, -35, 0x00A855F7u, 22); fl_dot(32, 32, 35, 0x00FFFFFFu, 1); break;                                           /* Orbit */
+    case 7: { int st[16] = { 32, 12, 36, 28, 52, 32, 36, 36, 32, 52, 28, 36, 12, 32, 28, 28 }; fl_poly(st, 8, 1, FLG, 24, 255); break; }                                                  /* Pulsar */
+    case 8: { int e[16] = { 12, 32, 19, 25, 32, 22, 45, 25, 52, 32, 45, 39, 32, 42, 19, 39 }; fl_poly(e, 8, 1, Q_SKY, 25, 255); fl_dot(32, 32, 55, 0x00C084FCu, 1); break; }                /* Fokus */
+    case 9: { int hx[12] = { 32, 13, 48, 22, 48, 42, 32, 51, 16, 42, 16, 22 }; fl_poly(hx, 6, 1, Q_CY, 24, 255); int v[6] = { 16, 22, 32, 31, 48, 22 }; fl_poly(v, 3, 0, 0x00A855F7u, 20, 255); fl_ln(32, 31, 32, 51, 0x00A855F7u, 20); break; } /* Tessera */
+    case 10: { int t[6] = { 20, 22, 45, 24, 32, 45 }; fl_poly(t, 3, 1, FLG, 22, 255); fl_dot(20, 22, 40, Q_CY, 1); fl_dot(45, 24, 40, 0x00C084FCu, 1); fl_dot(32, 45, 45, 0x00FFFFFFu, 1); break; }  /* Synapse */
+    default: { int z[8] = { 19, 19, 45, 19, 20, 45, 45, 45 }; fl_poly(z, 4, 0, Q_CY, 70, 70); fl_poly(z, 4, 0, FLG, 34, 255); break; }                                                    /* Zynex-Z */
+    }
+}
+static const char* const FL_SYMNAME[12] = { "Kern", "Welle", "Blitz", "Schild", "Unendlich", "Prisma", "Orbit", "Pulsar", "Fokus", "Tessera", "Synapse", "Zynex-Z" };
 static void fl_icon(int id, int x, int y, int s, int aktiv) {                                  /* Glas-Squircle mit Symbol */
     int r = s * 26 / 100;
     if (aktiv) { for (int k = 3; k >= 1; k--) rrect(x - 3 * k, y - 3 * k, s + 6 * k, s + 6 * k, r + 3 * k, mix(0x00081428u, k == 2 ? Q_VIO : Q_CY, 28 / k + 8)); }
@@ -100,7 +123,7 @@ static void fl_icon(int id, int x, int y, int s, int aktiv) {                   
     rr_grad(x + 1, y + 1, s - 2, s - 2, r - 1, mix(0x0016233Fu, Q_CY, 26), mix(0x00070C18u, Q_VIO, 22));
     gfx_rect(x + r, y + 1, s - 2 * r, 1, mix(0x00162440u, 0x00FFFFFFu, 70));
     fl_s = s * 76 / 100; fl_x0 = x + (s - fl_s) / 2; fl_y0 = y + (s - fl_s) / 2;
-    fl_glyph(id);
+    if (id >= 12) fl_sym(id - 12); else fl_glyph(id);
 }
 /* ---- zentraler Rad-Anker (Quantum Hub) ---- */
 static void fl_hub(int cx, int cy, int r, int t) {

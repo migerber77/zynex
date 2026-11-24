@@ -2718,7 +2718,9 @@ static void ausfuehren(void) {
     (void)vorher; if (fenster_idx(FT_CHATS) >= 0 || fenster_idx(FT_GED) >= 0) zeichne_desktop();
 }
 static void anmelden(void) {
-    if (benutzer_login(fname, fpw) == 0) {
+    int lr = benutzer_login(fname, fpw);
+    if (lr == -8) { scopy(lg_info, TR("Dieses Konto meldet sich nur mit dem Rad an (F2).", "This account uses the wheel only (F2)."), 80); fpw[0] = 0; fmsg = 0; zeichne_login(); return; }
+    if (lr == 0) {
         kprint("[DESKTOP] Willkommen, "); kprint(benutzer_name()); kprint(" ("); kprint(benutzer_rollentext(benutzer_rolle())); kprint(")\n");
         zustand = Z_DESK; einlen = 0; eingabe[0] = 0;
         char g[100]; scopy(g, TR("Hallo ", "Hello "), 100); cat(g, benutzer_name(), 100); cat(g, TR("! Ich bin Zynos. Was moechtest du tun?", "! I am Zynos. What would you like to do?"), 100);
@@ -2747,67 +2749,148 @@ static void entsperren_versuch(void) {
  * Ein Rad aus 12 Symbolen. Das Geheimnis ist eine Folge von 6 Symbolen, jedes in einer von 3 Farben (Klick auf die Mitte
  * wechselt die Farbe). Nach jedem Griff mischt das Rad die Symbole neu und dreht sich: Mitschauen, Fingerspuren und
  * gemerkte Klickpositionen verraten nichts. Nach 3 Fehlversuchen waechst die Wartezeit. Das Passwort bleibt als Alternative. */
-#define RW_N 6
+#define RW_MAXN 9
 static char be_msg[100];
-static int rw_aktiv, rw_zweck, rw_n, rw_tint, rw_perm[12], rw_rot, rw_runde; static char rw_code[16], rw_erst[16], rw_ziel[16], rw_msg[100];
+static int rw_aktiv, rw_zweck, rw_n, rw_tint, rw_phase, rw_runde, rw_mask = 0xFFF, rw_len = 6, rw_nurrad, rw_m, rw_sym[12], rw_perm[3][12], rw_rot[3];
+static char rw_code[24], rw_erst[24], rw_ziel[16], rw_msg[100];
 static void anmeld_fertig(void) {
     kprint("[DESKTOP] Willkommen, "); kprint(benutzer_name()); kprint(" ("); kprint(benutzer_rollentext(benutzer_rolle())); kprint(")\n");
     zustand = Z_DESK; einlen = 0; eingabe[0] = 0;
     char g[100]; scopy(g, TR("Hallo ", "Hello "), 100); cat(g, benutzer_name(), 100); cat(g, TR("! Ich bin Zynos. Was moechtest du tun?", "! I am Zynos. What would you like to do?"), 100);
     reply1(g); zeichne_desktop();
 }
+/* Das Rad hat bis zu 3 Ringe (aussen -> innen), je 3 Eingaben pro Ring. Jeder Ring zeigt alle gewaehlten Symbole, jeweils anders gemischt und gedreht. */
+static void rw_liste(void) { rw_m = 0; for (int i = 0; i < 12; i++) if (rw_mask & (1 << i)) rw_sym[rw_m++] = i; }
+static int rw_ringe(void) { return (rw_len + 2) / 3; }
+static int rw_bits100(void) { static const int l2[13] = { 0, 158, 258, 317, 358, 390, 417, 439, 458, 475, 490, 504, 517 }; return rw_m > 0 ? rw_len * l2[rw_m] : 0; }   /* log2(3*m) * Stellen * 100 */
 static void rw_mischen(void) {
-    uint8_t r[13]; krand(r, 13); for (int i = 0; i < 12; i++) rw_perm[i] = i;
-    for (int i = 11; i > 0; i--) { int j = r[i] % (i + 1), t = rw_perm[i]; rw_perm[i] = rw_perm[j]; rw_perm[j] = t; }
-    rw_rot = r[12] % 30;
+    rw_liste(); uint8_t r[40]; krand(r, 40);
+    for (int q = 0; q < 3; q++) {
+        for (int i = 0; i < rw_m; i++) rw_perm[q][i] = i;
+        for (int i = rw_m - 1; i > 0; i--) { int j = r[q * 12 + i] % (i + 1), t = rw_perm[q][i]; rw_perm[q][i] = rw_perm[q][j]; rw_perm[q][j] = t; }
+        rw_rot[q] = rw_m ? r[36 + q] % (360 / rw_m) : 0;
+    }
+}
+static int rw_cx(void) { return W / 2; }
+static int rw_cy(void) { return H / 2 + 6; }
+static int rw_R(void) { int R = H / 2 - 120; if (R > 190) R = 190; if (R < 110) R = 110; return R; }
+static int rw_ringr(int q) { int R = rw_R(), nr = rw_ringe(); static const int p3[3] = { 100, 68, 38 }, p2[2] = { 100, 62 }; return R * (nr == 3 ? p3[q] : nr == 2 ? p2[q] : 100) / 100; }
+static int rw_ics(int q) { int s = rw_ringr(q) * 628 / 100 * 8 / 10 / (rw_m ? rw_m : 1), c = rw_R() * 30 / 100; return s < c ? s : c; }
+static void rw_pos(int q, int k, int* x, int* y) { int d = -90 + k * 360 / rw_m + rw_rot[q], rr = rw_ringr(q); *x = rw_cx() + rr * icos(d) / 1024; *y = rw_cy() + rr * isin(d) / 1024; }
+static void rw_knoepfe(int links, const char* l, const char* rechts) {
+    int cx = rw_cx(), y = H - 66; knopf(0, l, cx - 300, y, 130, 0); knopf(0, rechts, cx + 170, y, 130, 0);
+    if (links) { knopf(0, "<", cx - 120, y, 70, 0); knopf(0, ">", cx + 50, y, 70, 0); }
+}
+static int rw_anderer_admin(void) {
+    for (int i = 0; ; i++) { char n[16]; int r; if (!benutzer_nth(i, n, &r)) break; if (r == ROLLE_ADMIN && !ueq(n, rw_ziel)) { int nr = 0; benutzer_rad_info(n, 0, 0, &nr); if (!nr) return 1; } }
+    return 0;
+}
+static void rw_zeichne_konfig(void) {
+    thema_anwenden(0); gfx_begin(); gfx_rect(0, 0, W, H, C_SPL);
+    int cx = rw_cx(); char t[100]; scopy(t, TR("Rad-Schluessel einrichten: ", "Set up wheel key: "), 100); cat(t, rw_ziel, 100);
+    gtxt(cx - gtw(t, 1) / 2, 40, t, 0x00FFFFFFu, 1);
+    { const char* h = TR("Waehle die Symbole fuer dein Rad (mind. 4). Antippen schaltet ein/aus.", "Choose the symbols for your wheel (at least 4). Click to toggle."); gtxt(cx - gtw(h, 1) / 2, 68, h, C_MUTED, 1); }
+    int s = 68, g = 22, cols = 6, x0 = cx - (cols * s + (cols - 1) * g) / 2, y0 = 110;
+    for (int i = 0; i < 12; i++) {
+        int x = x0 + (i % cols) * (s + g), y = y0 + (i / cols) * (s + 38);
+        fl_icon(12 + i, x, y, s, (rw_mask >> i) & 1);
+        int nl = (int)slen(FL_SYMNAME[i]); gtxt(x + s / 2 - nl * 4, y + s + 8, FL_SYMNAME[i], (rw_mask >> i) & 1 ? Q_CY : C_MUTED, 1);
+    }
+    int y = y0 + 2 * (s + 38) + 14; rw_liste();
+    { char z[60], a[12]; dec(a, (uint32_t)rw_len); scopy(z, TR("Symbole im Code: ", "Symbols in code: "), 60); cat(z, a, 60); gtxt(cx - 150, y + 12, z, 0x00FFFFFFu, 1); knopf(0, "-", cx + 60, y, 50, 0); knopf(0, "+", cx + 120, y, 50, 0); }
+    int b = rw_bits100() / 100; { char z[80], a[12]; dec(a, (uint32_t)b); scopy(z, TR("Staerke: ca. ", "Strength: approx. "), 80); cat(z, a, 80); cat(z, TR(" Bit (mind. 20)", " bit (min. 20)"), 80);
+      gtxt(cx - gtw(z, 1) / 2, y + 56, z, rw_bits100() >= 2000 && rw_m >= 4 ? Q_CY : C_ERR, 1); }
+    { int bx = cx - 250, by = y + 90; rrect(bx, by, 26, 26, 7, rw_nurrad ? Q_CY : mix(C_SPL, C_MUTED, 120)); if (rw_nurrad) gtxt(bx + 9, by + 5, "x", C_SPL, 1);
+      gtxt(bx + 40, by + 5, TR("Nur Rad: Passwort-Anmeldung fuer dieses Konto abschalten", "Wheel only: turn off password login for this account"), 0x00FFFFFFu, 1);
+      gtxt(bx + 40, by + 28, TR("Dann gibt es keinen Passwort-Notweg. Mit Notfall-Passwort bleibt es als Reserve erhalten.", "Then there is no password fallback. Leave it off to keep the password as backup."), C_MUTED, 1); }
+    if (rw_msg[0]) gtxt(cx - gtw(rw_msg, 1) / 2, H - 100, rw_msg, C_ERR, 1);
+    rw_knoepfe(0, TR("Abbrechen", "Cancel"), TR("Weiter", "Next"));
+    gfx_end(); hv_status_zeichnen();
 }
 static void rw_zeichne(void) {
+    if (rw_zweck == 2 && rw_phase == 0) { rw_zeichne_konfig(); return; }
     static const uint32_t tc[3] = { Q_CY, 0x00C084FCu, Q_ROSA };
-    thema_anwenden(0); gfx_begin(); gfx_rect(0, 0, W, H, C_SPL);
-    int cx = W / 2, cy = H / 2 + 6, R = H / 2 - 120; if (R > 190) R = 190; if (R < 110) R = 110; int s = R * 33 / 100;
+    rw_liste(); thema_anwenden(0); gfx_begin(); gfx_rect(0, 0, W, H, C_SPL);
+    int cx = rw_cx(), cy = rw_cy(), R = rw_R(), nr = rw_ringe(), akt = rw_n / 3; if (akt >= nr) akt = nr - 1;
     char t[100]; scopy(t, rw_zweck == 1 ? TR("Rad-Schluessel: ", "Wheel key: ") : TR("Rad-Schluessel einrichten: ", "Set up wheel key: "), 100); cat(t, rw_ziel, 100);
-    gtxt(cx - gtw(t, 1) / 2, cy - R - s / 2 - 46, t, 0x00FFFFFFu, 1);
-    { const char* h = rw_zweck == 2 && rw_runde == 1 ? TR("Zur Bestaetigung dieselbe Folge noch einmal.", "Enter the same sequence once more to confirm.") : TR("Waehle 6 Symbole. Klick auf die Mitte wechselt die Farbe.", "Pick 6 symbols. Click the centre to change colour."); gtxt(cx - gtw(h, 1) / 2, cy - R - s / 2 - 24, h, C_MUTED, 1); }
-    for (int k = 0; k < 12; k++) {
-        int d = -90 + k * 30 + rw_rot, x = cx + R * icos(d) / 1024, y = cy + R * isin(d) / 1024;
-        rrect(x - s / 2 - 3, y - s / 2 - 3, s + 6, s + 6, s * 26 / 100 + 3, mix(C_SPL, tc[rw_tint], 150));
-        fl_icon(rw_perm[k], x - s / 2, y - s / 2, s, 0);
+    gtxt(cx - gtw(t, 1) / 2, cy - R - rw_ics(0) / 2 - 46, t, 0x00FFFFFFu, 1);
+    { char h[120], a[12]; h[0] = 0;
+      if (rw_zweck == 2 && rw_runde == 1) scopy(h, TR("Zur Bestaetigung dieselbe Folge noch einmal.", "Enter the same sequence once more to confirm."), 120);
+      else { scopy(h, TR("Ring ", "Ring "), 120); dec(a, (uint32_t)(akt + 1)); cat(h, a, 120); cat(h, TR(" von ", " of "), 120); dec(a, (uint32_t)nr); cat(h, a, 120); cat(h, TR(". Mitte = Farbe, < > dreht den Ring.", ". Centre = colour, < > spins the ring."), 120); }
+      gtxt(cx - gtw(h, 1) / 2, cy - R - rw_ics(0) / 2 - 24, h, C_MUTED, 1); }
+    for (int q = nr - 1; q >= 0; q--) {                                                      /* Ringe: aktiver mit Symbolen, andere als Punktspur */
+        int rr = rw_ringr(q), s = rw_ics(q);
+        for (int d = 0; d < 360; d += 5) { int x = cx + rr * icos(d) / 1024, y = cy + rr * isin(d) / 1024; rrect(x - 1, y - 1, 2, 2, 1, q == akt ? mix(C_SPL, tc[rw_tint], 120) : q < akt ? mix(C_SPL, 0x0034D399u, 120) : mix(C_SPL, C_MUTED, 70)); }
+        if (q == akt) for (int k = 0; k < rw_m; k++) {
+            int x, y; rw_pos(q, k, &x, &y);
+            rrect(x - s / 2 - 3, y - s / 2 - 3, s + 6, s + 6, s * 26 / 100 + 3, mix(C_SPL, tc[rw_tint], 150));
+            fl_icon(12 + rw_sym[rw_perm[q][k]], x - s / 2, y - s / 2, s, 0);
+        } else for (int k = 0; k < rw_m; k++) { int x, y; rw_pos(q, k, &x, &y); int pr = q < akt ? 5 : 4; rrect(x - pr, y - pr, 2 * pr, 2 * pr, pr, q < akt ? mix(C_SPL, 0x0034D399u, 190) : mix(C_SPL, C_MUTED, 110)); }
     }
-    rrect(cx - 74, cy - 74, 148, 148, 74, mix(C_SPL, tc[rw_tint], 90)); fl_hub(cx, cy, 58, 0);
-    for (int i = 0; i < RW_N; i++) { int dx = cx - (RW_N * 18) / 2 + i * 18 + 9, dy = cy + 96; rrect(dx - 5, dy - 5, 10, 10, 5, i < rw_n ? tc[rw_tint] : mix(C_SPL, C_MUTED, 90)); }
+    { int hr = rw_ringr(nr - 1) - rw_ics(nr - 1) / 2 - 12; if (nr == 1 || hr > 58) hr = 58; if (hr < 30) hr = 30; rrect(cx - hr - 12, cy - hr - 12, 2 * hr + 24, 2 * hr + 24, hr + 12, mix(C_SPL, tc[rw_tint], 90)); fl_hub(cx, cy, hr, 0); }
+    int sy = cy + R + rw_ics(0) / 2 + 14;
+    for (int i = 0; i < rw_len; i++) { int dx = cx - (rw_len * 18) / 2 + i * 18 + 9; rrect(dx - 5, sy - 5, 10, 10, 5, i < rw_n ? tc[rw_tint] : mix(C_SPL, C_MUTED, 90)); }
     int sek = rw_zweck == 1 ? benutzer_rad_sperre() : 0;
-    if (sek > 0) { char m[80], a[12]; dec(a, (uint32_t)sek); scopy(m, TR("Gesperrt, noch ", "Locked, "), 80); cat(m, a, 80); cat(m, TR(" s", " s left"), 80); gtxt(cx - gtw(m, 1) / 2, cy + R + s / 2 + 18, m, C_ERR, 1); }
-    else if (rw_msg[0]) gtxt(cx - gtw(rw_msg, 1) / 2, cy + R + s / 2 + 18, rw_msg, rw_msg[0] == 'F' ? C_ERR : Q_CY, 1);
-    knopf(0, TR("Zurueck", "Back"), cx - 170, H - 66, 150, 0); knopf(0, TR("Neu beginnen", "Start over"), cx + 20, H - 66, 150, 0);
+    if (sek > 0) { char m[80], a[12]; dec(a, (uint32_t)sek); scopy(m, TR("Gesperrt, noch ", "Locked, "), 80); cat(m, a, 80); cat(m, TR(" s", " s left"), 80); gtxt(cx - gtw(m, 1) / 2, sy + 18, m, C_ERR, 1); }
+    else if (rw_msg[0]) gtxt(cx - gtw(rw_msg, 1) / 2, sy + 18, rw_msg, rw_msg[0] == 'F' ? C_ERR : Q_CY, 1);
+    rw_knoepfe(1, TR("Zurueck", "Back"), TR("Neu beginnen", "Start over"));
     gfx_end(); hv_status_zeichnen();
 }
 static void rw_start(int zweck, const char* name) {
-    rw_aktiv = 1; rw_zweck = zweck; rw_n = 0; rw_tint = 0; rw_runde = 0; rw_msg[0] = 0; scopy(rw_ziel, name, 16); rw_code[0] = 0; rw_mischen(); rw_zeichne();
+    rw_aktiv = 1; rw_zweck = zweck; rw_n = 0; rw_tint = 0; rw_runde = 0; rw_msg[0] = 0; scopy(rw_ziel, name, 16); rw_code[0] = 0;
+    int nr = 0; if (benutzer_rad_info(name, &rw_mask, &rw_len, &nr) != 0) { rw_mask = 0xFFF; rw_len = 6; nr = 0; }
+    rw_nurrad = zweck == 2 ? nr : 0; rw_phase = zweck == 2 ? 0 : 1; rw_mischen(); rw_zeichne();
 }
 static void rw_ende(void) { rw_aktiv = 0; rw_code[0] = rw_erst[0] = 0; if (zustand == Z_LOGIN) zeichne_login(); else zeichne_desktop(); }
-static void rw_pick(int icon) {
+static void rw_pick(int bit) {
     if (rw_zweck == 1 && benutzer_rad_sperre() > 0) { rw_zeichne(); return; }
-    rw_code[rw_n * 2] = (char)('a' + icon); rw_code[rw_n * 2 + 1] = (char)('0' + rw_tint); rw_n++; rw_code[rw_n * 2] = 0; rw_tint = 0; rw_msg[0] = 0;
-    if (rw_n < RW_N) { rw_mischen(); rw_zeichne(); return; }
+    rw_code[rw_n * 2] = (char)('a' + bit); rw_code[rw_n * 2 + 1] = (char)('0' + rw_tint); rw_n++; rw_code[rw_n * 2] = 0; rw_tint = 0; rw_msg[0] = 0;
+    if (rw_n < rw_len) { rw_mischen(); rw_zeichne(); return; }
     if (rw_zweck == 1) {
         if (benutzer_rad_login(rw_ziel, rw_code) == 0) { rw_aktiv = 0; rw_code[0] = 0; anmeld_fertig(); return; }
         kprint("[DESKTOP] Rad-Anmeldung fehlgeschlagen\n"); scopy(rw_msg, TR("Falscher Rad-Schluessel.", "Wrong wheel key."), 100);
-    } else if (rw_runde == 0) { scopy(rw_erst, rw_code, 16); rw_runde = 1; }
+    } else if (rw_runde == 0) { scopy(rw_erst, rw_code, 24); rw_runde = 1; }
     else {
         int gleich = ueq(rw_erst, rw_code);
-        if (gleich && benutzer_rad_setzen(rw_ziel, rw_code) == 0) { kprint("[DESKTOP] Rad-Schluessel gesetzt: "); kprint(rw_ziel); kprint("\n"); scopy(be_msg, TR("Rad-Schluessel gespeichert.", "Wheel key saved."), 100); rw_ende(); return; }
+        if (gleich && benutzer_rad_setzen2(rw_ziel, rw_code, rw_mask, rw_len, rw_nurrad) == 0) { kprint("[DESKTOP] Rad-Schluessel gesetzt: "); kprint(rw_ziel); kprint("\n"); scopy(be_msg, rw_nurrad ? TR("Rad gespeichert. Passwort abgeschaltet.", "Wheel saved. Password turned off.") : TR("Rad-Schluessel gespeichert.", "Wheel key saved."), 100); rw_ende(); return; }
         scopy(rw_msg, gleich ? TR("Fehler beim Speichern.", "Could not save.") : TR("Die Folgen waren verschieden. Nochmal von vorn.", "The sequences differed. Start again."), 100); rw_runde = 0;
     }
     rw_n = 0; rw_code[0] = 0; rw_tint = 0; rw_mischen(); rw_zeichne();
 }
+static void rw_drehen(int dir) { if (!rw_m) return; int akt = rw_n / 3; if (akt >= rw_ringe()) akt = rw_ringe() - 1; rw_rot[akt] += dir * (360 / rw_m); rw_zeichne(); }
+static void rw_weiter(void) {                                                               /* Konfiguration -> Eingabe */
+    rw_liste();
+    if (rw_m < 4) { scopy(rw_msg, TR("Mindestens 4 Symbole waehlen.", "Choose at least 4 symbols."), 100); rw_zeichne(); return; }
+    if (rw_bits100() < 2000) { scopy(rw_msg, TR("Zu schwach: mehr Symbole oder mehr Stellen waehlen.", "Too weak: more symbols or more positions."), 100); rw_zeichne(); return; }
+    if (rw_nurrad && !rw_anderer_admin()) { scopy(rw_msg, TR("Nur Rad geht nur, wenn ein anderer Admin mit Passwort bleibt.", "Wheel only needs another admin who keeps a password."), 100); rw_zeichne(); return; }
+    rw_msg[0] = 0; rw_phase = 1; rw_n = 0; rw_runde = 0; rw_code[0] = 0; rw_mischen(); rw_zeichne();
+}
+static void rw_taste(uint8_t k) {
+    if (k == 0x29) { rw_ende(); return; }
+    if (rw_zweck == 2 && rw_phase == 0) { if (k == 0x28 || k == 0x58) rw_weiter(); return; }
+    if (k == 0x50) rw_drehen(-1); else if (k == 0x4F) rw_drehen(1);
+}
 static void rw_klick(int mx, int my) {
-    int cx = W / 2, cy = H / 2 + 6, R = H / 2 - 120; if (R > 190) R = 190; if (R < 110) R = 110; int s = R * 33 / 100;
+    int cx = rw_cx(), cy = rw_cy();
     if (my >= H - 66 && my < H - 26) {
-        if (mx >= cx - 170 && mx < cx - 20) { rw_ende(); return; }
-        if (mx >= cx + 20 && mx < cx + 170) { rw_n = 0; rw_code[0] = 0; rw_tint = 0; rw_runde = 0; rw_msg[0] = 0; rw_mischen(); rw_zeichne(); return; }
+        if (mx >= cx - 300 && mx < cx - 170) { rw_ende(); return; }
+        if (rw_zweck == 2 && rw_phase == 0) { if (mx >= cx + 170 && mx < cx + 300) rw_weiter(); return; }
+        if (mx >= cx + 170 && mx < cx + 300) { rw_n = 0; rw_code[0] = 0; rw_tint = 0; rw_runde = 0; rw_msg[0] = 0; rw_mischen(); rw_zeichne(); return; }
+        if (mx >= cx - 120 && mx < cx - 50) { rw_drehen(-1); return; }
+        if (mx >= cx + 50 && mx < cx + 120) { rw_drehen(1); return; }
+        return;
+    }
+    if (rw_zweck == 2 && rw_phase == 0) {
+        int s = 68, g = 22, cols = 6, x0 = cx - (cols * s + (cols - 1) * g) / 2, y0 = 110;
+        for (int i = 0; i < 12; i++) { int x = x0 + (i % cols) * (s + g), y = y0 + (i / cols) * (s + 38); if (mx >= x && mx < x + s && my >= y && my < y + s) { rw_mask ^= 1 << i; rw_msg[0] = 0; rw_zeichne(); return; } }
+        int y = y0 + 2 * (s + 38) + 14;
+        if (my >= y && my < y + 40) { if (mx >= cx + 60 && mx < cx + 110 && rw_len > 3) { rw_len--; rw_zeichne(); } else if (mx >= cx + 120 && mx < cx + 170 && rw_len < RW_MAXN) { rw_len++; rw_zeichne(); } return; }
+        if (mx >= cx - 260 && mx < cx + 300 && my >= y + 86 && my < y + 140) { rw_nurrad = !rw_nurrad; rw_msg[0] = 0; rw_zeichne(); }
+        return;
     }
     if ((mx - cx) * (mx - cx) + (my - cy) * (my - cy) < 70 * 70) { rw_tint = (rw_tint + 1) % 3; rw_zeichne(); return; }
-    for (int k = 0; k < 12; k++) { int d = -90 + k * 30 + rw_rot, x = cx + R * icos(d) / 1024, y = cy + R * isin(d) / 1024; if (mx >= x - s / 2 && mx < x + s / 2 && my >= y - s / 2 && my < y + s / 2) { rw_pick(rw_perm[k]); return; } }
+    int akt = rw_n / 3; if (akt >= rw_ringe()) akt = rw_ringe() - 1; int s = rw_ics(akt);
+    for (int k = 0; k < rw_m; k++) { int x, y; rw_pos(akt, k, &x, &y); if (mx >= x - s / 2 && mx < x + s / 2 && my >= y - s / 2 && my < y + s / 2) { rw_pick(rw_sym[rw_perm[akt][k]]); return; } }
 }
 static void lg_rad_start(void) {
     if (!fname[0]) { scopy(lg_info, TR("Erst den Benutzernamen eintippen.", "Type the user name first."), 80); zeichne_login(); return; }
@@ -3103,7 +3186,7 @@ static void zeichne_datei(void) {
 }
 
 static void taste_roh(uint8_t k, int shift, int altgr) {
-    if (rw_aktiv) { if (k == 0x29) rw_ende(); return; }
+    if (rw_aktiv) { rw_taste(k); return; }
     if (menu.offen) { if (k == 0x29) menu_schliessen(); return; }
     if (zustand != Z_LOGIN && k >= 0x3A && k <= 0x3D) { flaeche_wechsel(k - 0x3A); return; }
     if (zustand == Z_RECH) { rech_taste(k, shift, altgr); return; }
