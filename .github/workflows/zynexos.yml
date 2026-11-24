@@ -42,5 +42,7 @@ jobs:
         if: always() && hashFiles('zynexos-os.iso') != ''
         with:
           name: zynexos-iso
-          path: zynexos-os.iso
+          path: |
+            zynexos-os.iso
+            zynexos-os-sauber.iso
           compression-level: 0
