@@ -23,7 +23,14 @@ static void normal(const char* f, char* k, int max) {
 
 static const char* const STOP[] = { "wie", "was", "wer", "wo", "wann", "warum", "wieso", "weshalb", "welche", "welcher", "welches", "wieviel", "wieviele", "ist", "sind", "war", "waren", "wird", "hat", "haben", "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "von", "vom", "zu", "zum", "zur", "im", "in", "an", "am", "auf", "mit", "und", "oder", "bei", "er", "sie", "ihn", "ihm", "ihr", "dort", "ich", "du", "mir", "mich", "sag", "kannst", "bitte", "gibt", "es",
     "what", "who", "where", "when", "why", "how", "which", "is", "are", "was", "were", "the", "a", "an", "of", "to", "in", "on", "and", "or", "does", "do", "did", "from", "much", "many", "far", "me", "tell",
-    "quel", "quelle", "est", "le", "la", "les", "du", "des", "de", "un", "une", "et", "che", "il", "lo", "come", "qual", "el", "los", "las", "que", "es", "como", 0 };
+    "quel", "quelle", "est", "le", "la", "les", "du", "des", "de", "un", "une", "et", "che", "il", "lo", "come", "qual", "el", "los", "las", "que", "es", "como",
+    "der", "die", "das", "den", "dem", "ein", "eine", "einen", "von", "vom", "im", "am", "zum", "zur", "mit", "auf", "fuer", "bei", "nach", "aus", "um", "zu", "an", "weit", "entfernt", "entfernung", "gross", "viel", "viele",
+    "derzeit", "derzeitige", "derzeitiger", "aktuell", "aktuelle", "aktueller", "heute", "jetzt", "momentan", "current", "currently", "now", "today", "latest", 0 };
+static int zeitnah(const char* k) {                       /* "derzeitig", "aktuell", "heute" ... : Antwort veraendert sich, nicht dauerhaft lernen */
+    static const char* const Z[] = { "derzeit", "aktuell", "heute", "jetzt", "momentan", "current", "now ", "today", "latest", "neueste", 0 };
+    for (int i = 0; Z[i]; i++) { int m = slen(Z[i]); for (int p = 0; k[p]; p++) { int ok = 1; for (int j = 0; j < m; j++) if (k[p + j] != Z[i][j]) { ok = 0; break; } if (ok) return 1; } }
+    return 0;
+}
 static int ist_stop(const char* w, int n) { for (int i = 0; STOP[i]; i++) { int m = slen(STOP[i]); if (m == n) { int ok = 1; for (int j = 0; j < n; j++) if (w[j] != STOP[i][j]) { ok = 0; break; } if (ok) return 1; } } return 0; }
 
 /* Inhaltsworte der normalisierten Frage in w[][24] */
@@ -86,7 +93,7 @@ int wissen_satz(const char* text, const char* frage, char* out, int max) {
 }
 
 static void lerne_paar(const char* key, const char* ant) {
-    static char z[560]; z[0] = 0; kat(z, "F:", 560); kat(z, key, 560); kat(z, "\nA:", 560);
+    static char z[560]; z[0] = 0; kat(z, "Q:", 560); kat(z, key, 560); kat(z, "\nA:", 560);
     for (int i = 0; ant[i]; i++) { char c[2] = { ant[i] == '\n' ? ' ' : ant[i], 0 }; kat(z, c, 560); }
     kat(z, "\n", 560);
     for (int r = 0; r < 3; r++) zlk_lerne(z, -1);
@@ -113,10 +120,10 @@ int wissen_frage(const char* frage, const char* sprache, char* out, int max, int
     if (!wissen_ist_frage(frage)) return -3;
     char k[160]; normal(frage, k, sizeof(k)); char ks[160]; schluessel(frage, ks, sizeof(ks));
     /* 1. Lernkern fragen */
-    static char anf[200], ant[400], fz[200]; anf[0] = 0; kat(anf, "F:", 200); kat(anf, ks, 200); kat(anf, "\nA:", 200);
-    fz[0] = 0; kat(fz, "F:", 200); kat(fz, ks, 200); kat(fz, "\n", 200);
+    static char anf[200], ant[400], fz[200]; anf[0] = 0; kat(anf, "Q:", 200); kat(anf, ks, 200); kat(anf, "\nA:", 200);
+    fz[0] = 0; kat(fz, "Q:", 200); kat(fz, ks, 200); kat(fz, "\n", 200);
     int n = 0;
-    if (zlk_pruefe(fz) < 100) n = zlk_ergaenze(anf, ant, sizeof(ant), 0);           /* kennt der Lernkern diese Frage (unter 1 Bit je Zeichen)? */
+    if (!zeitnah(k) && zlk_pruefe(fz) < 100) n = zlk_ergaenze(anf, ant, sizeof(ant), 0);           /* kennt der Lernkern diese Frage (unter 1 Bit je Zeichen)? */
     if (n > 2 && zlk_sicherheit() < 60) { for (int i = 0; i <= n && i < max; i++) out[i] = ant[i]; out[max - 1] = 0; if (herkunft) *herkunft = WISSEN_ENGINE; return slen(out); }
     /* 2. Im Internet nachschlagen */
     if (!net_up()) return -1;
@@ -125,15 +132,21 @@ int wissen_frage(const char* frage, const char* sprache, char* out, int max, int
     for (int i = 0; i < nw; i++) { if (i) kat(rohsuche, " ", 160); kat(rohsuche, w[i], 160); }
     urlkodiert(rohsuche, suche, sizeof(suche));
     url[0] = 0; kat(url, "https://", 520); kat(url, sprache && sprache[0] ? sprache : "de", 520);
-    kat(url, ".wikipedia.org/w/api.php?action=query&generator=search&gsrlimit=1&prop=extracts&exintro=1&explaintext=1&format=json&gsrsearch=", 520); kat(url, suche, 520);
+    kat(url, ".wikipedia.org/w/api.php?action=query&generator=search&gsrlimit=4&prop=extracts&exintro=1&exlimit=4&explaintext=1&format=json&gsrsearch=", 520); kat(url, suche, 520);
     const char *kopf, *body; uint32_t kl, bl, st;
     if (net_seite(url, &kopf, &kl, &body, &bl, &st) != 0 || st != 200) return -1;
-    static char extrakt[3000];
-    int el = ext_json_text(body, bl, "extract", extrakt, sizeof(extrakt));
-    if (el <= 0) return -2;
-    static char satz[340];
-    if (wissen_satz(extrakt, frage, satz, sizeof(satz)) <= 0) return -2;
-    lerne_paar(ks, satz);
+    static char extrakt[3000], satz[340], beste[340]; beste[0] = 0; int bs = 0;
+    for (uint32_t pos = 0; pos + 12 < bl; pos++) {                          /* alle Treffer (bis 4) durchsehen, besten Satz waehlen */
+        if (!(body[pos] == '"' && body[pos + 1] == 'e' && body[pos + 2] == 'x' && body[pos + 3] == 't' && body[pos + 4] == 'r' && body[pos + 5] == 'a' && body[pos + 6] == 'c' && body[pos + 7] == 't' && body[pos + 8] == '"')) continue;
+        int el = ext_json_text(body + pos, bl - pos, "extract", extrakt, sizeof(extrakt)); if (el <= 0) continue;
+        int sc = wissen_satz(extrakt, frage, satz, sizeof(satz));
+        if (sc > bs) { bs = sc; for (int i = 0; satz[i] || i == 0; i++) { beste[i] = satz[i]; if (!satz[i]) break; } }
+        pos += 9;
+    }
+    /* Nur antworten, wenn der Satz die Frage wirklich trifft: mindestens 2 Inhaltsworte und rund 60 % davon (bei einem Wort: dieses) */
+    if (bs <= 0 || (nw >= 2 && bs < 2) || bs * 100 < nw * 60) return -2;
+    for (int i = 0; ; i++) { satz[i] = beste[i]; if (!beste[i]) break; }
+    if (!zeitnah(k)) lerne_paar(ks, satz);
     int sl = slen(satz); if (sl > max - 1) sl = max - 1;
     for (int i = 0; i < sl; i++) out[i] = satz[i];
     out[sl] = 0; if (herkunft) *herkunft = WISSEN_WEB; return sl;
