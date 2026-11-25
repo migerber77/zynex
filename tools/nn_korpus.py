@@ -43,11 +43,26 @@ def buch(url):
         p = " ".join(p.split())
         if len(p) > 60: out.append(p)
     return out
+import re
+def klein(t):                                                        # wie normal() im Kern: Kleinbuchstaben, Satzzeichen weg
+    return " ".join(re.sub(r"[^0-9a-z\u0080-\uffff]+", " ", t.lower()).split())
+def frage_antwort(titel, ex):
+    """Frage-Antwort-Zeilen im Format des Lernkerns (K:<frage> / A:<antwort>), damit das Netz dieses Muster kennt."""
+    m = re.match(r"(.{30,260}?[.!?])(\s|$)", ex)
+    if not titel or not m or len(titel) > 50: return []
+    satz = m.group(1)
+    return ["K:" + w + " " + klein(titel) + "\nA:" + satz for w in random.sample(["was ist", "wer ist", "was bedeutet", "erkläre", "was ist ein"], 2)]
 def wiki(lang):
     u = f"https://{lang}.wikipedia.org/w/api.php?action=query&generator=random&grnnamespace=0&grnlimit=20&prop=extracts&exintro=1&explaintext=1&exlimit=20&format=json"
     try: d = json.loads(get(u) or b"{}")
     except Exception: return []
-    return [" ".join(p["extract"].split()) for p in d.get("query", {}).get("pages", {}).values() if len(p.get("extract", "")) > 80]
+    out = []
+    for p in d.get("query", {}).get("pages", {}).values():
+        ex = " ".join(p.get("extract", "").split())
+        if len(ex) <= 80: continue
+        out.append(ex)
+        if lang == "de": out.extend(frage_antwort(p.get("title", ""), ex))
+    return out
 n_wiki = int(sys.argv[2]) if len(sys.argv) > 2 else 400
 with cf.ThreadPoolExecutor(6) as ex:
     for ps in ex.map(buch, list(buecher())[:14]): docs += ps
