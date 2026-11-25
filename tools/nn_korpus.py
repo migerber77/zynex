@@ -29,6 +29,14 @@ def buecher(seiten=1):
         if url not in gesehen: gesehen.add(url); yield url
 def buch(url):
     t = get(url, 120).decode("utf-8", "replace")
+    if not t:                                                        # gutenberg.org lehnt Cloud-Rechner manchmal ab (503): Spiegel probieren
+        import re as _re
+        m = _re.search(r"/epub/(\d+)/pg\d+\.txt", url)
+        if m:
+            i = m.group(1)
+            for alt in (f"https://gutenberg.pglaf.org/cache/epub/{i}/pg{i}.txt", f"https://www.gutenberg.org/files/{i}/{i}-0.txt", f"https://www.gutenberg.org/ebooks/{i}.txt.utf-8"):
+                t = get(alt, 120).decode("utf-8", "replace")
+                if t: break
     a = t.find("*** START"); a = t.find("\n", a) + 1 if a >= 0 else 0; e = t.find("*** END"); e = e if e > a else len(t)
     t = t[a:e]; out = []
     for p in t.replace("\r", "").split("\n\n"):                       # Absaetze zu Zeilen
@@ -44,7 +52,7 @@ n_wiki = int(sys.argv[2]) if len(sys.argv) > 2 else 400
 with cf.ThreadPoolExecutor(6) as ex:
     for ps in ex.map(buch, list(buecher())[:14]): docs += ps
 print("Buchabsaetze:", len(docs), flush=True)
-t_ende = time.time() + 25 * 60                                          # Wikipedia hoechstens 25 Minuten lang
+t_ende = time.time() + 40 * 60                                          # Wikipedia hoechstens 40 Minuten lang
 for i, l in enumerate(["de"] * (n_wiki * 3 // 4) + ["en"] * (n_wiki // 4)):   # Wikipedia bittet um sequentielle Abrufe
     if time.time() > t_ende: print("Wikipedia-Zeitlimit erreicht nach", i, "Abrufen"); break
     docs += wiki(l); time.sleep(1.0)
