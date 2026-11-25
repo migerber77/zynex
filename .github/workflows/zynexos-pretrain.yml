@@ -8,10 +8,10 @@ on:
         default: "60"
       lr0:
         description: "Lernrate am Anfang (Tausendstel)"
-        default: "15"
+        default: "4"
       lr1:
         description: "Lernrate am Ende (Tausendstel)"
-        default: "2"
+        default: "1"
       wiki:
         description: "Anzahl Wikipedia-Abrufe (je 20 Artikel)"
         default: "700"
@@ -30,11 +30,24 @@ jobs:
       - name: Trainer bauen
         run: gcc -O3 -march=native -ffast-math -DNN_OHNE_START=1 -Wa,-Izynexos -Izynexos/include -o /tmp/pre tools/nn_pretrain.c zynexos/kernel/nn.c -lm
       - name: Trainieren
-        run: /tmp/pre /tmp/korpus.txt /tmp/nn_start.bin $(( ${{ inputs.minuten }} * 60 )) ${{ inputs.lr0 }} ${{ inputs.lr1 }} | tee /tmp/train.log | grep -E "Korpus|Durchgang|geschrieben"
+        run: /tmp/pre /tmp/korpus.txt /tmp/nn_start.bin $(( ${{ inputs.minuten }} * 60 )) ${{ inputs.lr0 }} ${{ inputs.lr1 }} | tee /tmp/train.log | grep -E "Korpus|Durchgang|Bestes|geschrieben"
+      - name: Modell als Artefakt sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nn-start-modell
+          path: |
+            /tmp/nn_start.bin
+            /tmp/train.log
+          if-no-files-found: warn
       - name: Startmodell einchecken
         run: |
           cp /tmp/nn_start.bin zynexos/kernel/nn_start.bin
           git config user.name "zynex-bot"; git config user.email "bot@zynex.invalid"
           git add zynexos/kernel/nn_start.bin
-          git commit -m "Startmodell fuer das Netz vortrainiert ($(grep Durchgang /tmp/train.log | tail -1))" || exit 0
-          git pull -q --rebase && git push -q origin HEAD:main
+          git commit -m "Startmodell fuer das Netz vortrainiert ($(grep 'Bestes Modell' /tmp/train.log | tail -1))" || exit 0
+          for i in 1 2 3 4 5; do
+            git pull -q --rebase origin "$GITHUB_REF_NAME" && git push -q origin "HEAD:$GITHUB_REF_NAME" && exit 0
+            sleep 5
+          done
+          echo "Push fehlgeschlagen - das Modell liegt als Artefakt nn-start-modell vor"; exit 1
