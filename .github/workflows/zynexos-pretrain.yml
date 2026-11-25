@@ -12,6 +12,9 @@ on:
       lr1:
         description: "Lernrate am Ende (Tausendstel)"
         default: "1"
+      weiter:
+        description: "1 = vom eingecheckten Startmodell weitertrainieren, 0 = von vorn"
+        default: "0"
       wiki:
         description: "Anzahl Wikipedia-Abrufe (je 20 Artikel)"
         default: "700"
@@ -28,7 +31,7 @@ jobs:
           timeout 2100 python3 -u tools/nn_korpus.py /tmp/korpus.txt "${{ inputs.wiki }}" || echo "Korpus-Zeitlimit, nehme den Zwischenstand"
           test $(stat -c %s /tmp/korpus.txt) -gt 1500000 || { echo "Korpus zu klein (unter 1,5 MB), Abbruch"; exit 1; }
       - name: Trainer bauen
-        run: gcc -O3 -march=native -ffast-math -DNN_OHNE_START=1 -Wa,-Izynexos -Izynexos/include -o /tmp/pre tools/nn_pretrain.c zynexos/kernel/nn.c -lm
+        run: gcc -O3 -march=native -ffast-math -DNN_OHNE_START=${{ inputs.weiter == '1' && '0' || '1' }} -Wa,-Izynexos -Izynexos/include -o /tmp/pre tools/nn_pretrain.c zynexos/kernel/nn.c -lm
       - name: Trainieren
         run: /tmp/pre /tmp/korpus.txt /tmp/nn_start.bin $(( ${{ inputs.minuten }} * 60 )) ${{ inputs.lr0 }} ${{ inputs.lr1 }} | tee /tmp/train.log | grep -E "Korpus|Durchgang|Bestes|geschrieben"
       - name: Modell als Artefakt sichern
