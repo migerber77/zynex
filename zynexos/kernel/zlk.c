@@ -239,10 +239,11 @@ int zlk_zyki_einlesen(const uint8_t* in, int len, int zusammenfuehren) {
         }
     }
     if (!zusammenfuehren) zlk_init();
-    if (hat_netz) nn_training(0);                                                         /* Gewichte kommen aus der Datei: nicht noch einmal trainieren */
+    int netz_abschnitt = in[4] == 2 && !zusammenfuehren && len >= o + 8;                   /* Datei enthaelt ein Netz, evtl. anderer Groesse (aelteres Modell) */
+    if (hat_netz || netz_abschnitt) nn_training(0);                                      /* Gewichte kommen aus der Datei bzw. vom Startmodell: das Protokoll nicht noch einmal durchtrainieren (Minuten Wartezeit) */
     zlk_lerne((const char*)in + 16, (int)l);
+    if (hat_netz || netz_abschnitt) nn_training(1);
     if (hat_netz) {
-        nn_training(1);
         for (int i = 0; i < NN_PARAMS; i++) nnbuf[i] = (int16_t)((uint16_t)in[o + 4 + 2 * i] | ((uint16_t)in[o + 4 + 2 * i + 1] << 8));
         nn_importieren(nnbuf, NN_PARAMS); nn_vorbereiten(hist, hist2);
     }
